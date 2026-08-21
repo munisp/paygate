@@ -2848,14 +2848,25 @@ export async function createCashbackTransaction(
       .onConflictDoNothing();
     const isEarn = type === "purchase" || type === "earn" || type === "credit";
     const delta = isEarn ? Math.abs(amountKobo) : -Math.abs(amountKobo);
-    await tx.execute(sql`
+    // Guarded relative update: debits additionally require sufficient balance,
+    // so a redeem can never drive the cashback balance negative. RETURNING
+    // makes a violated guard fail loud instead of silently writing the txn row.
+    const updated = await tx.execute(sql`
       UPDATE cashback_balances
       SET cashback_balance_kobo = cashback_balance_kobo + ${delta},
           total_earned_kobo = total_earned_kobo + ${isEarn ? Math.abs(amountKobo) : 0},
           total_redeemed_kobo = total_redeemed_kobo + ${isEarn ? 0 : Math.abs(amountKobo)},
           updated_at = now()
       WHERE merchant_id = ${mid}
+        AND (${isEarn} OR cashback_balance_kobo >= ${Math.abs(amountKobo)})
+      RETURNING merchant_id
     `);
+    const updatedRows = ((updated as any)?.rows ?? updated ?? []) as any[];
+    if (updatedRows.length === 0) {
+      throw new Error(
+        `Cashback debit refused for merchant ${mid}: insufficient balance for ${Math.abs(amountKobo)} kobo`,
+      );
+    }
     const rows = await tx
       .insert(cashbackTransactions)
       .values({ merchantId: mid, type, amountKobo, status: "completed" } as any)
@@ -3064,24 +3075,52 @@ export async function getReports(merchantId: string | number) {
 
 // ─── International Remittance ─────────────────────────────────────────────────
 
+/**
+ * Create an international remittance record.
+ *
+ * UNITS: `sendAmountCents` is in **USD cents** — the column it feeds is
+ * `send_amount_usd` (USD major units, 2dp). Callers holding NGN kobo MUST do
+ * an explicit NGN→USD conversion first; passing kobo here previously wrote
+ * `kobo/100` (i.e. a naira figure) into a USD column — a unit/currency bug.
+ * `receiveAmountMinor` is in the minor unit of `receiveCurrency` and is
+ * converted with the caller-supplied `exchangeRate` (receive per 1 USD).
+ */
 export async function createRemittance(
   merchantId: string | number,
-  sendAmountKobo: number,
+  sendAmountCents: number,
   destinationCountry: string,
   receiveCurrency: string,
   recipientName: string,
   recipientAccount: string,
+  settlement: {
+    corridorId: string;
+    exchangeRate: number;     // receive-currency units per 1 USD
+    feeCents?: number;        // USD cents
+    recipientBankCode: string;
+  },
 ) {
+  if (!Number.isFinite(sendAmountCents) || sendAmountCents <= 0) {
+    throw new Error("createRemittance: sendAmountCents must be a positive number of USD cents");
+  }
+  if (!Number.isFinite(settlement.exchangeRate) || settlement.exchangeRate <= 0) {
+    throw new Error("createRemittance: a positive exchangeRate is required — refusing to fabricate a receive amount");
+  }
+  const sendUSD = sendAmountCents / 100;
+  const receiveMajor = sendUSD * settlement.exchangeRate;
   const database = requireDbSync();
   const rows = await database
     .insert(intlRemittanceTransfers)
     .values({
       merchantId: String(merchantId),
-      sendAmountUSD: (sendAmountKobo / 100).toFixed(2),
-      receiveAmount: "0",
+      corridorId: settlement.corridorId,
+      sendAmountUSD: sendUSD.toFixed(2),
+      receiveAmount: receiveMajor.toFixed(2),
       receiveCurrency,
+      exchangeRate: String(settlement.exchangeRate),
+      feeUSD: ((settlement.feeCents ?? 0) / 100).toFixed(2),
       recipientName,
       recipientAccountNumber: recipientAccount,
+      recipientBankCode: settlement.recipientBankCode,
       recipientCountry: destinationCountry,
       trackingNumber: `rem_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
       status: "pending",

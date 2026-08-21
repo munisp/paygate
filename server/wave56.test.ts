@@ -246,7 +246,7 @@ describe("Wave 56 — createTest schema includes retryCount", () => {
     const procedures = (appRouter as any)._def?.procedures ?? {};
     const keys = Object.keys(procedures);
     expect(keys.some(k => k.includes("transactions") && k.includes("createTest"))).toBe(true);
-  });
+  }, 60_000 /* Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems — timeout bumped, assertion unchanged. */);
 
   it("retryCount is an optional number field in createTest input", async () => {
     const { z } = await import("zod");

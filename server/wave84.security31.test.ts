@@ -56,6 +56,9 @@ const { Pool } = pg;
 let pool: pg.Pool;
 
 beforeAll(async () => {
+  // security31 now fails closed when no signing secret is configured; provide a
+  // test-only secret so token creation/validation can be exercised.
+  process.env.USSD_SESSION_SECRET ??= "test-only-ussd-session-secret";
   pool = new Pool({
     connectionString: process.env.PG_DATABASE_URL ||
       "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",

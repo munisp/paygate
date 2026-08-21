@@ -10,6 +10,7 @@ const { Pool } = pg;
 const pool = new Pool(
   process.env.PG_DATABASE_URL || process.env.DATABASE_URL
     ? { connectionString: process.env.PG_DATABASE_URL || process.env.DATABASE_URL }
+    // Fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
     : {
         host: "localhost",
         port: 5432,

@@ -9,6 +9,7 @@ import { randomUUID } from "crypto";
 
 const { Pool } = pg;
 
+// Fallbacks below target the LOCAL embedded dev DB (127.0.0.1) only — safe for dev/test seeds.
 function resolveDbUrl() {
   const url = process.env.DATABASE_URL;
   if (!url) return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";

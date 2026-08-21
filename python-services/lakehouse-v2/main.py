@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -290,6 +291,105 @@ def _get_dataset_stats(name: str, info: Dict) -> Dict[str, Any]:
             "s3Path": info["path"],
         }
 
+# ─── SQL allowlist validation (replaces bypassable keyword blocklist) ────────
+# The previous blocklist only rejected DDL/DML keywords at statement start or
+# after a newline — bypassable via stacked statements ("; DROP ..."), comments,
+# SELECT ... INTO, COPY, ATTACH, PRAGMA and file-reading table functions.
+# The allowlist below permits exactly ONE read-only SELECT (or WITH...SELECT)
+# statement whose FROM/JOIN targets are registered lakehouse datasets only.
+
+# DDL/DML/statement keywords that must never appear as standalone words.
+# (Word boundaries avoid false positives on columns like created_at/updated_at.)
+_FORBIDDEN_SQL_WORDS = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|GRANT|REVOKE|INTO|"
+    r"COPY|ATTACH|DETACH|PRAGMA|INSTALL|LOAD|VACUUM|CHECKPOINT|CALL|EXEC|EXECUTE|"
+    r"BEGIN|COMMIT|ROLLBACK|IMPORT|EXPORT|MERGE|SET|USE)\b",
+    re.IGNORECASE,
+)
+# Table functions that can read arbitrary files/URLs/credentials must not be
+# callable from user SQL (the service rewrites dataset names to these AFTER
+# validation, so they never need to appear in user input).
+_FORBIDDEN_SQL_FUNCS = re.compile(
+    r"\b(read_csv|read_csv_auto|read_json|read_json_auto|read_text|read_blob|"
+    r"read_parquet|parquet_scan|parquet_schema|parquet_metadata|"
+    r"parquet_file_metadata|csv_scan|json_scan|iceberg_scan|iceberg_metadata|"
+    r"delta_scan|sqlite_scan|sqlite_attach|postgres_scan|postgres_attach|"
+    r"mysql_scan|mysql_attach|glob|query|query_table|which_secret|"
+    r"load_extension|install_extension)\b",
+    re.IGNORECASE,
+)
+
+def _allowed_table_identifiers() -> set:
+    allowed = set(DATASET_REGISTRY.keys())
+    for info in DATASET_REGISTRY.values():
+        pg_table = info.get("pg_table")
+        if pg_table:
+            allowed.add(f"pg.{pg_table}")
+    return allowed
+
+def _validate_readonly_select(sql: str) -> str:
+    """
+    Allowlist validation for the /v2/query endpoint.
+    Permits exactly one read-only SELECT (or WITH...SELECT) statement that only
+    references registered lakehouse datasets. Returns the normalized SQL.
+    Raises HTTPException(400) on any violation.
+    """
+    cleaned = sql.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="SQL query cannot be empty")
+    # At most one trailing semicolon; no stacked statements.
+    if cleaned.endswith(";"):
+        cleaned = cleaned[:-1].strip()
+    if ";" in cleaned:
+        raise HTTPException(status_code=400, detail="Multiple SQL statements are not allowed")
+    # No comments — prevents keyword smuggling via -- or /* */ tricks.
+    if "--" in cleaned or "/*" in cleaned:
+        raise HTTPException(status_code=400, detail="SQL comments are not allowed")
+    if not re.match(r"^(SELECT|WITH)\b", cleaned, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Only read-only SELECT queries are allowed")
+    m = _FORBIDDEN_SQL_WORDS.search(cleaned)
+    if m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Keyword not allowed in read-only query: {m.group(0).upper()}",
+        )
+    m = _FORBIDDEN_SQL_FUNCS.search(cleaned)
+    if m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Table function not allowed in user queries: {m.group(0)}",
+        )
+    # Identifier allowlist: every FROM/JOIN target must be a registered dataset,
+    # a registered pg.<table> reference, a locally-defined CTE, or a subquery.
+    cte_names = {
+        m.group(1).lower()
+        for m in re.finditer(r"(\w+)\s+AS\s*\(", cleaned, re.IGNORECASE)
+    }
+    allowed = {t.lower() for t in _allowed_table_identifiers()} | cte_names
+    for m in re.finditer(r"\b(?:FROM|JOIN)\s+(\(|[\w.]+)", cleaned, re.IGNORECASE):
+        ref = m.group(1)
+        if ref == "(":
+            continue
+        if ref.lower() not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Table '{ref}' is not an allowed lakehouse dataset",
+            )
+    return cleaned
+
+# Merchant IDs flow into SQL text and S3 object keys — restrict to a safe
+# identifier charset (blocks SQL quote-breakout and S3 key path traversal).
+_MERCHANT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+def _validate_merchant_id(merchant_id: str, *, required: bool = True) -> str:
+    if not merchant_id:
+        if required:
+            raise HTTPException(status_code=400, detail="merchantId is required")
+        return merchant_id
+    if not _MERCHANT_ID_RE.match(merchant_id):
+        raise HTTPException(status_code=400, detail="merchantId contains invalid characters")
+    return merchant_id
+
 # ─── Query execution ──────────────────────────────────────────────────────────
 
 def _resolve_table_refs(sql: str) -> str:
@@ -426,15 +526,21 @@ def _run_export_job(job_id: str, merchant_id: str, dataset_name: str, fmt: str):
         pg_table = info.get("pg_table")
         source = f"pg.{pg_table}" if pg_table else f"read_parquet('{info['path']}*.parquet')"
 
+        # Defense in depth: merchant_id was validated at the endpoint AND is
+        # bound as a parameter — never interpolated into SQL text.
+        if not _MERCHANT_ID_RE.match(merchant_id):
+            raise ValueError("merchant_id failed identifier validation")
+
         s3_key = f"exports/{merchant_id}/{dataset_name}/{job_id}.{fmt}"
         s3_path = f"s3://{S3_BUCKET}/{s3_key}"
 
+        select_sql = f"SELECT * FROM {source} WHERE merchant_id = ? LIMIT 1000000"
         if fmt == "csv":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT CSV, HEADER)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT CSV, HEADER)", [merchant_id])
         elif fmt == "parquet":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)", [merchant_id])
         elif fmt == "json":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT JSON)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT JSON)", [merchant_id])
 
         download_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{s3_key}"
 
@@ -556,15 +662,9 @@ def list_datasets(merchantId: str = QParam(default="")):
 @app.post("/v2/query")
 def execute_query(req: QueryRequest):
     """Execute a SQL query against the lakehouse."""
-    if not req.sql.strip():
-        raise HTTPException(status_code=400, detail="SQL query cannot be empty")
-    # Basic SQL injection guard — block DDL and DML in query endpoint
-    sql_upper = req.sql.strip().upper()
-    forbidden = ("DROP ", "TRUNCATE ", "DELETE ", "INSERT ", "UPDATE ", "CREATE ", "ALTER ", "GRANT ", "REVOKE ")
-    for kw in forbidden:
-        if sql_upper.startswith(kw) or f"\n{kw}" in sql_upper:
-            raise HTTPException(status_code=400, detail=f"DDL/DML not allowed in query endpoint: {kw.strip()}")
-    return _execute_query(req.sql, req.parameters, req.maxRows, req.merchantId)
+    # Allowlist guard: exactly one read-only SELECT over registered datasets.
+    validated_sql = _validate_readonly_select(req.sql)
+    return _execute_query(validated_sql, req.parameters, req.maxRows, req.merchantId)
 
 @app.get("/v2/sample")
 def sample_dataset(
@@ -587,6 +687,8 @@ def sample_dataset(
 def create_export(req: ExportRequest):
     """Kick off an async export job for a dataset."""
     import sqlalchemy as sa
+    # merchantId flows into SQL and S3 keys — enforce safe identifier charset.
+    _validate_merchant_id(req.merchantId, required=True)
     info = DATASET_REGISTRY.get(req.datasetName)
     if not info:
         raise HTTPException(status_code=404, detail=f"Dataset '{req.datasetName}' not found")
@@ -757,6 +859,8 @@ def ingest_records(req: IngestRequest):
         raise HTTPException(status_code=404, detail=f"Dataset '{req.dataset}' not found")
     if not req.records:
         raise HTTPException(status_code=400, detail="No records provided")
+    # merchantId is embedded in the S3 key / COPY TO path — validate charset.
+    _validate_merchant_id(req.merchantId, required=False)
 
     try:
         import pyarrow as pa

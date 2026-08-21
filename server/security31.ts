@@ -23,21 +23,34 @@ export interface UssdSessionToken {
   hmac: string;
 }
 
-const USSD_SESSION_SECRET = process.env.JWT_SECRET ?? "paygate-ussd-secret-key-2024";
+// VULN-041 hardening: fail closed. No compiled-in fallback secret — if the
+// signing secret is not configured, session token creation/validation throws
+// at request time (surfaced as 5xx) instead of silently using a known key.
+function getUssdSessionSecret(): string {
+  const secret = process.env.USSD_SESSION_SECRET ?? process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "USSD session signing secret is not configured (set USSD_SESSION_SECRET or JWT_SECRET)"
+    );
+  }
+  return secret;
+}
 
 export function createUssdSessionToken(sessionId: string, phoneNumber: string, serviceCode: string): UssdSessionToken {
   const createdAt = Date.now();
   const expiresAt = createdAt + 3 * 60 * 1000; // 3 minutes (USSD standard)
   const payload = `${sessionId}:${phoneNumber}:${serviceCode}:${createdAt}:${expiresAt}`;
-  const hmac = crypto.createHmac("sha256", USSD_SESSION_SECRET).update(payload).digest("hex");
+  const hmac = crypto.createHmac("sha256", getUssdSessionSecret()).update(payload).digest("hex");
   return { sessionId, phoneNumber, serviceCode, createdAt, expiresAt, hmac };
 }
 
 export function validateUssdSessionToken(token: UssdSessionToken): { valid: boolean; reason?: string } {
   if (Date.now() > token.expiresAt) return { valid: false, reason: "Session expired" };
   const payload = `${token.sessionId}:${token.phoneNumber}:${token.serviceCode}:${token.createdAt}:${token.expiresAt}`;
-  const expected = crypto.createHmac("sha256", USSD_SESSION_SECRET).update(payload).digest("hex");
-  if (!crypto.timingSafeEqual(Buffer.from(token.hmac, "hex"), Buffer.from(expected, "hex"))) {
+  const expected = crypto.createHmac("sha256", getUssdSessionSecret()).update(payload).digest("hex");
+  const received = Buffer.from(token.hmac, "hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  if (received.length !== expectedBuf.length || !crypto.timingSafeEqual(received, expectedBuf)) {
     return { valid: false, reason: "Invalid session token" };
   }
   return { valid: true };

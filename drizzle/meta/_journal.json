@@ -596,6 +596,20 @@
       "when": 1786836416217,
       "tag": "0084_missing_feature_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1786900000000,
+      "tag": "0085_missing_prod_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1786900100000,
+      "tag": "0086_sip_and_subscription_tables",
+      "breakpoints": true
     }
   ]
 }

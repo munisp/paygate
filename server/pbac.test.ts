@@ -162,9 +162,15 @@ describe("verifyWebhookSignature — NIBSS HMAC-SHA256", () => {
     expect(verifyWebhookSignature(strPayload, sig, secret)).toBe(true);
   });
 
-  it("fails open (returns true) when secret is not configured", () => {
-    // Dev mode: no secret configured → fail open
-    expect(verifyWebhookSignature(payload, "any-sig", "")).toBe(true);
+  it("fails closed (returns false) when secret is not configured", () => {
+    // No secret configured → reject; never permit unsigned webhooks.
+    expect(verifyWebhookSignature(payload, "any-sig", "")).toBe(false);
+  });
+
+  it("rejects truncated signatures (no zero-padding to match length)", () => {
+    const sig = computeHmac(payload, secret);
+    const truncated = sig.slice(0, 32); // first half of the valid hex digest
+    expect(verifyWebhookSignature(payload, truncated, secret)).toBe(false);
   });
 });
 

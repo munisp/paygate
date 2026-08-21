@@ -35,6 +35,9 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<"card" | "bank_transfer" | "ussd" | "bnpl" | "usdc">("card");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<{ orderNumber: string; orderId: string } | null>(null);
+  // Non-card payments are confirmed by the provider webhook, not the client —
+  // track the session and poll its status instead of calling confirmPayment.
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 
   const [shipping, setShipping] = useState({
     name: "", phone: "", email: "", line1: "", line2: "",
@@ -48,6 +51,25 @@ export default function CheckoutPage() {
 
   const createSessionMutation = trpc.ecommerce.checkout.createSession.useMutation();
   const confirmPaymentMutation = trpc.ecommerce.checkout.confirmPayment.useMutation();
+
+  // Poll the checkout session while awaiting provider (webhook) confirmation.
+  const sessionStatusQuery = trpc.ecommerce.checkout.getStatus.useQuery(
+    { sessionId: pendingSessionId ?? "" },
+    { enabled: !!pendingSessionId && !completedOrder, refetchInterval: 4000, staleTime: 0 },
+  );
+
+  useEffect(() => {
+    if (!pendingSessionId || completedOrder) return;
+    const status = sessionStatusQuery.data?.status;
+    if (status === "completed") {
+      localStorage.removeItem("paygate_cart_id");
+      setCompletedOrder({ orderNumber: pendingSessionId, orderId: "" });
+      toast.success("Payment confirmed — order placed!");
+    } else if (status === "expired" || status === "failed" || status === "cancelled") {
+      setPendingSessionId(null);
+      toast.error(`Payment ${status} — please try again`);
+    }
+  }, [sessionStatusQuery.data, pendingSessionId, completedOrder]);
 
   const cart = cartData?.cart;
   const items = cartData?.items ?? [];
@@ -86,20 +108,54 @@ export default function CheckoutPage() {
         shippingPostalCode: shipping.postalCode || undefined,
       });
 
-      // For card payments, in production Stripe.js would confirm the PaymentIntent here.
-      // For other methods (bank transfer, USSD), the payment is confirmed via webhook.
-      // We simulate confirmation for demo purposes.
-      const result = await confirmPaymentMutation.mutateAsync({ sessionId: session.id });
-
-      localStorage.removeItem("paygate_cart_id");
-      setCompletedOrder({ orderNumber: result.orderNumber, orderId: result.order.id });
-      toast.success("Order placed successfully!");
+      if (paymentMethod === "card") {
+        // Card: confirm via Stripe PaymentIntent verification.
+        const result = await confirmPaymentMutation.mutateAsync({ sessionId: session.id });
+        localStorage.removeItem("paygate_cart_id");
+        setCompletedOrder({ orderNumber: result.orderNumber, orderId: result.order.id });
+        toast.success("Order placed successfully!");
+      } else {
+        // Non-card (bank transfer, USSD, BNPL, USDC): the server rejects
+        // client-side confirmation (PRECONDITION_FAILED) — the payment
+        // provider's signed webhook confirms it. Show a pending state and
+        // poll the session status instead of calling confirmPayment.
+        setPendingSessionId(session.id);
+        toast.info("Awaiting provider confirmation — complete the payment with your provider.");
+      }
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to place order");
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (pendingSessionId && !completedOrder) {
+    return (
+      <div className="p-6 max-w-lg mx-auto">
+        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+            <Loader2 className="w-8 h-8 text-amber-600 animate-spin" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Awaiting Provider Confirmation</h2>
+          <p className="text-muted-foreground mb-1">
+            Complete the payment with your {PAYMENT_METHODS.find(m => m.id === paymentMethod)?.label ?? "payment"} provider.
+          </p>
+          <p className="text-sm text-muted-foreground mb-6">
+            This page will update automatically once the provider confirms your payment.
+          </p>
+          <p className="text-xs font-mono text-muted-foreground mb-6">Session: {pendingSessionId}</p>
+          <div className="flex gap-3 justify-center">
+            <Button variant="outline" onClick={() => { setPendingSessionId(null); setIsSubmitting(false); }}>
+              Cancel
+            </Button>
+            <Button variant="ghost" onClick={() => sessionStatusQuery.refetch()}>
+              Check Status
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (completedOrder) {
     return (
@@ -115,9 +171,11 @@ export default function CheckoutPage() {
             <Button variant="outline" onClick={() => navigate("/storefront")}>
               Continue Shopping
             </Button>
-            <Button onClick={() => navigate(`/orders/${completedOrder.orderId}`)}>
-              Track Order
-            </Button>
+            {completedOrder.orderId && (
+              <Button onClick={() => navigate(`/orders/${completedOrder.orderId}`)}>
+                Track Order
+              </Button>
+            )}
           </div>
         </div>
       </div>

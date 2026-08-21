@@ -12,9 +12,44 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb } from "../db";
-import { auditEvents, merchants } from "../../drizzle/schema";
+import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
+import { auditEvents, merchants, users } from "../../drizzle/schema";
 import { eq, gte, like, count, desc, and, sql } from "drizzle-orm";
+
+// ─── Tenant scoping helpers ───────────────────────────────────────────────────
+// Audit-event reads must never cross tenants: non-admin callers are always
+// scoped to their own merchant (resolved server-side from the authenticated
+// user, never from client input). Platform admins may pass any merchantId, or
+// omit it for a platform-wide view.
+
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account for this user" });
+  return merchant.id;
+}
+
+/** Admin role re-checked from the DB (same pattern as server/adminRouter.ts). */
+async function isPlatformAdmin(openId: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [u] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
+  return u?.role === "admin";
+}
+
+/**
+ * Returns the merchant scope for an audit query:
+ *  - platform admin → the requested merchantId, or undefined (platform-wide)
+ *  - everyone else  → their own merchant, resolved server-side
+ */
+async function scopeMerchantId(openId: string, requested?: string): Promise<string | undefined> {
+  if (await isPlatformAdmin(openId)) return requested;
+  return resolveMerchantId(openId);
+}
 
 // ─── Vulnerability scoring weights ───────────────────────────────────────────
 const THREAT_WEIGHTS = {
@@ -64,12 +99,13 @@ export const wave160Router = router({
         recommendations: [],
       };
 
+      const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
       const since = new Date(Date.now() - input.days * 86_400_000);
       const conditions: any[] = [
         gte(auditEvents.createdAt, since),
         like(auditEvents.action, "waf.%"),
       ];
-      if (input.merchantId) conditions.push(eq(auditEvents.merchantId, input.merchantId));
+      if (merchantId) conditions.push(eq(auditEvents.merchantId, merchantId));
 
       const rows = await db.select({
         action: auditEvents.action,
@@ -163,13 +199,14 @@ export const wave160Router = router({
       merchantId: z.string().optional(),
       days: z.number().int().min(1).max(365).default(7),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return { surface: [], totalExposure: 0 };
 
+      const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
       const since = new Date(Date.now() - input.days * 86_400_000);
       const conditions: any[] = [gte(auditEvents.createdAt, since)];
-      if (input.merchantId) conditions.push(eq(auditEvents.merchantId, input.merchantId));
+      if (merchantId) conditions.push(eq(auditEvents.merchantId, merchantId));
 
       const rows = await db.select({
         action: auditEvents.action,
@@ -197,16 +234,17 @@ export const wave160Router = router({
       merchantId: z.string().optional(),
       days: z.number().int().min(1).max(90).default(30),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return { byType: [], total: 0, blockedIps: 0 };
 
+      const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
       const since = new Date(Date.now() - input.days * 86_400_000);
       const conditions: any[] = [
         gte(auditEvents.createdAt, since),
         like(auditEvents.action, "waf.%"),
       ];
-      if (input.merchantId) conditions.push(eq(auditEvents.merchantId, input.merchantId));
+      if (merchantId) conditions.push(eq(auditEvents.merchantId, merchantId));
 
       const rows = await db.select({
         action: auditEvents.action,

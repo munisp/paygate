@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { DomainTableToolbar } from "@/components/DomainTableToolbar";
 import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
@@ -50,9 +51,10 @@ export default function G2PDisbursements() {
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
   const { data: stats } = trpc.g2p.getBatchStats.useQuery();
+  const createKey = useIdempotencyKey();
   const createMut = trpc.g2p.createBatch.useMutation({
-    onSuccess: (d) => { toast.success(`Batch created: ${d.id}`); setShowBatchDialog(false); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: (d) => { createKey.reset(); toast.success(`Batch created: ${d.id}`); setShowBatchDialog(false); refetch(); },
+    onError: (e) => { createKey.reset(); toast.error(e.message); },
   });
   const { data: ninResult, refetch: lookupNin } = trpc.g2p.resolveNIN.useQuery(
     { nin: ninInput },
@@ -68,6 +70,7 @@ export default function G2PDisbursements() {
       amount: parseFloat(form.amount),
       totalAmount: parseFloat(form.totalAmount || "0") || parseFloat(form.amount) * parseInt(form.beneficiaryCount),
       beneficiaryCount: parseInt(form.beneficiaryCount),
+      idempotencyKey: createKey.getKey(),
     });
   };
 

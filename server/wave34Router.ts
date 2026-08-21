@@ -32,15 +32,28 @@ import {
   createGoldSIPViaMiddleware,
   getRemittanceCorridorsViaMiddleware,
   createRemittanceViaMiddleware,
+  debitWalletViaMiddleware,
+  creditWalletViaMiddleware,
   getConsumerInsuranceProductsViaMiddleware,
   purchaseConsumerInsuranceViaMiddleware,
   getEMIPlansViaMiddleware,
   createEMIApplicationViaMiddleware,
 } from "./middlewareBridge";
+import { withIdempotency } from "./idempotency";
+import { demoOrFail } from "./_core/demoData";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
 }
+
+// Static consumer insurance catalog (fallback when the middleware bridge is down).
+const CONSUMER_INSURANCE_PRODUCTS = [
+  { id: "ins_life_term", name: "Term Life Insurance", category: "life", premiumKoboPerMonth: 150_000, coverageKobo: 10_000_000_000, provider: "AXA Mansard" },
+  { id: "ins_health_basic", name: "Basic Health Insurance", category: "health", premiumKoboPerMonth: 250_000, coverageKobo: 5_000_000_000, provider: "Hygeia HMO" },
+  { id: "ins_device", name: "Device Insurance", category: "device", premiumKoboPerMonth: 50_000, coverageKobo: 500_000_000, provider: "Leadway Assurance" },
+  { id: "ins_travel", name: "Travel Insurance", category: "travel", premiumKoboPerMonth: 30_000, coverageKobo: 200_000_000, provider: "AIICO Insurance" },
+  { id: "ins_auto", name: "Auto Insurance (Third Party)", category: "auto", premiumKoboPerMonth: 200_000, coverageKobo: 1_000_000_000, provider: "Custodian Insurance" },
+];
 
 // ─── Fraud Ring Dashboard ─────────────────────────────────────────────────────
 
@@ -569,7 +582,7 @@ export const consumerFinancialRouter = router({
 
       const holdings = await db.execute(sql`
         SELECT * FROM digital_gold_holdings
-        WHERE user_id = ${ctx.user.id}
+        WHERE merchant_id = ${String(ctx.user.id)}
         ORDER BY created_at DESC
         LIMIT 50
       `);
@@ -652,32 +665,117 @@ export const consumerFinancialRouter = router({
       .input(z.object({
         fundId: z.string(),
         amountKobo: z.number().min(500_000),
+        idempotencyKey: z.string().min(8),
       }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const userId = String(ctx.user.id);
 
-        await db.execute(sql`
-          INSERT INTO mutual_fund_investments (id, user_id, fund_id, invested_kobo, current_value_kobo, units, status, created_at)
-          VALUES (${nanoid("mf_")}, ${ctx.user.id}, ${input.fundId}, ${input.amountKobo}, ${input.amountKobo}, ${input.amountKobo / 100000}, 'active', NOW())
-        `);
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: userId,
+          operation: "wave34.mutualFund.invest",
+          requestBody: input,
+          execute: async () => {
+            const id = nanoid("mf_");
+            // No fund-provider integration exists in this codebase, so the
+            // guarded wallet debit is the ONLY thing backing the investment.
+            // Without the ledger bridge there is nothing to debit — fail loud
+            // (demo payload only when PAYGATE_SIMULATION_MODE=true).
+            if (!isBridgeAvailable()) {
+              return demoOrFail(
+                { success: false, id, fundId: input.fundId, amountKobo: input.amountKobo, status: "not_recorded" },
+                "mutualFund.invest wallet debit (ledger bridge unreachable)",
+              );
+            }
+            // Guarded debit BEFORE minting the investment record.
+            await debitWalletViaMiddleware({
+              walletId: `wallet_${userId}`,
+              userId,
+              amount: input.amountKobo,
+              currency: "NGN",
+              reference: id,
+              description: `Mutual fund investment ${input.fundId}`,
+            });
+            await db.execute(sql`
+              INSERT INTO mutual_fund_investments (id, user_id, fund_id, invested_kobo, current_value_kobo, units, status, created_at)
+              VALUES (${id}, ${ctx.user.id}, ${input.fundId}, ${input.amountKobo}, ${input.amountKobo}, ${input.amountKobo / 100000}, 'active', NOW())
+            `);
 
-        return { success: true, fundId: input.fundId, amountKobo: input.amountKobo };
+            return { success: true, id, fundId: input.fundId, amountKobo: input.amountKobo };
+          },
+        });
       }),
 
     redeem: protectedProcedure
-      .input(z.object({ investmentId: z.string(), units: z.number().min(0.001) }))
+      .input(z.object({
+        investmentId: z.string(),
+        units: z.number().min(0.001),
+        idempotencyKey: z.string().min(8),
+      }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const userId = String(ctx.user.id);
 
-        await db.execute(sql`
-          UPDATE mutual_fund_investments
-          SET status = 'redeemed', redeemed_at = NOW()
-          WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id}
-        `);
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: userId,
+          operation: "wave34.mutualFund.redeem",
+          requestBody: input,
+          execute: async () => {
+            const rows = await db.execute(sql`
+              SELECT * FROM mutual_fund_investments
+              WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id}
+              LIMIT 1
+            `);
+            const investment = (rows.rows as any[])[0];
+            if (!investment) throw new TRPCError({ code: "NOT_FOUND", message: "Investment not found" });
+            if (investment.status !== "active") {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Investment is '${investment.status}', not redeemable` });
+            }
+            const totalUnits = Number(investment.units);
+            if (input.units > totalUnits) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot redeem ${input.units} units — only ${totalUnits} held` });
+            }
+            // Pro-rata redemption value in integer kobo.
+            const proceedsKobo = Math.round((Number(investment.current_value_kobo) * input.units) / totalUnits);
 
-        return { success: true };
+            // Redemption must CREDIT the wallet. Without the ledger bridge
+            // there is nowhere to credit — fail loud (demo in simulation mode).
+            if (!isBridgeAvailable()) {
+              return demoOrFail(
+                { success: false, investmentId: input.investmentId, units: input.units, proceedsKobo, status: "not_redeemed" },
+                "mutualFund.redeem wallet credit (ledger bridge unreachable)",
+              );
+            }
+            await creditWalletViaMiddleware({
+              walletId: `wallet_${userId}`,
+              userId,
+              amount: proceedsKobo,
+              currency: "NGN",
+              reference: nanoid("mf_redeem_"),
+              description: `Mutual fund redemption ${input.investmentId} (${input.units} units)`,
+            });
+            if (input.units >= totalUnits) {
+              await db.execute(sql`
+                UPDATE mutual_fund_investments
+                SET status = 'redeemed', redeemed_at = NOW()
+                WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active'
+              `);
+            } else {
+              await db.execute(sql`
+                UPDATE mutual_fund_investments
+                SET units = units - ${input.units},
+                    current_value_kobo = current_value_kobo - ${proceedsKobo}
+                WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active'
+              `);
+            }
+
+            return { success: true, proceedsKobo };
+          },
+        });
       }),
   }),
 
@@ -688,7 +786,7 @@ export const consumerFinancialRouter = router({
       if (!db) return { balance: null };
 
       const accountResult = await db.execute(sql`
-        SELECT * FROM pension_accounts WHERE user_id = ${ctx.user.id} LIMIT 1
+        SELECT * FROM pension_accounts WHERE merchant_id = ${String(ctx.user.id)} LIMIT 1
       `);
       const [account] = ((accountResult as any).rows ?? []);
 
@@ -701,27 +799,64 @@ export const consumerFinancialRouter = router({
 
       const contributionsResult = await db.execute(sql`
         SELECT * FROM pension_contributions
-        WHERE user_id = ${ctx.user.id}
+        WHERE merchant_id = ${String(ctx.user.id)}
         ORDER BY created_at DESC
         LIMIT 24
       `);
       const contributions = (contributionsResult as any).rows ?? [];
 
-      return { contributions: contributions.rows };
+      return { contributions };
     }),
 
     contribute: protectedProcedure
-      .input(z.object({ amountKobo: z.number().min(100_000) }))
+      .input(z.object({
+        amountKobo: z.number().min(100_000),
+        idempotencyKey: z.string().min(8),
+      }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const userId = String(ctx.user.id);
 
-        await db.execute(sql`
-          INSERT INTO pension_contributions (id, user_id, amount_kobo, type, status, created_at)
-          VALUES (${nanoid("pen_")}, ${ctx.user.id}, ${input.amountKobo}, 'voluntary', 'processed', NOW())
-        `);
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: userId,
+          operation: "wave34.pension.contribute",
+          requestBody: input,
+          execute: async () => {
+            // Real columns (drizzle/schema.ts:2592): pension_contributions is
+            // keyed by pension_account_id + merchant_id, NOT user_id.
+            const acctResult = await db.execute(sql`
+              SELECT id FROM pension_accounts WHERE merchant_id = ${userId} LIMIT 1
+            `);
+            const account = ((acctResult as any).rows ?? [])[0];
+            if (!account) {
+              throw new TRPCError({ code: "NOT_FOUND", message: "No pension account exists for this user — open an RSA first." });
+            }
+            const id = nanoid("pen_");
+            // Guarded wallet debit BEFORE recording the contribution.
+            if (!isBridgeAvailable()) {
+              return demoOrFail(
+                { success: false, id, amountKobo: input.amountKobo, status: "not_recorded" },
+                "pension.contribute wallet debit (ledger bridge unreachable)",
+              );
+            }
+            await debitWalletViaMiddleware({
+              walletId: `wallet_${userId}`,
+              userId,
+              amount: input.amountKobo,
+              currency: "NGN",
+              reference: id,
+              description: "Voluntary pension contribution",
+            });
+            await db.execute(sql`
+              INSERT INTO pension_contributions (id, pension_account_id, merchant_id, amount_kobo, type, status, reference, created_at)
+              VALUES (${id}, ${account.id}, ${userId}, ${input.amountKobo}, 'voluntary', 'processed', ${id}, NOW())
+            `);
 
-        return { success: true, amountKobo: input.amountKobo };
+            return { success: true, id, amountKobo: input.amountKobo };
+          },
+        });
       }),
   }),
 
@@ -733,24 +868,17 @@ export const consumerFinancialRouter = router({
         const result = await getConsumerInsuranceProductsViaMiddleware();
         if (result?.products?.length) return result;
       }
-      return {
-        products: [
-          { id: "ins_life_term", name: "Term Life Insurance", category: "life", premiumKoboPerMonth: 150_000, coverageKobo: 10_000_000_000, provider: "AXA Mansard" },
-          { id: "ins_health_basic", name: "Basic Health Insurance", category: "health", premiumKoboPerMonth: 250_000, coverageKobo: 5_000_000_000, provider: "Hygeia HMO" },
-          { id: "ins_device", name: "Device Insurance", category: "device", premiumKoboPerMonth: 50_000, coverageKobo: 500_000_000, provider: "Leadway Assurance" },
-          { id: "ins_travel", name: "Travel Insurance", category: "travel", premiumKoboPerMonth: 30_000, coverageKobo: 200_000_000, provider: "AIICO Insurance" },
-          { id: "ins_auto", name: "Auto Insurance (Third Party)", category: "auto", premiumKoboPerMonth: 200_000, coverageKobo: 1_000_000_000, provider: "Custodian Insurance" },
-        ],
-      };
+      return { products: CONSUMER_INSURANCE_PRODUCTS };
     }),
 
     getPolicies: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return { policies: [] };
 
+      // Real columns (drizzle/schema.ts:2338): PK is policy_id, owner is customer_id.
       const policies = await db.execute(sql`
         SELECT * FROM insurance_policies
-        WHERE user_id = ${ctx.user.id} AND status = 'active'
+        WHERE customer_id = ${String(ctx.user.id)} AND status = 'active'
         ORDER BY created_at DESC
       `);
 
@@ -761,26 +889,52 @@ export const consumerFinancialRouter = router({
       .input(z.object({
         productId: z.string(),
         coverageMonths: z.number().min(1).max(12),
+        idempotencyKey: z.string().min(8),
       }))
       .mutation(async ({ input, ctx }) => {
-        // VULN-064: Validate insurance policy dates
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setMonth(endDate.getMonth() + input.coverageMonths);
-        // validateInsurancePolicyDates(startDate, endDate);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const userId = String(ctx.user.id);
 
-        const policyId = nanoid("pol_");
-        const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + input.coverageMonths);
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: userId,
+          operation: "wave34.insurance.purchase",
+          requestBody: input,
+          execute: async () => {
+            const product = CONSUMER_INSURANCE_PRODUCTS.find((p) => p.id === input.productId);
+            if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Unknown insurance product" });
 
-        await db.execute(sql`
-          INSERT INTO insurance_policies (id, user_id, product_id, status, expires_at, created_at)
-          VALUES (${policyId}, ${ctx.user.id}, ${input.productId}, 'active', ${expiresAt}, NOW())
-        `);
+            const policyId = nanoid("pol_");
+            const expiresAt = new Date();
+            expiresAt.setMonth(expiresAt.getMonth() + input.coverageMonths);
+            const premiumKobo = product.premiumKoboPerMonth * input.coverageMonths;
 
-        return { success: true, policyId, expiresAt };
+            // Guarded premium debit BEFORE activating coverage — an active
+            // policy with no premium collected is an unfunded liability.
+            if (!isBridgeAvailable()) {
+              return demoOrFail(
+                { success: false, policyId, premiumKobo, status: "not_activated" },
+                "insurance.purchase premium debit (ledger bridge unreachable)",
+              );
+            }
+            await debitWalletViaMiddleware({
+              walletId: `wallet_${userId}`,
+              userId,
+              amount: premiumKobo,
+              currency: "NGN",
+              reference: policyId,
+              description: `Insurance premium: ${product.name} (${input.coverageMonths}mo)`,
+            });
+
+            await db.execute(sql`
+              INSERT INTO insurance_policies (policy_id, customer_id, product_id, product_name, provider, premium_kobo, coverage_type, status, expires_at, created_at)
+              VALUES (${policyId}, ${userId}, ${input.productId}, ${product.name}, ${product.provider}, ${premiumKobo}, ${product.category}, 'active', ${expiresAt}, NOW())
+            `);
+
+            return { success: true, policyId, premiumKobo, expiresAt };
+          },
+        });
       }),
 
     fileClaim: protectedProcedure
@@ -796,8 +950,8 @@ export const consumerFinancialRouter = router({
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         // Verify policy belongs to user and is active
         const policyResult = await db.execute(sql`
-          SELECT id, status, expires_at FROM insurance_policies
-          WHERE id = ${input.policyId} AND user_id = ${ctx.user.id}
+          SELECT policy_id, status, expires_at FROM insurance_policies
+          WHERE policy_id = ${input.policyId} AND customer_id = ${String(ctx.user.id)}
         `);
         if (!policyResult.rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Policy not found" });
         const policy = policyResult.rows[0] as any;
@@ -816,7 +970,7 @@ export const consumerFinancialRouter = router({
       if (!db) return { claims: [] };
       const claims = await db.execute(sql`
         SELECT ic.*, ip.product_id FROM user_insurance_claims ic
-        JOIN insurance_policies ip ON ip.id = ic.policy_id
+        JOIN insurance_policies ip ON ip.policy_id = ic.policy_id
         WHERE ic.user_id = ${ctx.user.id}
         ORDER BY ic.created_at DESC
       `);
@@ -971,7 +1125,7 @@ export const consumerFinancialRouter = router({
 
       const transfers = await db.execute(sql`
         SELECT * FROM remittance_transfers
-        WHERE user_id = ${ctx.user.id}
+        WHERE created_by = ${ctx.user.openId}
         ORDER BY created_at DESC
         LIMIT 20
       `);
@@ -988,28 +1142,87 @@ export const consumerFinancialRouter = router({
         recipientBank: z.string().min(2),
         recipientCountry: z.string().length(2),
         purpose: z.string().min(5),
+        idempotencyKey: z.string().min(8),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Try middleware bridge first
-        if (isBridgeAvailable()) {
-          const result = await createRemittanceViaMiddleware(
-            ctx.user.id, ctx.user.id, input.recipientAccount,
-            input.amountKobo / 100, 'NGN', input.corridorId
-          );
-          if (result) return { success: true, transferId: result.remittanceId, feeKobo: 0, estimatedDelivery: "30-60 minutes", trackingCode: result.trackingCode };
-        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const userId = String(ctx.user.id);
 
-        const transferId = nanoid("rem_");
-        const feeKobo = Math.round(input.amountKobo * 0.015);
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: userId,
+          operation: "wave34.remittance.initiate",
+          requestBody: input,
+          execute: async () => {
+            // Bridge down → fail loud. Never record a phantom 'processing'
+            // transfer with no rail behind it and no funds moved.
+            if (!isBridgeAvailable()) {
+              throw new TRPCError({
+                code: "SERVICE_UNAVAILABLE",
+                message: "Remittance rail is unreachable — no transfer was created and no funds were moved.",
+              });
+            }
+            // Integer minor-unit fee: 1.5% = 150 bps, round-half-up at the kobo.
+            const feeKobo = Number((BigInt(input.amountKobo) * 150n + 5_000n) / 10_000n);
+            const totalKobo = input.amountKobo + feeKobo;
+            const reference = nanoid("rem_");
 
-        await db.execute(sql`
-          INSERT INTO remittance_transfers (id, user_id, corridor_id, amount_kobo, fee_kobo, recipient_name, recipient_account, recipient_bank, recipient_country, purpose, status, created_at)
-          VALUES (${transferId}, ${ctx.user.id}, ${input.corridorId}, ${input.amountKobo}, ${feeKobo}, ${input.recipientName}, ${input.recipientAccount}, ${input.recipientBank}, ${input.recipientCountry}, ${input.purpose}, 'processing', NOW())
-        `);
+            // Guarded wallet debit (amount + fee) BEFORE the obligation exists.
+            let debit: Awaited<ReturnType<typeof debitWalletViaMiddleware>>;
+            try {
+              debit = await debitWalletViaMiddleware({
+                walletId: `wallet_${userId}`,
+                userId,
+                amount: totalKobo,
+                currency: "NGN",
+                reference,
+                description: `International remittance ${input.corridorId} → ${input.recipientCountry}`,
+              });
+            } catch (err) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: `Wallet debit failed (insufficient funds or ledger unreachable): ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
 
-        return { success: true, transferId, feeKobo, estimatedDelivery: "30-60 minutes" };
+            const result = await createRemittanceViaMiddleware(
+              userId, userId, input.recipientAccount,
+              input.amountKobo / 100, "NGN", input.corridorId,
+            );
+            if (!result) {
+              // Compensating reversal — the debit must not stand without a transfer.
+              await creditWalletViaMiddleware({
+                walletId: debit.walletId,
+                userId,
+                amount: totalKobo,
+                currency: "NGN",
+                reference: `${reference}_reversal`,
+                description: "Reversal: remittance provider rejected the transfer",
+              }).catch((e) => console.error("[remittance] compensating credit FAILED — manual reconciliation required:", e));
+              throw new TRPCError({
+                code: "SERVICE_UNAVAILABLE",
+                message: "Remittance provider rejected the transfer; the wallet debit was reversed.",
+              });
+            }
+
+            // Local record using the real remittance_transfers columns.
+            await db.execute(sql`
+              INSERT INTO remittance_transfers
+                (id, corridor_id, sender_fsp, sender_account, receiver_fsp, receiver_account,
+                 send_amount, send_currency, fee, receiver_name, narration, status, rail_ref, created_by, created_at)
+              VALUES
+                (${result.remittanceId}, ${input.corridorId}, 'PAYGATE_WALLET', ${userId},
+                 ${input.recipientBank}, ${input.recipientAccount},
+                 ${input.amountKobo / 100}, 'NGN', ${feeKobo / 100},
+                 ${input.recipientName}, ${input.purpose},
+                 ${result.status ?? "processing"}, ${result.trackingCode ?? reference},
+                 ${ctx.user.openId}, NOW())
+            `);
+
+            return { success: true, transferId: result.remittanceId, feeKobo, estimatedDelivery: "30-60 minutes", trackingCode: result.trackingCode };
+          },
+        });
       }),
   }),
 
@@ -1018,23 +1231,26 @@ export const consumerFinancialRouter = router({
     listSubscriptions: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      // Real columns (drizzle/schema.ts:3853): stripe_subscriptions has
+      // plan/status/current_period_end — no amount_kobo/frequency/plan_id.
+      // Price comes from plan_limits via the plan key.
       const rows = await db.execute(sql`
-        SELECT ss.id, ss.plan_id, ss.status, ss.amount_kobo, ss.frequency,
-               ss.next_billing_date, ss.created_at, sp.name as merchant_name
+        SELECT ss.id, ss.plan, ss.status, ss.current_period_end,
+               ss.created_at, sp.name as plan_name, sp.price_kobo
         FROM stripe_subscriptions ss
-        LEFT JOIN plan_limits sp ON ss.plan_id = sp.plan_id
+        LEFT JOIN plan_limits sp ON ss.plan = sp.plan
         WHERE ss.user_id = ${ctx.user.id}
         ORDER BY ss.created_at DESC
         LIMIT 50
       `);
       return (rows.rows as any[]).map((r: any) => ({
         id: r.id,
-        merchantId: r.plan_id,
-        merchantName: r.merchant_name ?? r.plan_id,
-        amountKobo: Number(r.amount_kobo ?? 0),
-        frequency: r.frequency ?? 'monthly',
+        merchantId: r.plan,
+        merchantName: r.plan_name ?? r.plan,
+        amountKobo: Number(r.price_kobo ?? 0),
+        frequency: 'monthly',
         status: r.status ?? 'active',
-        nextBillingDate: r.next_billing_date,
+        nextBillingDate: r.current_period_end,
         createdAt: r.created_at,
       }));
     }),

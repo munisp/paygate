@@ -4,6 +4,27 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { getUserByOpenId, getMerchantByOwnerId } from "../db";
+
+/**
+ * Resolve the merchant that owns the authenticated user. Client-supplied
+ * merchantId inputs are accepted for backwards compatibility but ALWAYS
+ * ignored — alerts, approvals and policies are scoped to the caller's own
+ * merchant (same pattern as server/routers/chargebackLifecycle.ts).
+ *
+ * NOTE on policy mutations (upsertPolicy / resolveApproval): the merchant
+ * team-role concept (team_members.role) is invite/metadata-only today and is
+ * not enforced as an authorization gate anywhere in the server, so the
+ * truthful boundary here is merchant ownership: only users who own a merchant
+ * account can mutate that merchant's policies/approvals, and only their own.
+ */
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account for this user" });
+  return merchant.id;
+}
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
@@ -58,9 +79,10 @@ const PolicyVerdictSchema = z.enum(["allow", "flag", "require_approval", "block"
 export const insiderThreatRouter = router({
 
   getDashboardSummary: protectedProcedure
-    .input(z.object({ merchantId: z.string(), fromDate: z.string().optional(), toDate: z.string().optional() }))
-    .query(async ({ input }) => {
-      const result = await bridgeGet(`/v1/insider/alerts?merchantId=${encodeURIComponent(input.merchantId)}&limit=200`);
+    .input(z.object({ merchantId: z.string().optional(), fromDate: z.string().optional(), toDate: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const result = await bridgeGet(`/v1/insider/alerts?merchantId=${encodeURIComponent(merchantId)}&limit=200`);
       if (result) return result;
       return {
         totalAlerts: 5, openAlerts: 3, pendingApprovals: 2, activePolicies: 7,
@@ -71,15 +93,16 @@ export const insiderThreatRouter = router({
 
   listAlerts: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
+      merchantId: z.string().optional(),
       status: AlertStatusSchema.optional(),
       riskLevel: RiskLevelSchema.optional(),
       limit: z.number().min(1).max(100).default(50),
       offset: z.number().min(0).default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const qs = new URLSearchParams({
-        merchantId: input.merchantId,
+        merchantId,
         ...(input.status ? { status: input.status } : {}),
         ...(input.riskLevel ? { riskLevel: input.riskLevel } : {}),
         limit: String(input.limit), offset: String(input.offset),
@@ -91,42 +114,52 @@ export const insiderThreatRouter = router({
   resolveAlert: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(["resolved", "false_positive", "acknowledged"]), note: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      try {
-        return await bridgePost("/v1/insider/alert/resolve", { ...input, resolverId: ctx.user?.openId ?? "unknown" });
-      } catch { return { resolved: true }; }
+      // Scope the resolution to the caller's own merchant so the bridge can
+      // reject alert IDs belonging to other tenants.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      // No fake success: if the bridge call fails the error must surface —
+      // silently returning { resolved: true } would hide a failed security-
+      // control state change.
+      return await bridgePost("/v1/insider/alert/resolve", { ...input, merchantId, resolverId: ctx.user?.openId ?? "unknown" });
     }),
 
   listApprovals: protectedProcedure
-    .input(z.object({ merchantId: z.string(), status: z.enum(["pending", "approved", "rejected", "expired"]).optional() }))
-    .query(async ({ input }) => {
-      const qs = new URLSearchParams({ merchantId: input.merchantId, ...(input.status ? { status: input.status } : {}) }).toString();
+    .input(z.object({ merchantId: z.string().optional(), status: z.enum(["pending", "approved", "rejected", "expired"]).optional() }))
+    .query(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const qs = new URLSearchParams({ merchantId, ...(input.status ? { status: input.status } : {}) }).toString();
       const result = await bridgeGet(`/v1/insider/approvals?${qs}`);
       return result ?? { approvals: [], total: 0 };
     }),
 
   createApproval: protectedProcedure
-    .input(z.object({ merchantId: z.string(), action: z.string(), resourceId: z.string().optional(), ttlSeconds: z.number().default(3600) }))
+    .input(z.object({ merchantId: z.string().optional(), action: z.string(), resourceId: z.string().optional(), ttlSeconds: z.number().default(3600) }))
     .mutation(async ({ input, ctx }) => {
-      return await bridgePost("/v1/insider/approval/create", { ...input, initiatorId: ctx.user?.openId ?? "unknown" });
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      return await bridgePost("/v1/insider/approval/create", { ...input, merchantId, initiatorId: ctx.user?.openId ?? "unknown" });
     }),
 
   resolveApproval: protectedProcedure
     .input(z.object({ id: z.string(), decision: z.enum(["approve", "reject"]), note: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      return await bridgePost("/v1/insider/approval/resolve", { ...input, approverId: ctx.user?.openId ?? "unknown" });
+      // Merchant-scoped: the bridge receives the caller's resolved merchant so
+      // approvals of other tenants cannot be approved/rejected by ID guessing.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      return await bridgePost("/v1/insider/approval/resolve", { ...input, merchantId, approverId: ctx.user?.openId ?? "unknown" });
     }),
 
   gateAction: protectedProcedure
     .input(z.object({
-      merchantId: z.string(), action: z.string(), resourceId: z.string().optional(),
+      merchantId: z.string().optional(), action: z.string(), resourceId: z.string().optional(),
       sessionId: z.string(), ipAddress: z.string(), deviceHash: z.string(),
       geoCountry: z.string().optional(), metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       try {
-        const gateResult = await bridgePost("/v1/insider/action/gate", { ...input, actorId: ctx.user?.openId ?? "unknown" });
+        const gateResult = await bridgePost("/v1/insider/action/gate", { ...input, merchantId, actorId: ctx.user?.openId ?? "unknown" });
         const uebaResult = await uebaPost("/v1/ueba/analyse", {
-          actor_id: ctx.user?.openId ?? "unknown", merchant_id: input.merchantId,
+          actor_id: ctx.user?.openId ?? "unknown", merchant_id: merchantId,
           action: input.action, ip_address: input.ipAddress, geo_country: input.geoCountry,
           timestamp: new Date().toISOString(),
         });
@@ -141,9 +174,10 @@ export const insiderThreatRouter = router({
     }),
 
   listPolicies: protectedProcedure
-    .input(z.object({ merchantId: z.string() }))
-    .query(async ({ input }) => {
-      const result = await bridgeGet(`/v1/insider/policies?merchantId=${encodeURIComponent(input.merchantId)}`);
+    .input(z.object({ merchantId: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const result = await bridgeGet(`/v1/insider/policies?merchantId=${encodeURIComponent(merchantId)}`);
       if (result) return result;
       return {
         policies: [
@@ -160,19 +194,24 @@ export const insiderThreatRouter = router({
 
   upsertPolicy: protectedProcedure
     .input(z.object({
-      merchantId: z.string(), id: z.string().optional(), name: z.string().min(1),
+      merchantId: z.string().optional(), id: z.string().optional(), name: z.string().min(1),
       description: z.string().optional(), severity: z.enum(["low", "medium", "high", "critical"]),
       verdict: PolicyVerdictSchema, enabled: z.boolean(), conditions: z.string().default("{}"),
     }))
     .mutation(async ({ input, ctx }) => {
-      return await bridgePost("/v1/insider/policy/upsert", { ...input, updatedBy: ctx.user?.openId ?? "unknown" });
+      // Policy mutation — merchant-scoped: only the merchant owner can change
+      // their own merchant's policies (see note on resolveMerchantId re:
+      // merchant-internal roles).
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      return await bridgePost("/v1/insider/policy/upsert", { ...input, merchantId, updatedBy: ctx.user?.openId ?? "unknown" });
     }),
 
   analyseAction: protectedProcedure
-    .input(z.object({ merchantId: z.string(), action: z.string(), ipAddress: z.string().optional(), geoCountry: z.string().optional() }))
+    .input(z.object({ merchantId: z.string().optional(), action: z.string(), ipAddress: z.string().optional(), geoCountry: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const result = await uebaPost("/v1/ueba/analyse", {
-        actor_id: ctx.user?.openId ?? "unknown", merchant_id: input.merchantId,
+        actor_id: ctx.user?.openId ?? "unknown", merchant_id: merchantId,
         action: input.action, ip_address: input.ipAddress, geo_country: input.geoCountry,
         timestamp: new Date().toISOString(),
       });

@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Shield, Plus, CheckCircle, Clock, AlertTriangle } from "lucide-react";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 const PRODUCTS = [
   { id: "device_insurance", name: "Device Insurance", description: "Protect your phone and electronics", premiumKobo: 50000, coverageKobo: 15_000_000, duration: 30 },
@@ -23,11 +24,13 @@ export default function InsurancePage() {
   const [showBuy, setShowBuy] = useState<typeof PRODUCTS[0] | null>(null);
   const [beneficiary, setBeneficiary] = useState({ name: "", phone: "", relationship: "spouse" });
 
-  const { data, isLoading, refetch } = trpc.consumerFinancial.insurance.useQuery();
+  const purchaseKey = useIdempotencyKey();
 
-  const buyPolicy = trpc.consumerFinancial.insurance.useMutation({
-    onSuccess: () => { toast.success("Insurance policy activated!"); refetch(); setShowBuy(null); },
-    onError: (e) => toast.error(e.message),
+  const { data, isLoading, refetch } = trpc.consumerFinancial.insurance.getPolicies.useQuery();
+
+  const buyPolicy = trpc.consumerFinancial.insurance.purchase.useMutation({
+    onSuccess: () => { purchaseKey.reset(); toast.success("Insurance policy activated!"); refetch(); setShowBuy(null); },
+    onError: (e) => { purchaseKey.reset(); toast.error(e.message); },
   });
 
   const formatNaira = (kobo: number) => `₦${(kobo / 100).toLocaleString()}`;
@@ -95,19 +98,19 @@ export default function InsurancePage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {(data?.policies ?? []).map((policy: any) => (
-              <Card key={policy.id}>
+              <Card key={policy.policy_id}>
                 <CardContent className="pt-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {statusIcon(policy.status)}
-                      <span className="font-semibold">{policy.product_type}</span>
+                      <span className="font-semibold">{policy.product_name}</span>
                     </div>
                     <Badge variant={policy.status === "active" ? "default" : "secondary"}>{policy.status}</Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <div className="text-muted-foreground text-xs">Coverage</div>
-                      <div className="font-semibold">{formatNaira(policy.coverage_amount_kobo)}</div>
+                      <div className="font-semibold capitalize">{String(policy.coverage_type ?? "").replace(/_/g, " ")}</div>
                     </div>
                     <div>
                       <div className="text-muted-foreground text-xs">Premium</div>
@@ -119,7 +122,7 @@ export default function InsurancePage() {
                     </div>
                     <div>
                       <div className="text-muted-foreground text-xs">Policy ID</div>
-                      <div className="font-mono text-xs truncate">{policy.id.slice(0, 12)}...</div>
+                      <div className="font-mono text-xs truncate">{String(policy.policy_id).slice(0, 12)}...</div>
                     </div>
                   </div>
                 </CardContent>
@@ -177,13 +180,10 @@ export default function InsurancePage() {
             <Button
               disabled={!beneficiary.name || !beneficiary.phone || buyPolicy.isPending}
               onClick={() => showBuy && buyPolicy.mutate({
-                productType: showBuy.id,
-                premiumKobo: showBuy.premiumKobo,
-                coverageKobo: showBuy.coverageKobo,
-                durationDays: showBuy.duration,
-                beneficiaryName: beneficiary.name,
-                beneficiaryPhone: beneficiary.phone,
-                beneficiaryRelationship: beneficiary.relationship,
+                productId: showBuy.id,
+                // Server bills per month (1–12); trip-length products round up to 1 month.
+                coverageMonths: Math.max(1, Math.min(12, Math.round(showBuy.duration / 30))),
+                idempotencyKey: purchaseKey.getKey(),
               })}
             >
               Confirm Purchase

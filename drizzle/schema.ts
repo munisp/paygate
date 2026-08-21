@@ -6899,3 +6899,320 @@ export const bnplDelinquencyCases = pgTable("bnpl_delinquency_cases", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type BnplDelinquencyCase = typeof bnplDelinquencyCases.$inferSelect;
+
+// ── Wave 27/29/34: missing production tables (migration 0085) ─────────────────
+export const kybApplications = pgTable("kyb_applications", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().unique(),
+  businessName: varchar("business_name"),
+  rcNumber: varchar("rc_number"),
+  taxId: varchar("tax_id"),
+  businessAddress: text("business_address"),
+  businessType: varchar("business_type"),
+  directorName: varchar("director_name"),
+  directorBvn: varchar("director_bvn"),
+  directorNin: varchar("director_nin"),
+  cacDocumentUrl: text("cac_document_url"),
+  utilityBillUrl: text("utility_bill_url"),
+  status: varchar("status").default("submitted").notNull(),
+  reviewNote: text("review_note"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type KybApplication = typeof kybApplications.$inferSelect;
+
+export const fraudCases = pgTable("fraud_cases", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  status: varchar("status").default("open"),
+  reason: text("reason"),
+  amount: numeric("amount"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type FraudCase = typeof fraudCases.$inferSelect;
+
+export const consumerReferrals = pgTable("consumer_referrals", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  referralCode: varchar("referral_code").notNull().unique(),
+  successfulReferrals: integer("successful_referrals").default(0),
+  totalRewardsEarned: integer("total_rewards_earned").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type ConsumerReferral = typeof consumerReferrals.$inferSelect;
+
+export const bnplDelinquencyRecords = pgTable("bnpl_delinquency_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  status: varchar("status").default("active"),
+  daysOverdue: integer("days_overdue"),
+  overdueAmount: numeric("overdue_amount"),
+  penaltyAmount: numeric("penalty_amount"),
+  collectionStatus: varchar("collection_status").default("pending"),
+  lastContactDate: timestamp("last_contact_date"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type BnplDelinquencyRecord = typeof bnplDelinquencyRecords.$inferSelect;
+
+export const fxAutoHedgeRules = pgTable("fx_auto_hedge_rules", {
+  id: serial("id").primaryKey(),
+  currencyPair: varchar("currency_pair"),
+  triggerThreshold: numeric("trigger_threshold"),
+  hedgePercentage: numeric("hedge_percentage"),
+  maxPositionSize: numeric("max_position_size"),
+  isActive: boolean("is_active").default(true),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type FxAutoHedgeRule = typeof fxAutoHedgeRules.$inferSelect;
+
+export const mutualFundInvestments = pgTable("mutual_fund_investments", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  fundId: varchar("fund_id"),
+  investedKobo: bigint("invested_kobo", { mode: "number" }),
+  currentValueKobo: bigint("current_value_kobo", { mode: "number" }),
+  units: doublePrecision("units"),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  redeemedAt: timestamp("redeemed_at"),
+});
+export type MutualFundInvestment = typeof mutualFundInvestments.$inferSelect;
+
+export const tenantFeatureFlags = pgTable("tenant_feature_flags", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tenantId: text("tenant_id").notNull(),
+  flagKey: text("flag_key").notNull(),
+  enabled: boolean("enabled").default(false),
+  rolloutPercentage: integer("rollout_percentage").default(0),
+  overrideReason: text("override_reason"),
+  setBy: integer("set_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("tenant_feature_flags_tenant_flag_unique").on(t.tenantId, t.flagKey),
+]);
+export type TenantFeatureFlag = typeof tenantFeatureFlags.$inferSelect;
+
+export const tenantWebhookSecrets = pgTable("tenant_webhook_secrets", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  endpointUrl: text("endpoint_url"),
+  signingSecret: text("signing_secret"),
+  algorithm: varchar("algorithm").default("hmac-sha256"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TenantWebhookSecret = typeof tenantWebhookSecrets.$inferSelect;
+
+export const loyaltyPromotionLog = pgTable("loyalty_promotion_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  oldTier: varchar("old_tier"),
+  newTier: varchar("new_tier"),
+  pointsAtPromotion: numeric("points_at_promotion"),
+  promotedAt: timestamp("promoted_at").defaultNow(),
+});
+export type LoyaltyPromotionLogEntry = typeof loyaltyPromotionLog.$inferSelect;
+
+export const jwtRevocationList = pgTable("jwt_revocation_list", {
+  id: serial("id").primaryKey(),
+  jti: varchar("jti").notNull().unique(),
+  userId: integer("user_id"),
+  expiresAt: timestamp("expires_at").notNull(),
+  reason: varchar("reason"),
+});
+export type JwtRevocationEntry = typeof jwtRevocationList.$inferSelect;
+
+export const tenantStripeCustomers = pgTable("tenant_stripe_customers", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull().unique(),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  stripePaymentMethodId: varchar("stripe_payment_method_id"),
+  plan: varchar("plan"),
+  billingEmail: varchar("billing_email"),
+  billingCycleAnchor: integer("billing_cycle_anchor"),
+  nextInvoiceDate: date("next_invoice_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TenantStripeCustomer = typeof tenantStripeCustomers.$inferSelect;
+
+export const tenantOnboardingEmails = pgTable("tenant_onboarding_emails", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id"),
+  emailType: varchar("email_type"),
+  recipientEmail: varchar("recipient_email"),
+  subject: varchar("subject"),
+  status: varchar("status"),
+  metadata: jsonb("metadata"),
+  sentAt: timestamp("sent_at"),
+  retryCount: integer("retry_count").default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TenantOnboardingEmail = typeof tenantOnboardingEmails.$inferSelect;
+
+export const middlewareIntegrationLogs = pgTable("middleware_integration_logs", {
+  id: serial("id").primaryKey(),
+  service: varchar("service"),
+  operation: varchar("operation"),
+  requestPayload: jsonb("request_payload"),
+  responsePayload: jsonb("response_payload"),
+  statusCode: integer("status_code"),
+  durationMs: integer("duration_ms"),
+  success: boolean("success"),
+  errorMessage: text("error_message"),
+  correlationId: varchar("correlation_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type MiddlewareIntegrationLog = typeof middlewareIntegrationLogs.$inferSelect;
+
+export const slaIncidents = pgTable("sla_incidents", {
+  id: varchar("id").primaryKey(),
+  title: varchar("title"),
+  severity: varchar("severity"),
+  description: text("description"),
+  uptimePct: numeric("uptime_pct"),
+  latencyMs: integer("latency_ms"),
+  status: varchar("status").default("open"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  autoResolved: boolean("auto_resolved").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SlaIncident = typeof slaIncidents.$inferSelect;
+
+export const slaIncidentReports = pgTable("sla_incident_reports", {
+  id: serial("id").primaryKey(),
+  serviceName: varchar("service_name"),
+  message: text("message"),
+  startedAt: timestamp("started_at"),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type SlaIncidentReport = typeof slaIncidentReports.$inferSelect;
+
+export const slaAlertSubscriptions = pgTable("sla_alert_subscriptions", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id"),
+  endpoint: text("endpoint").unique(),
+  p256dh: text("p256dh"),
+  auth: text("auth"),
+  severityThreshold: varchar("severity_threshold"),
+  active: boolean("active").default(true),
+});
+export type SlaAlertSubscription = typeof slaAlertSubscriptions.$inferSelect;
+
+export const grafanaDashboardConfigs = pgTable("grafana_dashboard_configs", {
+  dashboardUid: varchar("dashboard_uid").primaryKey(),
+  title: varchar("title"),
+  description: text("description"),
+  panelCount: integer("panel_count"),
+  tags: jsonb("tags"),
+  isDefault: boolean("is_default").default(false),
+  configJson: jsonb("config_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type GrafanaDashboardConfig = typeof grafanaDashboardConfigs.$inferSelect;
+
+// ─── 0086: SIP plans/executions + subscription plans + missing raw-SQL tables ──
+// Column shapes mirror the raw SQL in server/cronJobs.ts (sip_plans,
+// sip_executions), server/wave90Router.ts (subscription_plans),
+// server/routers.ts (dispute_notes, vendors) and server/wave88Router.ts
+// (corridor_fx_markups, corridor_config).
+
+export const sipPlans = pgTable("sip_plans", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  assetType: varchar("asset_type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  frequency: varchar("frequency").notNull().default("monthly"),
+  status: varchar("status").notNull().default("active"),
+  nextExecutionAt: timestamp("next_execution_at").notNull(),
+  totalInvestedKobo: bigint("total_invested_kobo", { mode: "number" }).default(0),
+  executionCount: integer("execution_count").default(0),
+  lastExecutedAt: timestamp("last_executed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SipPlan = typeof sipPlans.$inferSelect;
+
+export const sipExecutions = pgTable("sip_executions", {
+  id: varchar("id").primaryKey(),
+  planId: varchar("plan_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  status: varchar("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  executedAt: timestamp("executed_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type SipExecution = typeof sipExecutions.$inferSelect;
+
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name"),
+  amountNgn: numeric("amount_ngn"),
+  currency: varchar("currency").default("NGN"),
+  interval: varchar("interval").default("monthly"),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+
+export const disputeNotes = pgTable("dispute_notes", {
+  id: varchar("id").primaryKey(),
+  disputeId: text("dispute_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  authorId: varchar("author_id"),
+  authorName: varchar("author_name"),
+  note: text("note").notNull(),
+  visibility: varchar("visibility").default("internal"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type DisputeNote = typeof disputeNotes.$inferSelect;
+
+export const vendors = pgTable("vendors", {
+  id: varchar("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name").notNull(),
+  contactName: varchar("contact_name"),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  address: text("address"),
+  paymentTerms: varchar("payment_terms").default("net30"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type Vendor = typeof vendors.$inferSelect;
+
+export const corridorFxMarkups = pgTable("corridor_fx_markups", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency").notNull(),
+  destinationCurrency: varchar("destination_currency").notNull(),
+  markupBps: integer("markup_bps").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [unique("corridor_fx_markups_pair_unique").on(t.sourceCurrency, t.destinationCurrency)]);
+export type CorridorFxMarkup = typeof corridorFxMarkups.$inferSelect;
+
+export const corridorConfig = pgTable("corridor_config", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency").notNull(),
+  destinationCurrency: varchar("destination_currency").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [unique("corridor_config_pair_unique").on(t.sourceCurrency, t.destinationCurrency)]);
+export type CorridorConfig = typeof corridorConfig.$inferSelect;

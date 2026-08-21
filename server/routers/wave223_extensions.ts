@@ -7,8 +7,10 @@
  * bulkTransfers, dfspTopology
  */
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
-import { getDb } from "../db";
+import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { demoOrFail } from "../_core/demoData";
+import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
+import { TRPCError } from "@trpc/server";
 import { sql, eq, desc, and, gte, lte } from "drizzle-orm";
 import {
   auditLogs,
@@ -27,9 +29,22 @@ import { dispatchWebhookEvent, buildWebhookPayload } from "../webhookEvents";
 import { notifyMerchant } from "../pushClient";
 import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 
+/**
+ * Resolve the caller's merchant from the server-side session (never from
+ * client-supplied input). Same pattern as chargebackLifecycle.ts.
+ */
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  return merchant.id;
+}
+
 // ─── 1. Audit Logs ─────────────────────────────────────────────────────────
 const auditLogsRouter = router({
-  list: protectedProcedure
+  // Platform-wide audit trail read (all merchants/actors) — admin only.
+  list: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(500).default(100),
       offset: z.number().min(0).default(0),
@@ -139,7 +154,8 @@ const fxRatesRouter = router({
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(fxRates.fetchedAt));
     }),
-  create: protectedProcedure
+  // Platform FX-rate writes feed cross-border quote math — admin only.
+  create: adminProcedure
     .input(z.object({
       baseCurrency: z.string().length(3),
       quoteCurrency: z.string().length(3),
@@ -158,7 +174,7 @@ const fxRatesRouter = router({
       }).returning();
       return row;
     }),
-  update: protectedProcedure
+  update: adminProcedure
     .input(z.object({ id: z.number(), rate: z.number().positive() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -172,14 +188,12 @@ const fxRatesRouter = router({
 // ─── 4. API Rate Limits ────────────────────────────────────────────────────
 const apiRateLimitsRouter = router({
   list: protectedProcedure
-    .input(z.object({ merchantId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(apiRateLimitRules.merchantId, input.merchantId));
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       return db.select().from(apiRateLimitRules)
-        .where(conditions.length ? and(...conditions) : undefined)
+        .where(eq(apiRateLimitRules.merchantId, merchantId))
         .orderBy(desc(apiRateLimitRules.createdAt));
     }),
   update: protectedProcedure
@@ -190,25 +204,27 @@ const apiRateLimitsRouter = router({
       limitPerDay: z.number().int().positive().optional(),
       isActive: z.boolean().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const { id, ...rest } = input;
       const [row] = await db.update(apiRateLimitRules)
         .set({ ...rest, updatedAt: new Date() } as any)
-        .where(eq(apiRateLimitRules.id, id)).returning();
+        .where(and(eq(apiRateLimitRules.id, id), eq(apiRateLimitRules.merchantId, merchantId))).returning();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Rate limit rule not found" });
       return row;
     }),
   getUsage: protectedProcedure
-    .input(z.object({ merchantId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const since = new Date(Date.now() - 60_000);
       const result = await db.execute(sql`
         SELECT resource AS endpoint, COUNT(*) AS requests_last_minute
         FROM audit_logs WHERE created_at >= ${since}
-        ${input.merchantId ? sql`AND merchant_id = ${input.merchantId}` : sql``}
+        AND merchant_id = ${merchantId}
         GROUP BY resource ORDER BY requests_last_minute DESC LIMIT 20
       `);
       return (result.rows as Record<string, any>[]).map((r) => ({
@@ -220,28 +236,30 @@ const apiRateLimitsRouter = router({
 // ─── 5. Notification Preferences ──────────────────────────────────────────
 const notificationPreferencesRouter = router({
   get: protectedProcedure
-    .input(z.object({ merchantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return null;
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const [row] = await db.select().from(realtimeNotificationPreferences)
-        .where(eq(realtimeNotificationPreferences.merchantId, input.merchantId));
+        .where(eq(realtimeNotificationPreferences.merchantId, merchantId));
       return row ?? null;
     }),
   save: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
       emailEnabled: z.boolean().default(true),
       smsEnabled: z.boolean().default(false),
       pushEnabled: z.boolean().default(false),
       webhookEnabled: z.boolean().default(false),
       digestFrequency: z.enum(["realtime", "hourly", "daily", "weekly"]).default("realtime"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // merchantId resolved from the session — a caller can no longer rewrite
+      // another merchant's notification preferences.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const existing = await db.select().from(realtimeNotificationPreferences)
-        .where(eq(realtimeNotificationPreferences.merchantId, input.merchantId));
+        .where(eq(realtimeNotificationPreferences.merchantId, merchantId));
       const values = {
         emailEnabled: input.emailEnabled ? 1 : 0,
         smsEnabled: input.smsEnabled ? 1 : 0,
@@ -253,12 +271,12 @@ const notificationPreferencesRouter = router({
       if (existing.length) {
         const [row] = await db.update(realtimeNotificationPreferences)
           .set(values as any)
-          .where(eq(realtimeNotificationPreferences.merchantId, input.merchantId))
+          .where(eq(realtimeNotificationPreferences.merchantId, merchantId))
           .returning();
         return row;
       }
       const [row] = await db.insert(realtimeNotificationPreferences)
-        .values({ merchantId: input.merchantId, ...values } as any)
+        .values({ merchantId, ...values } as any)
         .returning();
       return row;
     }),
@@ -267,12 +285,12 @@ const notificationPreferencesRouter = router({
 // ─── 6. POS Terminals ─────────────────────────────────────────────────────
 const posTerminalsRouter = router({
   list: protectedProcedure
-    .input(z.object({ merchantId: z.string().optional(), status: z.string().optional() }))
-    .query(async ({ input }) => {
+    .input(z.object({ status: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(posTerminals.merchantId, input.merchantId));
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions: any[] = [eq(posTerminals.merchantId, merchantId)];
       if (input.status) conditions.push(eq(posTerminals.status, input.status as any));
       return db.select().from(posTerminals)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -280,20 +298,23 @@ const posTerminalsRouter = router({
     }),
   create: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      tenantId: z.string(),
       serialNumber: z.string(),
       label: z.string().optional(),
       location: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const id = `pos_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      // merchantId/tenantId resolved from the session — never trust client input.
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+      const id = `pos_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
       const [row] = await db.insert(posTerminals).values({
         id,
-        merchantId: input.merchantId,
-        tenantId: input.tenantId,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId,
         serialNumber: input.serialNumber,
         label: input.label,
         location: input.location,
@@ -305,10 +326,11 @@ const posTerminalsRouter = router({
     }),
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.delete(posTerminals).where(eq(posTerminals.id, input.id));
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      await db.delete(posTerminals).where(and(eq(posTerminals.id, input.id), eq(posTerminals.merchantId, merchantId)));
       return { success: true };
     }),
 });
@@ -326,7 +348,8 @@ const settlementBanksExtRouter = router({
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(settlementBanks.createdAt));
     }),
-  create: protectedProcedure
+  // Platform settlement-bank directory mutations — admin only.
+  create: adminProcedure
     .input(z.object({
       bankName: z.string(),
       bankCode: z.string(),
@@ -348,7 +371,7 @@ const settlementBanksExtRouter = router({
       } as any).returning();
       return row;
     }),
-  setStatus: protectedProcedure
+  setStatus: adminProcedure
     .input(z.object({ id: z.string(), status: z.enum(["active", "inactive", "suspended"]) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -358,7 +381,7 @@ const settlementBanksExtRouter = router({
         .where(eq(settlementBanks.id, input.id)).returning();
       return row;
     }),
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -369,14 +392,26 @@ const settlementBanksExtRouter = router({
 });
 
 // ─── 8. KYC Documents ─────────────────────────────────────────────────────
+// Same document-type allowlist as wave122 kybDocUpload (ALLOWED_DOC_TYPES).
+const KYC_DOC_TYPES = [
+  "cac_certificate",
+  "tin_certificate",
+  "utility_bill",
+  "director_id",
+  "bank_statement",
+  "memorandum",
+  "board_resolution",
+  "proof_of_address",
+] as const;
+
 const kycDocumentsRouter = router({
   list: protectedProcedure
-    .input(z.object({ merchantId: z.string().optional(), documentType: z.string().optional() }))
-    .query(async ({ input }) => {
+    .input(z.object({ documentType: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(kybDocuments.merchantId, input.merchantId));
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions: any[] = [eq(kybDocuments.merchantId, merchantId)];
       if (input.documentType) conditions.push(eq(kybDocuments.documentType, input.documentType));
       return db.select().from(kybDocuments)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -384,26 +419,33 @@ const kycDocumentsRouter = router({
     }),
   upload: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      documentType: z.string(),
-      fileName: z.string(),
+      documentType: z.enum(KYC_DOC_TYPES),
+      fileName: z.string().min(1).max(255),
       fileBase64: z.string(),
       mimeType: z.string().default("application/pdf"),
       verificationId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // merchantId resolved from the session — never trust client input.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      // Sanitize every storage-key segment so crafted names cannot escape the
+      // kyc/ prefix (chargebackLifecycle.ts safeName pattern).
+      const safeSegment = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_");
       const buffer = Buffer.from(input.fileBase64, "base64");
-      const fileKey = `kyc/${input.merchantId}/${input.documentType}/${Date.now()}-${input.fileName}`;
+      const fileKey = `kyc/${safeSegment(merchantId)}/${input.documentType}/${Date.now()}-${safeSegment(input.fileName)}`;
       const { url } = await storagePut(fileKey, buffer, input.mimeType);
       const [row] = await db.insert(kybDocuments).values({
-        merchantId: input.merchantId,
+        merchantId,
         verificationId: input.verificationId ?? `VER-${Date.now()}`,
         documentType: input.documentType,
         fileName: input.fileName,
         fileKey,
         fileUrl: url,
+        mimeType: input.mimeType,
+        fileSizeBytes: buffer.length,
+        uploadedBy: String(ctx.user.id),
         status: "pending",
         uploadedAt: new Date(),
       } as any).returning();
@@ -411,17 +453,20 @@ const kycDocumentsRouter = router({
     }),
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.delete(kybDocuments).where(eq(kybDocuments.id, input.id));
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      await db.delete(kybDocuments).where(and(eq(kybDocuments.id, input.id), eq(kybDocuments.merchantId, merchantId)));
       return { success: true };
     }),
 });
 
 // ─── 9. Merchant Verification ─────────────────────────────────────────────
+// KYB review queue + decisions across ALL merchants — reviewer-facing,
+// admin only. The reviewer identity always comes from the session.
 const merchantVerificationRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({ status: z.string().optional(), limit: z.number().default(50), offset: z.number().default(0) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -434,26 +479,38 @@ const merchantVerificationRouter = router({
       const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(kybVerifications).where(where);
       return { rows, total: Number(count) };
     }),
-  startReview: protectedProcedure
-    .input(z.object({ id: z.string(), reviewerId: z.string() }))
-    .mutation(async ({ input }) => {
+  startReview: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      // Accepted for backwards compatibility but IGNORED — the reviewer is the
+      // authenticated admin.
+      reviewerId: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      const reviewerId = String(ctx.user.id);
       const [row] = await db.update(kybVerifications)
-        .set({ status: "in_review", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
+        .set({ status: "in_review", initiatedBy: reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
       return row;
     }),
-  approve: protectedProcedure
-    .input(z.object({ id: z.string(), reviewerId: z.string(), notes: z.string().optional() }))
-    .mutation(async ({ input }) => {
+  approve: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      // IGNORED — reviewer identity comes from the session.
+      reviewerId: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      const reviewerId = String(ctx.user.id);
       const [row] = await db.update(kybVerifications)
-        .set({ status: "approved", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
+        .set({ status: "approved", initiatedBy: reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
       // ── In-app notification (existing) ────────────────────────────────────
-      await notifyOwner({ title: "Merchant KYB Approved", content: `KYB ${input.id} approved by ${input.reviewerId}.` });
+      await notifyOwner({ title: "Merchant KYB Approved", content: `KYB ${input.id} approved by ${reviewerId}.` });
       // ── Kafka: kyb.approved event (Fix 2) ─────────────────────────────────
       publishEvent(
         KAFKA_TOPICS.KYC,
@@ -461,7 +518,7 @@ const merchantVerificationRouter = router({
           type: "kyb.approved",
           verificationId: input.id,
           merchantId: row?.merchantId ?? "",
-          reviewerId: input.reviewerId,
+          reviewerId,
           notes: input.notes ?? null,
           timestamp: new Date().toISOString(),
         },
@@ -471,7 +528,7 @@ const merchantVerificationRouter = router({
       // ── Webhook: kyb.approved (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
-          buildWebhookPayload("kyc.approved", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, notes: input.notes ?? null }),
+          buildWebhookPayload("kyc.approved", row.merchantId, "", { verificationId: input.id, reviewerId, notes: input.notes ?? null }),
         ).catch(() => {});
         // ── Push notification: kyb.approved (Fix 2) ─────────────────────────
         notifyMerchant({
@@ -486,13 +543,19 @@ const merchantVerificationRouter = router({
       }
       return row;
     }),
-  reject: protectedProcedure
-    .input(z.object({ id: z.string(), reviewerId: z.string(), reason: z.string() }))
-    .mutation(async ({ input }) => {
+  reject: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      // IGNORED — reviewer identity comes from the session.
+      reviewerId: z.string().optional(),
+      reason: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      const reviewerId = String(ctx.user.id);
       const [row] = await db.update(kybVerifications)
-        .set({ status: "rejected", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
+        .set({ status: "rejected", initiatedBy: reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
       // ── In-app notification (existing) ────────────────────────────────────
       await notifyOwner({ title: "Merchant KYB Rejected", content: `KYB ${input.id} rejected. Reason: ${input.reason}` });
@@ -503,7 +566,7 @@ const merchantVerificationRouter = router({
           type: "kyb.rejected",
           verificationId: input.id,
           merchantId: row?.merchantId ?? "",
-          reviewerId: input.reviewerId,
+          reviewerId,
           reason: input.reason,
           timestamp: new Date().toISOString(),
         },
@@ -513,7 +576,7 @@ const merchantVerificationRouter = router({
       // ── Webhook: kyb.rejected (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
-          buildWebhookPayload("kyc.rejected", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, reason: input.reason }),
+          buildWebhookPayload("kyc.rejected", row.merchantId, "", { verificationId: input.id, reviewerId, reason: input.reason }),
         ).catch(() => {});
         // ── Push notification: kyb.rejected (Fix 2) ─────────────────────────
         notifyMerchant({
@@ -556,7 +619,9 @@ const bulkTransfersRouter = router({
   submit: protectedProcedure
     .input(z.object({
       batchName: z.string(),
-      merchantId: z.string(),
+      // Accepted for backwards compatibility but IGNORED — the merchant is
+      // resolved from the authenticated session, never from the client.
+      merchantId: z.string().optional(),
       transfers: z.array(z.object({
         reference: z.string(),
         amount: z.number().positive(),
@@ -567,10 +632,20 @@ const bulkTransfersRouter = router({
         narration: z.string().optional(),
       })),
     }))
-    .mutation(async ({ input }) => {
-      const batchId = `BULK-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-      await notifyOwner({ title: "Bulk Transfer Submitted", content: `Batch "${input.batchName}" (${batchId}) with ${input.transfers.length} transfers submitted.` });
-      return { batchId, status: "queued", count: input.transfers.length };
+    .mutation(async ({ input, ctx }) => {
+      // Merchant identity from the session — a caller cannot submit a batch on
+      // behalf of another merchant.
+      await resolveMerchantId(ctx.user.openId);
+      // STUB: no persistence and no payout/bridge integration exists for bulk
+      // transfers yet. Fail loud in production (demoOrFail) instead of
+      // fabricating a "queued" batch that will never be executed.
+      const batchId = `BULK-${Date.now()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+      const result = demoOrFail(
+        { batchId, status: "queued", count: input.transfers.length },
+        "wave223.bulkTransfers.submit",
+      );
+      await notifyOwner({ title: "Bulk Transfer Submitted (SIMULATION)", content: `Batch "${input.batchName}" (${batchId}) with ${input.transfers.length} transfers submitted (simulated — no real transfers queued).` });
+      return result;
     }),
 });
 

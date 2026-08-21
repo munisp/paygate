@@ -6,7 +6,7 @@
  * Outcomes: UPHELD (reversal + TigerBeetle), REJECTED (penalty billing), ESCALATED.
  */
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { pbacProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { transferDisputes, feePostings } from "../../drizzle/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
@@ -26,7 +26,7 @@ const PENALTY_BPS = 200; // 2% penalty on rejected disputes
 export const nexthubDisputesRouter = router({
 
   /** List disputes with filters */
-  listDisputes: protectedProcedure
+  listDisputes: pbacProcedure("trigger_settlement")
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
@@ -60,7 +60,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Get a single dispute */
-  getDispute: protectedProcedure
+  getDispute: pbacProcedure("trigger_settlement")
     .input(z.object({ disputeId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -74,7 +74,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Raise a new dispute */
-  raiseDispute: protectedProcedure
+  raiseDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       transferId: z.string(),
       initiatedByDfspId: z.string(),
@@ -109,7 +109,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Move a dispute to UNDER_REVIEW */
-  reviewDispute: protectedProcedure
+  reviewDispute: pbacProcedure("trigger_settlement")
     .input(z.object({ disputeId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -123,7 +123,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Uphold a dispute — triggers reversal transfer via TigerBeetle */
-  upholdDispute: protectedProcedure
+  upholdDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       disputeId: z.string(),
       resolutionNotes: z.string(),
@@ -142,6 +142,8 @@ export const nexthubDisputesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot uphold a ${dispute.status} dispute` });
       }
 
+      // Guarded update — re-check status in the WHERE clause so two
+      // concurrent uphold calls (or an uphold racing a reject) can't both win.
       const [updated] = await db.update(transferDisputes)
         .set({
           status: "UPHELD",
@@ -151,8 +153,13 @@ export const nexthubDisputesRouter = router({
           resolvedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(transferDisputes.id, input.disputeId))
+        .where(and(
+          eq(transferDisputes.id, input.disputeId),
+          sql`${transferDisputes.status} IN ('OPEN', 'UNDER_REVIEW')`,
+        ))
         .returning();
+
+      if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Dispute was already resolved by another request" });
 
       // In production: publish nexthub.disputes.upheld to Fluvio
       // Rust nexthub-settlement will post VOID_PENDING_TRANSFER to TigerBeetle
@@ -161,7 +168,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Reject a dispute — applies penalty fee to the initiating DFSP */
-  rejectDispute: protectedProcedure
+  rejectDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       disputeId: z.string(),
       resolutionNotes: z.string(),
@@ -175,37 +182,52 @@ export const nexthubDisputesRouter = router({
         .limit(1);
 
       if (!dispute) throw new TRPCError({ code: "NOT_FOUND", message: "Dispute not found" });
+      if (!["OPEN", "UNDER_REVIEW"].includes(dispute.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot reject a ${dispute.status} dispute` });
+      }
 
       const penaltyAmountKobo = Math.floor((dispute.amountKobo * PENALTY_BPS) / 10_000);
 
-      // Post penalty fee
-      await db.insert(feePostings).values({
-        transferId: dispute.transferId,
-        dfspId: dispute.initiatedByDfspId,
-        feeType: "PENALTY",
-        feeCategory: "DEBIT",
-        amountKobo: penaltyAmountKobo,
-        currency: dispute.currency,
-        billedAt: new Date(),
-      });
+      // Penalty posting + status flip must be ATOMIC — a partial failure must
+      // never leave a penalty billed against a dispute that wasn't rejected.
+      // The guarded UPDATE additionally makes a duplicate reject (which would
+      // double-bill the penalty) fail loud.
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(transferDisputes)
+          .set({
+            status: "REJECTED",
+            resolution: "REJECTED",
+            resolutionNotes: input.resolutionNotes,
+            penaltyAmountKobo,
+            resolvedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(transferDisputes.id, input.disputeId),
+            sql`${transferDisputes.status} IN ('OPEN', 'UNDER_REVIEW')`,
+          ))
+          .returning();
 
-      const [updated] = await db.update(transferDisputes)
-        .set({
-          status: "REJECTED",
-          resolution: "REJECTED",
-          resolutionNotes: input.resolutionNotes,
-          penaltyAmountKobo,
-          resolvedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(transferDisputes.id, input.disputeId))
-        .returning();
+        if (!row) throw new TRPCError({ code: "CONFLICT", message: "Dispute was already resolved by another request" });
+
+        await tx.insert(feePostings).values({
+          transferId: dispute.transferId,
+          dfspId: dispute.initiatedByDfspId,
+          feeType: "PENALTY",
+          feeCategory: "DEBIT",
+          amountKobo: penaltyAmountKobo,
+          currency: dispute.currency,
+          billedAt: new Date(),
+        });
+
+        return row;
+      });
 
       return updated;
     }),
 
   /** Escalate a dispute to the scheme operator */
-  escalateDispute: protectedProcedure
+  escalateDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       disputeId: z.string(),
       notes: z.string().optional(),
@@ -226,25 +248,25 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** Get dispute dashboard statistics */
-  getStats: protectedProcedure
+  getStats: pbacProcedure("trigger_settlement")
     .query(async () => {
       const db = await getDb();
 
       const [stats] = await db.select({
         totalOpen: sql<number>`sum(case when status = 'OPEN' then 1 else 0 end)::int`,
         underReview: sql<number>`sum(case when status = 'UNDER_REVIEW' then 1 else 0 end)::int`,
-        upheldThisMonth: sql<number>`sum(case when status = 'UPHELD' and resolved_at >= date_trunc('month', now( then 1 else 0 end)))::int`,
-        rejectedThisMonth: sql<number>`sum(case when status = 'REJECTED' and resolved_at >= date_trunc('month', now( then 1 else 0 end)))::int`,
+        upheldThisMonth: sql<number>`sum(case when status = 'UPHELD' and resolved_at >= date_trunc('month', now()) then 1 else 0 end)::int`,
+        rejectedThisMonth: sql<number>`sum(case when status = 'REJECTED' and resolved_at >= date_trunc('month', now()) then 1 else 0 end)::int`,
         escalated: sql<number>`sum(case when status = 'ESCALATED' then 1 else 0 end)::int`,
         totalPenaltiesKobo: sql<number>`coalesce(sum(case when status = 'REJECTED' then penalty_amount_kobo else 0 end), 0)::bigint`,
-        slaBreach: sql<number>`sum(case when status in ('OPEN', 'UNDER_REVIEW' then 1 else 0 end) and sla_deadline < now())::int`,
+        slaBreach: sql<number>`sum(case when status in ('OPEN', 'UNDER_REVIEW') and sla_deadline < now() then 1 else 0 end)::int`,
       }).from(transferDisputes);
 
       return stats;
     }),
 
   /** Alias for raiseDispute — accepts extended input for API compatibility */
-  createDispute: protectedProcedure
+  createDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       transferId: z.string(),
       initiatingFspId: z.string(),
@@ -271,7 +293,7 @@ export const nexthubDisputesRouter = router({
     }),
 
   /** resolveDispute — marks a dispute as RESOLVED with an outcome */
-  resolveDispute: protectedProcedure
+  resolveDispute: pbacProcedure("trigger_settlement")
     .input(z.object({
       disputeId: z.string(),
       outcome: z.enum(["UPHELD", "REJECTED", "WITHDRAWN"]),

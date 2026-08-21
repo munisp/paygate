@@ -223,7 +223,17 @@ export const velocityLimitsRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const targetMerchantId = input.merchantId ?? ctx.user.tenantId ?? ctx.user.openId;
+      // Cross-tenant reads only for platform admins (role check consistent
+      // with adminProcedure used elsewhere in this file). Merchants always
+      // see only their own configs — the merchantId input cannot override.
+      const ownMerchantId = ctx.user.tenantId ?? ctx.user.openId;
+      let targetMerchantId = ownMerchantId;
+      if (input.merchantId && input.merchantId !== ownMerchantId) {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Cannot read another merchant's velocity-limit configs" });
+        }
+        targetMerchantId = input.merchantId;
+      }
       const conditions = [eq(velocityLimitConfigs.merchantId, targetMerchantId)];
       if (input.channel) conditions.push(eq(velocityLimitConfigs.channel, input.channel));
       if (input.isActive !== undefined) conditions.push(eq(velocityLimitConfigs.isActive, input.isActive));
@@ -299,7 +309,16 @@ export const velocityLimitsRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const targetMerchantId = input.merchantId ?? ctx.user.tenantId ?? ctx.user.openId;
+      // Same cross-tenant guard as listConfigs: merchantId override is
+      // honoured for platform admins only.
+      const ownMerchantId = ctx.user.tenantId ?? ctx.user.openId;
+      let targetMerchantId = ownMerchantId;
+      if (input.merchantId && input.merchantId !== ownMerchantId) {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Cannot read another merchant's velocity breaches" });
+        }
+        targetMerchantId = input.merchantId;
+      }
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(velocityBreaches.merchantId, targetMerchantId)];
       if (input.action) conditions.push(eq(velocityBreaches.action, input.action));
@@ -683,10 +702,13 @@ export const chargebackLifecycleRouter = router({
         .limit(1);
       if (!cb) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Upload to S3
+      // Upload to S3 — sanitize fileName so path traversal ("../") cannot
+      // escape the merchant prefix (same safeName pattern as
+      // server/routers/chargebackLifecycle.ts).
       const fileBuffer = Buffer.from(input.base64Content, "base64");
       const suffix = crypto.randomUUID().slice(0, 8);
-      const fileKey = `chargebacks/${merchantId}/${input.chargebackId}/${suffix}-${input.fileName}`;
+      const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const fileKey = `chargebacks/${merchantId}/${input.chargebackId}/${suffix}-${safeName}`;
       const { url } = await storagePut(fileKey, fileBuffer, input.mimeType);
 
       // Insert evidence record

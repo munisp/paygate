@@ -730,15 +730,15 @@ export const subscriptionsMwExtRouter = router({
       const merchant = await requireMerchant(user.id);
       // Return last N months of churn/MRR data
       const rows = await db.execute(
-        sql`SELECT 
-          DATE_FORMAT(created_at, '%b') as month,
-          COUNT(*) as newSubs,
+        sql`SELECT
+          TO_CHAR(created_at, 'Mon') as month,
+          COUNT(*) as "newSubs",
           SUM(amount_ngn) as mrr
         FROM subscription_plans
         WHERE merchant_id = ${merchant.id}
-          AND created_at >= DATE_SUB(NOW(), INTERVAL ${input.months} MONTH)
-        GROUP BY DATE_FORMAT(created_at, '%Y-%m')
-        ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC`
+          AND created_at >= NOW() - make_interval(months => ${input.months})
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM'), TO_CHAR(created_at, 'Mon')
+        ORDER BY TO_CHAR(created_at, 'YYYY-MM') ASC`
       );
       return (rows as any[]).map(r => ({
         month: r.month,

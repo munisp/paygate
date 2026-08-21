@@ -102,7 +102,7 @@ describe("settings.getUssdLangPickerEnabled", () => {
     const caller = appRouter.createCaller(createMerchantContext());
     const result = await caller.settings.getUssdLangPickerEnabled();
     expect(result).toEqual({ ussdLangPickerEnabled: true });
-  });
+  }, 60_000 /* Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems — timeout bumped, assertion unchanged. */);
 
   it("returns ussdLangPickerEnabled=false when merchant has it disabled", async () => {
     const { getMerchantByOwnerId } = await import("./db");
@@ -111,7 +111,7 @@ describe("settings.getUssdLangPickerEnabled", () => {
     const caller = appRouter.createCaller(createMerchantContext());
     const result = await caller.settings.getUssdLangPickerEnabled();
     expect(result).toEqual({ ussdLangPickerEnabled: false });
-  });
+  }, 60_000 /* Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems — timeout bumped, assertion unchanged. */);
 
   it("returns ussdLangPickerEnabled=true as default when merchant field is null", async () => {
     const { getMerchantByOwnerId } = await import("./db");
@@ -120,7 +120,7 @@ describe("settings.getUssdLangPickerEnabled", () => {
     const caller = appRouter.createCaller(createMerchantContext());
     const result = await caller.settings.getUssdLangPickerEnabled();
     expect(result).toEqual({ ussdLangPickerEnabled: true });
-  });
+  }, 60_000 /* Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems — timeout bumped, assertion unchanged. */);
 
   it("throws UNAUTHORIZED when called without authentication", async () => {
     const { appRouter } = await import("./routers");

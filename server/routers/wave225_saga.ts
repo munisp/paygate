@@ -15,11 +15,30 @@
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, adminProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { sagaInstances } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { env } from "../_core/env";
+
+/**
+ * Internal-caller auth for Go-bridge → tRPC callbacks. Consistent with the
+ * established bridge pattern (see `createAlert` in server/routers.ts, VULN-037
+ * fix): the bridge presents MIDDLEWARE_INTERNAL_KEY in the request body and it
+ * is compared with crypto.timingSafeEqual. FAILS CLOSED: if the env key is not
+ * configured, every call is rejected.
+ */
+async function assertInternalBridgeCaller(internalKey: string): Promise<void> {
+  const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+  const { timingSafeEqual } = await import("crypto");
+  const keysMatch =
+    expectedKey.length > 0 &&
+    internalKey.length === expectedKey.length &&
+    timingSafeEqual(Buffer.from(internalKey), Buffer.from(expectedKey));
+  if (!keysMatch) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
+  }
+}
 
 // ─── Temporal HTTP API helper ─────────────────────────────────────────────────
 async function fetchTemporalWorkflow(workflowId: string, runId?: string) {
@@ -65,9 +84,10 @@ export const sagaWiringRouter = router({
    * Called by the Go bridge to push a saga step update from Temporal workflow
    * history into the saga_instances table.
    */
-  updateSagaStep: protectedProcedure
+  updateSagaStep: publicProcedure
     .input(
       z.object({
+        internalKey: z.string(),
         sagaId: z.string(),
         stepIndex: z.number().int().min(0),
         stepName: z.string(),
@@ -79,6 +99,7 @@ export const sagaWiringRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      await assertInternalBridgeCaller(input.internalKey);
       const db = (await getDb())!;
 
       const [saga] = await db
@@ -137,7 +158,7 @@ export const sagaWiringRouter = router({
    * Returns the live Temporal workflow execution status.
    * Falls back gracefully if Temporal HTTP API is not available.
    */
-  getTemporalStatus: publicProcedure
+  getTemporalStatus: adminProcedure
     .input(
       z.object({
         workflowId: z.string(),
@@ -174,9 +195,10 @@ export const sagaWiringRouter = router({
    * Batch-sync: reads Temporal event history and updates all saga steps in DB.
    * Called by the Go bridge after workflow completion.
    */
-  syncFromTemporal: protectedProcedure
+  syncFromTemporal: publicProcedure
     .input(
       z.object({
+        internalKey: z.string(),
         sagaId: z.string(),
         workflowId: z.string(),
         runId: z.string().optional(),
@@ -191,6 +213,7 @@ export const sagaWiringRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      await assertInternalBridgeCaller(input.internalKey);
       const db = (await getDb())!;
 
       const [saga] = await db

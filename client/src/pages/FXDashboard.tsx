@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { useResilientSSE } from "@/lib/resilientSSE";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -129,13 +130,16 @@ export default function FXDashboard() {
   const xbQuoteMutation = trpc.crossBorder.getQuote.useQuery(
     { sourceCurrency: xbForm.sourceCurrency, targetCurrency: xbForm.targetCurrency, amount: xbForm.amount, rail: xbForm.rail },
     { enabled: false , staleTime: 30_000 })
+  const xbInitiateKey = useIdempotencyKey();
   const xbInitiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: (data) => {
+      xbInitiateKey.reset();
       setXbResult(data);
       setXbStep("done");
       setXbStatusMsg("Transfer submitted successfully via " + xbForm.rail.toUpperCase());
     },
     onError: (e: any) => {
+      xbInitiateKey.reset();
       toast.error(e.message);
     },
   });
@@ -166,6 +170,10 @@ export default function FXDashboard() {
   }
 
   function handleXbConfirm() {
+    if (!/^\d{1,13}(\.\d{1,2})?$/.test(xbForm.amount) || parseFloat(xbForm.amount) <= 0) {
+      toast.error("Amount must be a positive decimal with up to 2 decimal places");
+      return;
+    }
     xbInitiateMutation.mutate({
       receiverId: xbForm.receiverId,
       receiverIdType: xbForm.receiverIdType,
@@ -177,6 +185,7 @@ export default function FXDashboard() {
       quoteId: xbQuote?.quote_id,
       senderName: xbForm.senderName || undefined,
       receiverName: xbForm.receiverName || undefined,
+      idempotencyKey: xbInitiateKey.getKey(),
     });
   }
 

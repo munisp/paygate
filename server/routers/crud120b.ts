@@ -34,10 +34,12 @@ import {
   usdcV2Transactions,
   usdcV2Wallets,
   userInsuranceClaims,
+  users,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 
 const paginationInput = z.object({
   page: z.number().int().min(1).default(1),
@@ -46,6 +48,42 @@ const paginationInput = z.object({
 
 function paginate(page: number, limit: number) {
   return { offset: (page - 1) * limit, limit };
+}
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB-checked, adminRouter pattern). */
+async function requirePlatformAdmin(db: Db, openId: string): Promise<void> {
+  const [caller] = await db.select({ role: users.role }).from(users).where(eq(users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/**
+ * Audit events on approval/suspension paths must never vanish silently.
+ * publishEvent returns `false` when the event bus is unavailable
+ * (non-regulatory topics) and throws for durable-outbox failures — both
+ * outcomes are logged loudly here instead of being swallowed with
+ * `.catch(() => {})`.
+ */
+function publishAuditEventLoud(payload: Parameters<typeof publishAuditEvent>[0]): void {
+  publishAuditEvent(payload)
+    .then((delivered) => {
+      if (delivered === false) {
+        logger.error("AUDIT EVENT NOT DELIVERED — event bus unavailable, audit event dropped", {
+          action: payload.action,
+          targetId: payload.targetId,
+        });
+      }
+    })
+    .catch((err) => {
+      logger.error("AUDIT EVENT PUBLISH FAILED", {
+        action: payload.action,
+        targetId: payload.targetId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 }
 
 // ─── 41. Split Bill ──────────────────────────────────────────────────────────
@@ -298,17 +336,30 @@ export const superAgentV2Router = router({
     }).returning();
     return row;
   }),
-  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
+  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(superAgentV2Networks).set({ status: "suspended" })
-      .where(eq(superAgentV2Networks.id, input.id));
-    publishAuditEvent({ action: 'super_agent_network.suspended', userId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
+    // Tenant scoping: a network may only be suspended by the merchant that
+    // owns it — never by raw id across tenants.
+    const [updated] = await db.update(superAgentV2Networks).set({ status: "suspended" })
+      .where(and(
+        eq(superAgentV2Networks.id, input.id),
+        eq(superAgentV2Networks.merchantId, ctx.user.tenantId ?? ""),
+      ))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Network not found" });
+    publishAuditEventLoud({ action: 'super_agent_network.suspended', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(superAgentV2Networks).set({ status: "active" })
-      .where(eq(superAgentV2Networks.id, input.id));
+    // Tenant scoping: only the owning merchant may reactivate its network.
+    const [updated] = await db.update(superAgentV2Networks).set({ status: "active" })
+      .where(and(
+        eq(superAgentV2Networks.id, input.id),
+        eq(superAgentV2Networks.merchantId, ctx.user.tenantId ?? ""),
+      ))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Network not found" });
     return { success: true };
   }),
 });
@@ -499,16 +550,26 @@ export const tenantMgmtRouter = router({
     status: z.enum(["pending", "active", "suspended", "closed"]).optional(),
     logoUrl: z.string().url().optional(),
     websiteUrl: z.string().url().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): this mutates any tenant's plan/status
+    // by raw id, so it must not be reachable by regular users.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { id, websiteUrl, ...rest } = input;
-    await db.update(tenants).set(rest).where(eq(tenants.id, id));
+    const [updated] = await db.update(tenants).set(rest).where(eq(tenants.id, id)).returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
     return { success: true };
   }),
-  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
+  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
-    publishAuditEvent({ action: 'tenant.suspended', userId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
+    // Platform-admin gate (DB-checked): suspending a tenant takes every
+    // merchant under it offline — a regular user must never do this.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    const [updated] = await db.update(tenants).set({ status: "suspended", suspendReason: input.reason, suspendedAt: new Date() })
+      .where(eq(tenants.id, input.id))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+    publishAuditEventLoud({ action: 'tenant.suspended', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {

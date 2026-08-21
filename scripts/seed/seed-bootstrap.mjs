@@ -15,7 +15,9 @@ function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + m
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 async function run() {
-  const client = new Client({ connectionString: 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev' });
+  // Dev/test seed script: the fallback below targets the LOCAL embedded dev DB
+// (localhost) only. For any non-localhost database set PG_DATABASE_URL/DATABASE_URL.
+const client = new Client({ connectionString: process.env.PG_DATABASE_URL ?? 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev' });
   await client.connect();
   console.log('✅ Connected to PostgreSQL');
 

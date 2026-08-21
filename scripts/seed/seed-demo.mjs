@@ -9,6 +9,7 @@ const { Pool } = pg;
 const pool = new Pool({
   connectionString:
     process.env.PG_DATABASE_URL ??
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
     "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev",
   max: 5,
 });

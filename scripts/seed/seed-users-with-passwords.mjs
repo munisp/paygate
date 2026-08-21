@@ -5,12 +5,13 @@
  * so the email/password login on the dashboard works.
  *
  * Usage:
- *   node seed-users-with-passwords.mjs
+ *   DATABASE_URL=... PAYGATE_ADMIN_PASSWORD=... PAYGATE_MERCHANT_PASSWORD=... \
+ *     PAYGATE_DEMO_PASSWORD=... node seed-users-with-passwords.mjs
  *
- * Credentials created:
- *   admin@paygate.ng        / Admin@PayGate2026!
- *   merchant@acme.ng        / merchant123
- *   demo@paygate.ng         / Demo@PayGate2026!
+ * Credentials created (passwords come from env — no hardcoded defaults):
+ *   admin@paygate.ng        / $PAYGATE_ADMIN_PASSWORD
+ *   merchant@acme.ng        / $PAYGATE_MERCHANT_PASSWORD
+ *   demo@paygate.ng         / $PAYGATE_DEMO_PASSWORD
  */
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
@@ -23,6 +24,15 @@ if (!DB_URL) {
   process.exit(1);
 }
 
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`❌  ${name} is not set — seed passwords must be provided via env (no hardcoded defaults)`);
+    process.exit(1);
+  }
+  return value;
+}
+
 const BCRYPT_ROUNDS = 12;
 
 const USERS = [
@@ -31,7 +41,7 @@ const USERS = [
     email: "admin@paygate.ng",
     name: "PayGate Admin",
     role: "admin",
-    password: "Admin@PayGate2026!",
+    password: requireEnv("PAYGATE_ADMIN_PASSWORD"),
     loginMethod: "email",
   },
   {
@@ -39,7 +49,7 @@ const USERS = [
     email: "merchant@acme.ng",
     name: "Acme Merchant",
     role: "user",
-    password: "merchant123",
+    password: requireEnv("PAYGATE_MERCHANT_PASSWORD"),
     loginMethod: "email",
   },
   {
@@ -47,7 +57,7 @@ const USERS = [
     email: "demo@paygate.ng",
     name: "PayGate Demo Merchant",
     role: "user",
-    password: "Demo@PayGate2026!",
+    password: requireEnv("PAYGATE_DEMO_PASSWORD"),
     loginMethod: "email",
   },
 ];

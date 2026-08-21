@@ -134,13 +134,16 @@ export const nexthubSettlementRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Window is ${window.status}, not OPEN` });
       }
 
-      // Aggregate net positions per DFSP from nexthub_transfers in this window
+      // Aggregate net positions per DFSP from nexthub_transfers in this window.
+      // NOTE: the previous query used `case when payer_fsp_id = payer_fsp_id`
+      // (a tautology, always true) — each (payer, payee) group contributes its
+      // full amount sum to the payer's debits and the payee's credits, so a
+      // single plain SUM is the truthful expression.
       const positions = await db
         .select({
           payerFspId: nexthubTransfers.payerFspId,
           payeeFspId: nexthubTransfers.payeeFspId,
-          totalDebits: sql<number>`sum(case when payer_fsp_id = payer_fsp_id then amount_kobo else 0 end)::bigint`,
-          totalCredits: sql<number>`sum(case when payee_fsp_id = payee_fsp_id then amount_kobo else 0 end)::bigint`,
+          totalAmount: sql<number>`sum(amount_kobo)::bigint`,
           count: sql<number>`count(*)::int`,
         })
         .from(nexthubTransfers)
@@ -153,13 +156,14 @@ export const nexthubSettlementRouter = router({
       // Build per-DFSP net position map
       const netMap = new Map<string, { debits: number; credits: number; count: number }>();
       for (const p of positions) {
+        const amount = p.totalAmount ?? 0;
         const debit = netMap.get(p.payerFspId) ?? { debits: 0, credits: 0, count: 0 };
-        debit.debits += p.totalDebits ?? 0;
+        debit.debits += amount;
         debit.count += p.count ?? 0;
         netMap.set(p.payerFspId, debit);
 
         const credit = netMap.get(p.payeeFspId) ?? { debits: 0, credits: 0, count: 0 };
-        credit.credits += p.totalCredits ?? 0;
+        credit.credits += amount;
         netMap.set(p.payeeFspId, credit);
       }
 
@@ -184,22 +188,33 @@ export const nexthubSettlementRouter = router({
         transferCount: pos.count,
       }));
 
-      if (netPositionRows.length > 0) {
-        await db.insert(settlementNetPositions).values(netPositionRows);
-      }
-
       const totalAmount = netPositionRows.reduce((sum, p) => sum + Math.abs(p.netPositionKobo), 0);
 
-      const [updated] = await db.update(settlementWindows)
-        .set({
-          status: "CLOSED",
-          closedAt: new Date(),
-          totalTransfers: netPositionRows.reduce((sum, p) => sum + p.transferCount, 0),
-          totalAmountKobo: totalAmount,
-          updatedAt: new Date(),
-        })
-        .where(eq(settlementWindows.id, input.windowId))
-        .returning();
+      // Positions insert + status flip are ATOMIC, and the flip is guarded on
+      // status='OPEN' — two concurrent closeWindow calls can't both insert net
+      // positions (which would double-count settlement amounts).
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(settlementWindows)
+          .set({
+            status: "CLOSED",
+            closedAt: new Date(),
+            totalTransfers: netPositionRows.reduce((sum, p) => sum + p.transferCount, 0),
+            totalAmountKobo: totalAmount,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(settlementWindows.id, input.windowId),
+            eq(settlementWindows.status, "OPEN"),
+          ))
+          .returning();
+
+        if (!row) throw new TRPCError({ code: "CONFLICT", message: "Window was already closed by another request" });
+
+        if (netPositionRows.length > 0) {
+          await tx.insert(settlementNetPositions).values(netPositionRows);
+        }
+        return row;
+      });
 
       return updated;
     }),
@@ -220,12 +235,17 @@ export const nexthubSettlementRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Window must be CLOSED to settle (current: ${window.status})` });
       }
 
-      // Mark as SETTLING — TigerBeetle batch posting happens asynchronously
-      // via the Rust nexthub-settlement service consuming the Fluvio topic
+      // Mark as SETTLING — guarded so two concurrent settle calls can't both
+      // trigger the TigerBeetle batch for the same window (double settlement).
       const [updated] = await db.update(settlementWindows)
         .set({ status: "SETTLING", updatedAt: new Date() })
-        .where(eq(settlementWindows.id, input.windowId))
+        .where(and(
+          eq(settlementWindows.id, input.windowId),
+          eq(settlementWindows.status, "CLOSED"),
+        ))
         .returning();
+
+      if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Window settlement was already triggered by another request" });
 
       // In production: publish nexthub.settlement.window.settle event to Fluvio
       // The Rust nexthub-settlement service will:

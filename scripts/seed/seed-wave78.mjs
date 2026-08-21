@@ -27,6 +27,7 @@ import { randomUUID, randomBytes } from "crypto";
 
 const DB_URL =
   process.env.DATABASE_URL ||
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
   "postgresql://paygate:paygate@localhost:5432/paygate";
 const client = new pg.Client({ connectionString: DB_URL });
 await client.connect();

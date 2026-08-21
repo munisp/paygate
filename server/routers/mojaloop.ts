@@ -18,6 +18,9 @@ import { db } from "../db";
 import { mojaloopTransfers, mojaloopParties, mojaloopQuotes } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { env } from "../_core/env";
+import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
+import { withIdempotency } from "../idempotency";
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL || "http://localhost:8080";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY || "";
@@ -95,44 +98,92 @@ export const mojaloopRouter = router({
       amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
       currency: z.enum(["NGN", "USD", "GHS", "KES", "ZAR", "UGX", "TZS", "XOF"]),
       note: z.string().max(200).optional(),
+      // Client-supplied idempotency key — a retry with the same key replays the
+      // stored response and NEVER re-executes the transfer at the Hub.
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const result = await bridgeRequest<{
-        transferId: string;
-        quoteId: string;
-        payerFspId?: string | null;
-        payeeFspId?: string | null;
-        ilpPacket?: string | null;
-        condition?: string | null;
-        expiration?: string | null;
-      }>("/mojaloop/transfers/initiate", {
-        merchantId: String(ctx.user.id),
-        ...input,
-      });
+      const execute = async () => {
+        const { idempotencyKey: _idem, ...bridgeInput } = input;
+        const result = await bridgeRequest<{
+          transferId: string;
+          quoteId: string;
+          payerFspId?: string | null;
+          payeeFspId?: string | null;
+          ilpPacket?: string | null;
+          condition?: string | null;
+          expiration?: string | null;
+        }>("/mojaloop/transfers/initiate", {
+          merchantId: String(ctx.user.id),
+          ...bridgeInput,
+        });
 
-      // Persist transfer record
-      const amountMinor = Math.round(parseFloat(input.amount) * 100);
-      await db.insert(mojaloopTransfers).values({
-        merchantId: String(ctx.user.id),
-        transferId: result.transferId,
-        quoteId: result.quoteId,
-        payerFspId: result.payerFspId ?? null,
-        payeeFspId: result.payeeFspId ?? null,
-        amount: amountMinor,
-        currency: input.currency,
-        transferState: "RESERVED",
-        ilpPacket: result.ilpPacket ?? null,
-        condition: result.condition ?? null,
-        expiration: result.expiration ? new Date(result.expiration) : null,
-        note: input.note ?? null,
-      });
+        if (!result?.transferId) {
+          // Fail loud — never return a success-shaped response without a real
+          // transfer reference from the Hub.
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Mojaloop bridge returned no transferId — transfer NOT initiated",
+          });
+        }
 
-      return {
-        transferId: result.transferId,
-        quoteId: result.quoteId,
-        transferState: "RESERVED",
-        expiration: result.expiration ?? null,
+        // Persist transfer record. Dedup on the transfer reference: if the
+        // transferId is already recorded, return the existing row instead of
+        // double-recording (the unique constraint is the backstop).
+        const amountMinor = Math.round(parseFloat(input.amount) * 100);
+        const inserted = await db.insert(mojaloopTransfers).values({
+          merchantId: String(ctx.user.id),
+          transferId: result.transferId,
+          quoteId: result.quoteId,
+          payerFspId: result.payerFspId ?? null,
+          payeeFspId: result.payeeFspId ?? null,
+          amount: amountMinor,
+          currency: input.currency,
+          transferState: "RESERVED",
+          ilpPacket: result.ilpPacket ?? null,
+          condition: result.condition ?? null,
+          expiration: result.expiration ? new Date(result.expiration) : null,
+          note: input.note ?? null,
+        }).onConflictDoNothing({ target: mojaloopTransfers.transferId })
+          .returning({ transferId: mojaloopTransfers.transferId });
+
+        if (inserted.length === 0) {
+          logger.warn(`[mojaloop] duplicate transferId ${result.transferId} — returning existing record (dedup)`);
+          const [existing] = await db
+            .select()
+            .from(mojaloopTransfers)
+            .where(eq(mojaloopTransfers.transferId, result.transferId))
+            .limit(1);
+          if (existing) {
+            return {
+              transferId: existing.transferId,
+              quoteId: existing.quoteId,
+              transferState: existing.transferState,
+              expiration: existing.expiration ? existing.expiration.toISOString() : null,
+            };
+          }
+        }
+
+        return {
+          transferId: result.transferId,
+          quoteId: result.quoteId,
+          transferState: "RESERVED",
+          expiration: result.expiration ?? null,
+        };
       };
+
+      // Idempotency: when the client supplies a key, claim it atomically and
+      // replay the stored response on retry — the Hub call runs exactly once.
+      if (input.idempotencyKey) {
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: String(ctx.user.id),
+          operation: "mojaloop.initiateTransfer",
+          requestBody: input,
+          execute,
+        });
+      }
+      return execute();
     }),
 
   /**
@@ -213,9 +264,14 @@ export const mojaloopRouter = router({
             quotes_accepted: number;
           }>;
         };
-      } catch {
-        // Return empty if bridge unavailable
-        return { days: [] };
+      } catch (err) {
+        // FAIL LOUD — an empty success response would be indistinguishable
+        // from "no transfers", hiding bridge outages from operators.
+        logger.error(`[mojaloop] analytics bridge call failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Mojaloop analytics unavailable — bridge call failed",
+        });
       }
     }),
 });

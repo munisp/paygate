@@ -8,12 +8,16 @@ import pg from "pg";
 
 const { Client } = pg;
 
-const DB_URL = "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+// Dev-only fix script: the fallback below targets the LOCAL embedded dev PG
+// (127.0.0.1) only. For any non-localhost database set PG_DATABASE_URL explicitly.
+const DB_URL = process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
 
+// Dev/demo passwords for local development users only. Override via env to avoid
+// writing well-known passwords (e.g. PAYGATE_ADMIN_PASSWORD=... node fix-passwords.mjs).
 const USERS = [
-  { email: "admin@paygate.ng",    password: "admin123",    name: "PayGate Admin",    role: "admin" },
-  { email: "merchant@acme.ng",    password: "merchant123", name: "Acme Merchant",    role: "user" },
-  { email: "demo@paygate.ng",     password: "demo123",     name: "Demo User",        role: "user" },
+  { email: "admin@paygate.ng",    password: process.env.PAYGATE_ADMIN_PASSWORD ?? "admin123",       name: "PayGate Admin",    role: "admin" },
+  { email: "merchant@acme.ng",    password: process.env.PAYGATE_MERCHANT_PASSWORD ?? "merchant123", name: "Acme Merchant",    role: "user" },
+  { email: "demo@paygate.ng",     password: process.env.PAYGATE_DEMO_PASSWORD ?? "demo123",         name: "Demo User",        role: "user" },
 ];
 
 async function main() {

@@ -82,8 +82,8 @@ services:
       - "${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
-      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
-      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
+      REDIS_URL: ${REDIS_URL:?must be set - no default redis URL allowed in production}
       JWT_SECRET: ${JWT_SECRET:?must be set — min 32 chars random (openssl rand -base64 48)}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
@@ -102,23 +102,23 @@ services:
       GNN_FRAUD_URL: http://gnn-fraud:8000
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-PayGate Merchant Portal}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?must be set - no default Stripe secret allowed in production}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?must be set - no default webhook secret allowed in production}
       VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}
       SMTP_HOST: ${SMTP_HOST:-smtp.mailgun.org}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-postmaster@paygate.ng}
-      SMTP_PASS: ${SMTP_PASS:-smtp_password_placeholder}
+      SMTP_PASS: ${SMTP_PASS:?must be set - no default SMTP password allowed in production}
       NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-gateway.paygate.ng}
       NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-000001}
-      NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY:-nibss_secret_placeholder}
+      NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY:?must be set - no default NIBSS secret allowed in production}
       MOJALOOP_URL: ${MOJALOOP_URL:-https://mojaloop.paygate.ng}
-      MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:-mojaloop_key_placeholder}
+      MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:?must be set - no default Mojaloop key allowed in production}
       PAYMENT_LINK_BASE_URL: ${PAYMENT_LINK_BASE_URL:-https://pay.paygate.ng}
       MERCHANT_PORTAL_URL: ${MERCHANT_PORTAL_URL:-https://portal.paygate.ng}
-      YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY:-youverify_key_placeholder}
-      TERMII_API_KEY: ${TERMII_API_KEY:-termii_key_placeholder}
-      NIP_API_KEY: ${NIP_API_KEY:-nip_key_placeholder}
+      YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY:?must be set - no default Youverify key allowed in production}
+      TERMII_API_KEY: ${TERMII_API_KEY:?must be set - no default Termii key allowed in production}
+      NIP_API_KEY: ${NIP_API_KEY:?must be set - no default NIP key allowed in production}
       # ─── Keycloak OIDC ─────────────────────────────────────────────────────────────────────
       # Required for on-premise auth. Run scripts/keycloak-bootstrap.sh once
       # after first startup to provision the realm, client, and admin user.
@@ -129,7 +129,7 @@ services:
       # Keycloak Admin credentials for the nightly realm backup job
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?must be set — no default admin credentials allowed}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?must be set — no default admin credentials allowed}
-      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:?must be set - no default webhook secret allowed in production}
       # Comma-separated list of allowed redirect origins (e.g. https://portal.acme.com)
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     depends_on:
@@ -340,7 +340,7 @@ services:
       KC_DB_USERNAME: ${POSTGRES_USER:-paygate}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?must be set — no default admin credentials allowed}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?must be set - no default admin credentials allowed}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       # ── SMTP (password-reset / email-verification emails) ──────────
@@ -358,7 +358,7 @@ services:
       # ── Webhook secret for event listener SPI ─────────────────────
       # This value must match KEYCLOAK_WEBHOOK_SECRET in the portal .env.
       # Generate with: openssl rand -hex 32
-      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:?must be set - no default webhook secret allowed in production}
     # Port 8080 is intentionally NOT exposed to the host.
     # Uncomment the line below ONLY for initial bootstrap / emergency access:
     # ports:
@@ -394,8 +394,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_access_key}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?must be set - no default object-store credentials allowed in production}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?must be set - no default object-store credentials allowed in production}
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -520,7 +520,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       QDRANT_URL: http://qdrant:6333
-      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: Lakehouse AI Orchestrator ───────────────────────────
@@ -539,8 +539,8 @@ services:
       VECTOR_STORE_URL: http://vector-store:8000
       KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
       ART_REASONING_URL: http://art-reasoning:8000
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?must be set - no default object-store credentials allowed in production}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?must be set - no default object-store credentials allowed in production}
       S3_ENDPOINT_URL: http://minio:9000
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -567,7 +567,7 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: Settlement Forecast ─────────────────────────────────
@@ -602,7 +602,7 @@ services:
     container_name: paygate_migrate
     command: ["pnpm", "db:push"]
     environment:
-      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -617,7 +617,7 @@ services:
     container_name: paygate_seed
     command: ["node", "scripts/seed-production-complete.mjs"]
     environment:
-      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -780,8 +780,8 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?must be set - no default object-store credentials allowed in production}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?must be set - no default object-store credentials allowed in production}
       S3_ENDPOINT_URL: http://minio:9000
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
 
@@ -851,8 +851,8 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-vapid_public_key_placeholder}
-      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-vapid_private_key_placeholder}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:?must be set - no default VAPID key allowed in production}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?must be set - no default VAPID key allowed in production}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@paygate.ng}
 
   # ─── Python: Reconciliation Engine ───────────────────────────────
@@ -903,8 +903,8 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       S3_ENDPOINT_URL: http://minio:9000
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?must be set - no default object-store credentials allowed in production}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?must be set - no default object-store credentials allowed in production}
 
   # ─── Python: Tax Engine ───────────────────────────────────────────
   tax-engine:
@@ -986,8 +986,8 @@ services:
     environment:
       NIFI_WEB_HTTPS_PORT: 8443
       SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USERNAME:-admin}
-      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:-paygate_nifi_admin_2026}
-      NIFI_SENSITIVE_PROPS_KEY: ${NIFI_SENSITIVE_KEY:-paygate_nifi_sensitive_key_32chars}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:?must be set - no default NiFi admin password allowed in production}
+      NIFI_SENSITIVE_PROPS_KEY: ${NIFI_SENSITIVE_KEY:?must be set - no default NiFi sensitive key allowed in production}
     volumes:
       - nifi_data:/opt/nifi/nifi-current/data
       - nifi_logs:/opt/nifi/nifi-current/logs
@@ -1013,13 +1013,13 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-paygate_airflow_secret_2026}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?must be set - no default Fernet key allowed in production}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?must be set - no default Airflow secret allowed in production}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
       _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USERNAME:-admin}
-      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-paygate_airflow_2026}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:?must be set - no default Airflow admin password allowed in production}
     volumes:
       - ./infra/airflow/dags:/opt/airflow/dags
       - airflow_logs:/opt/airflow/logs
@@ -1043,7 +1043,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?must be set - no default Fernet key allowed in production}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
       - ./infra/airflow/dags:/opt/airflow/dags
@@ -1062,7 +1062,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
       AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?must be set - no default Fernet key allowed in production}
     volumes:
       - ./infra/airflow/dags:/opt/airflow/dags
       - airflow_logs:/opt/airflow/logs
@@ -1117,7 +1117,7 @@ services:
       - "${THREAT_INTEL_PORT:-8095}:8095"
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      REDIS_URL: ${REDIS_URL:?must be set - no default redis URL allowed in production}
       GEOIP_DB_PATH: /data/GeoLite2-City.mmdb
       THREAT_INTEL_PORT: "8095"
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -1145,7 +1145,7 @@ services:
       - "${CIPS_UPI_PIX_FX_PORT:-8102}:8102"
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      REDIS_URL: ${REDIS_URL:?must be set - no default redis URL allowed in production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
     depends_on:
@@ -1190,7 +1190,7 @@ services:
       - "${WEALTH_ADVISOR_PORT:-8020}:8020"
     environment:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
-      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      REDIS_URL: ${REDIS_URL:?must be set - no default redis URL allowed in production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
     depends_on:
@@ -1236,7 +1236,7 @@ services:
       - "${PERMIFY_GRPC_PORT:-3478}:3478"
     environment:
       PERMIFY_DATABASE_ENGINE: postgres
-      PERMIFY_DATABASE_URI: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PERMIFY_DATABASE_URI: ${PG_DATABASE_URL:?must be set - no default database URL allowed in production}
       PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: "20"
       PERMIFY_SERVER_RATE_LIMIT: "100"
       PERMIFY_LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -1278,7 +1278,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
       OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
-      OPENSEARCH_PASS: ${OPENSEARCH_PASS:-admin}
+      OPENSEARCH_PASS: ${OPENSEARCH_PASS:?must be set - no default OpenSearch password allowed in production}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:

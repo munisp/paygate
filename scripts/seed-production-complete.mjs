@@ -7,6 +7,7 @@
 import pg from 'pg';
 const { Pool } = pg;
 
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DB_URL = process.env.PG_DATABASE_URL || 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
