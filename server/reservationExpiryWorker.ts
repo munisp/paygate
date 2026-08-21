@@ -16,7 +16,7 @@ import { logger } from './logger';
 import { isSuppressedWorkerError } from './workerErrorFilter';
 import { getDb } from "./db";
 import { transactions } from "../drizzle/schema";
-import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { rustReleaseInventory } from "./microservices";
 import { notifyOwner } from "./_core/notification";
 
@@ -64,23 +64,58 @@ export function startReservationExpiryWorker(): void {
         expired.map(async (row) => {
           const meta = (row.metadata ?? {}) as Record<string, any>;
           const reservationId = meta.inventoryReservationId as string;
+          const amountKobo = (meta.amount ?? 0) as number;
+          const amountNaira = (amountKobo / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
+
+          // 1. CLAIM atomically: guarded status flip (active → expiring).
+          //    Only one worker tick/instance can win; losers see 0 rows and
+          //    skip, so the release call below can never run twice.
+          const claimed = await db.execute(sql`
+            UPDATE transactions
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+                  || '{"inventoryReservationStatus":"expiring"}'::jsonb,
+                updated_at = NOW()
+            WHERE id = ${row.id}
+              AND COALESCE(metadata->>'inventoryReservationStatus', 'active')
+                    NOT IN ('released', 'expired', 'expiring')
+            RETURNING id
+          `);
+          if (!claimed.rows.length) return; // another tick/instance claimed it
+
+          // 2. RELEASE the hold. If this fails, roll the claim back so the
+          //    next tick retries — previously the row was marked "expired"
+          //    regardless, permanently leaking the unreleased reservation.
           try {
             await rustReleaseInventory(reservationId);
           } catch (e) {
-            logger.warn(`[reservationExpiry] Release failed for ${reservationId} (non-fatal):`, (e as Error).message);
+            const errMsg = (e as Error).message;
+            logger.error(`[reservationExpiry] RELEASE FAILED for ${reservationId} (tx ${row.id}) — will retry next tick: ${errMsg}`);
+            await db.execute(sql`
+              UPDATE transactions
+              SET metadata = metadata - 'inventoryReservationStatus',
+                  updated_at = NOW()
+              WHERE id = ${row.id}
+                AND metadata->>'inventoryReservationStatus' = 'expiring'
+            `).catch((rbErr: Error) =>
+              logger.error(`[reservationExpiry] CRITICAL: claim rollback failed for tx ${row.id}: ${rbErr.message}`)
+            );
+            notifyOwner({
+              title: "⚠️ Inventory reservation release FAILED",
+              content: `Reservation ${reservationId} for transaction ${row.id} (${amountNaira}) could NOT be released: ${errMsg}. The worker will retry, but if this persists the inventory hold must be released manually.`,
+            }).catch((nErr: Error) => logger.warn("[reservationExpiry] notifyOwner failed (non-fatal):", nErr.message));
+            return;
           }
-          // Mark as expired regardless of whether the release call succeeded
-          await db
-            .update(transactions)
-            .set({
-              metadata: sql`${transactions.metadata}::jsonb || '{"inventoryReservationStatus":"expired"}'::jsonb`,
-              updatedAt: new Date(),
-            })
-            .where(eq(transactions.id, row.id));
+
+          // 3. Release succeeded — flip claimed row to terminal "expired".
+          await db.execute(sql`
+            UPDATE transactions
+            SET metadata = metadata || '{"inventoryReservationStatus":"expired"}'::jsonb,
+                updated_at = NOW()
+            WHERE id = ${row.id}
+              AND metadata->>'inventoryReservationStatus' = 'expiring'
+          `);
 
           // Notify owner — fire-and-forget, never blocks expiry processing
-          const amountKobo = (meta.amount ?? 0) as number;
-          const amountNaira = (amountKobo / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
           notifyOwner({
             title: "Inventory reservation expired",
             content: `Reservation ${reservationId} for transaction ${row.id} (${amountNaira}) has expired and been released. Check the transaction for details.`,

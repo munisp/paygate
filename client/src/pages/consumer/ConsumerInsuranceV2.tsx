@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Umbrella, Shield, FileText, Plus } from "lucide-react";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
 
@@ -28,13 +29,15 @@ export default function ConsumerInsuranceV2() {
 
   const { data: policyData, refetch: refetchPolicies, isLoading } = trpc.consumerFinancial.insurance.getPolicies.useQuery();
 
+  const purchaseKey = useIdempotencyKey();
   const purchaseMutation = trpc.consumerFinancial.insurance.purchase.useMutation({
     onSuccess: (d: any) => {
+      purchaseKey.reset();
       toast.success(`Policy ${d.policyId} activated`);
       setPurchaseDialog(null);
       refetchPolicies();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { purchaseKey.reset(); toast.error(e.message); },
   });
 
   const claimMutation = trpc.consumerFinancial.insurance.fileClaim.useMutation({
@@ -186,7 +189,7 @@ export default function ConsumerInsuranceV2() {
             <Button variant="outline" onClick={() => setPurchaseDialog(null)}>Cancel</Button>
             <Button
               disabled={purchaseMutation.isPending}
-              onClick={() => purchaseDialog && purchaseMutation.mutate({ productId: purchaseDialog.id, coverageMonths: 12 })}
+              onClick={() => purchaseDialog && purchaseMutation.mutate({ productId: purchaseDialog.id, coverageMonths: 12, idempotencyKey: purchaseKey.getKey() })}
             >
               {purchaseMutation.isPending ? "Processing..." : "Confirm Purchase"}
             </Button>

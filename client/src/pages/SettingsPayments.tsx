@@ -119,9 +119,10 @@ export default function SettingsPayments() {
     data: checklistData,
     isLoading: checklistLoading,
     refetch: refetchChecklist,
-  } = trpc.system.goLiveChecklist.useQuery(undefined, {
+  } = trpc.portalHealth.getGoLiveChecklist.useQuery(undefined, {
     refetchInterval: settingsPayInterval,
-  }, { staleTime: 30_000 });
+    staleTime: 30_000,
+  });
 
   // Test charge
   const testChargeMutation = trpc.stripe.testCharge.useMutation({
@@ -135,7 +136,12 @@ export default function SettingsPayments() {
     },
   });
 
-  const items = checklistData?.items ?? [];
+  // Server returns { goLive: [{ id, label, category, required, status: "ok"|"fail"|"warn" }] }.
+  const items = (checklistData?.goLive ?? []).map((i: any) => ({
+    ...i,
+    detail: i.detail ?? i.category,
+    status: i.status === "fail" ? "pending" : i.status === "warn" ? "warning" : i.status,
+  }));
   const okCount = items.filter((i: any) => i.status === "ok").length;
   const blockers = items.filter((i: any) => i.status === "pending").length;
   const nonInfoItems = items.filter((i: any) => i.status !== "info").length;

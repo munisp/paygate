@@ -713,9 +713,36 @@ const usdcV2Router = router({
   convertToNgn: protectedProcedure.input(z.object({ amountUsdc: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const rate = 1650; const ngnAmount = Math.round(parseFloat(input.amountUsdc) * rate);
-    const [tx] = await db.insert(usdcV2Transactions).values({ merchantId: ctx.user.id.toString().toString(), type: "convert", amountUsdc: input.amountUsdc, amountNgn: ngnAmount, network: "polygon", status: "completed" }).returning();
-    return { transaction: tx, ngnAmount, rate };
+    const amountUsdc = Number(input.amountUsdc);
+    if (!Number.isFinite(amountUsdc) || amountUsdc <= 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "amountUsdc must be a positive number" });
+    }
+    // Live rate from the ramp provider (fails loud when unreachable) — a
+    // hardcoded rate must never be committed to a recorded conversion.
+    const rate = await getLiveCryptoFiatRate("USDC", "NGN");
+    const ngnAmount = Math.round(amountUsdc * rate);
+    const merchantId = ctx.user.id.toString();
+    // Atomic ledger movement: guarded USDC debit (balance cannot go negative)
+    // + NGN credit + the conversion record, all in ONE transaction. If the
+    // wallet is missing or underfunded, nothing is recorded.
+    const record = await db.transaction(async (tx) => {
+      const [debited] = await tx.update(usdcV2Wallets)
+        .set({
+          balanceUsdc: sql`(${usdcV2Wallets.balanceUsdc}::numeric - ${amountUsdc})::text`,
+          balanceNgn: sql`${usdcV2Wallets.balanceNgn} + ${ngnAmount}`,
+        })
+        .where(and(
+          eq(usdcV2Wallets.merchantId, merchantId),
+          sql`${usdcV2Wallets.balanceUsdc}::numeric >= ${amountUsdc}`,
+        ))
+        .returning();
+      if (!debited) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient USDC balance (or no wallet) — conversion aborted, nothing was recorded" });
+      }
+      const [row] = await tx.insert(usdcV2Transactions).values({ merchantId, type: "convert", amountUsdc: input.amountUsdc, amountNgn: ngnAmount, network: "polygon", status: "completed" }).returning();
+      return row;
+    });
+    return { transaction: record, ngnAmount, rate };
   }),
 });
 
@@ -743,13 +770,41 @@ const multiCurrencyLedgerRouter = router({
   postEntry: protectedProcedure.input(z.object({ currency: z.string(), type: z.enum(["credit", "debit"]), amount: z.number().min(1), description: z.string().max(5000), reference: z.string().optional() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const [account] = await db.select().from(multiCurrencyLedgerAccounts).where(and(eq(multiCurrencyLedgerAccounts.merchantId, ctx.user.id.toString()), eq(multiCurrencyLedgerAccounts.currency, input.currency)));
-    if (!account) throw new TRPCError({ code: "NOT_FOUND", message: `No ${input.currency} account found` });
-    const newBalance = input.type === "credit" ? account.balance + input.amount : account.balance - input.amount;
-    if (newBalance < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
-    await db.update(multiCurrencyLedgerAccounts).set({ balance: newBalance, availableBalance: newBalance, updatedAt: new Date() }).where(eq(multiCurrencyLedgerAccounts.id, account.id));
-    const [entry] = await db.insert(multiCurrencyLedgerEntries).values({ merchantId: ctx.user.id.toString().toString(), accountId: account.id, type: input.type, amount: input.amount, currency: input.currency, description: input.description, reference: input.reference }).returning();
-    return { entry, newBalance };
+    // SECURITY: a self-service "credit" is money-in with no backing source
+    // transaction — a money printer against the balance this ledger reports
+    // (listAccounts/getStats). Credits are therefore restricted to platform
+    // admins; merchants may only debit their own funds. Legitimate money-in
+    // must arrive via a verified source transaction on a payment rail.
+    if (input.type === "credit") {
+      const { users } = await import('../drizzle/schema');
+      const [caller] = await db.select({ role: users.role }).from(users).where(eq(users.openId, ctx.user.openId)).limit(1);
+      if (!caller || caller.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Manual ledger credits are restricted to platform admins — credits must originate from a verified source transaction" });
+      }
+    }
+    const merchantId = ctx.user.id.toString();
+    // Atomic: guarded balance update + entry insert in ONE transaction.
+    // Debits use UPDATE ... WHERE balance >= amount RETURNING so concurrent
+    // debits cannot overdraw (no read-modify-write race).
+    return db.transaction(async (tx) => {
+      const [account] = await tx.select().from(multiCurrencyLedgerAccounts).where(and(eq(multiCurrencyLedgerAccounts.merchantId, merchantId), eq(multiCurrencyLedgerAccounts.currency, input.currency)));
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: `No ${input.currency} account found` });
+      let updated: typeof account | undefined;
+      if (input.type === "debit") {
+        [updated] = await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} - ${input.amount}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} - ${input.amount}`, updatedAt: new Date() })
+          .where(and(eq(multiCurrencyLedgerAccounts.id, account.id), gte(multiCurrencyLedgerAccounts.balance, input.amount)))
+          .returning();
+        if (!updated) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+      } else {
+        [updated] = await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} + ${input.amount}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} + ${input.amount}`, updatedAt: new Date() })
+          .where(eq(multiCurrencyLedgerAccounts.id, account.id))
+          .returning();
+      }
+      const [entry] = await tx.insert(multiCurrencyLedgerEntries).values({ merchantId, accountId: account.id, type: input.type, amount: input.amount, currency: input.currency, description: input.description, reference: input.reference }).returning();
+      return { entry, newBalance: updated!.balance };
+    });
   }),
   getFxRates: protectedProcedure.query(async () => {
     return { base: "NGN", rates: { USD: 0.00061, GBP: 0.00048, EUR: 0.00056, KES: 0.079, GHS: 0.0093, ZAR: 0.011 }, updatedAt: new Date() };

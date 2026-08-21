@@ -255,7 +255,6 @@ function SimulateModal({
 
 export default function FraudRuleEngine() {
   const { user } = useAuth();
-  const merchantId = (user as any)?.merchant?.id ?? "demo-merchant";
 
   const [showCreate, setShowCreate] = useState(false);
   const [simulateRule, setSimulateRule] = useState<{ id: string; name: string } | null>(null);
@@ -275,11 +274,10 @@ export default function FraudRuleEngine() {
   const utils = trpc.useUtils();
 
   const { data: rules, isLoading } = trpc.fraudRuleEngine.list.useQuery({
-    merchantId,
     status: "all",
   }, { staleTime: 30_000 });
 
-  const { data: stats } = trpc.fraudRuleEngine.getStats.useQuery({ merchantId }, { staleTime: 30_000 });
+  const { data: stats } = trpc.fraudRuleEngine.getStats.useQuery(undefined, { staleTime: 30_000 });
 
   const createRule = trpc.fraudRuleEngine.create.useMutation({
     onSuccess: () => {
@@ -322,14 +320,12 @@ export default function FraudRuleEngine() {
     if (conditionGroup.conditions.length === 0) { toast.error("Add at least one condition"); return; }
     if (actions.length === 0) { toast.error("Add at least one action"); return; }
     createRule.mutate({
-      merchantId,
       name: name.trim(),
       description: description || undefined,
       conditionTree: conditionGroup as any,
       actions: actions as any,
       priority: Number(priority),
       status,
-      createdBy: user?.openId ?? "unknown",
     });
   };
 

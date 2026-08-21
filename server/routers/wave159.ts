@@ -109,6 +109,10 @@ export const wave159Router = router({
     }),
 
   // ─── Override decision ───────────────────────────────────────────────────────
+  // PLATFORM-ADMIN ONLY: overriding a liveness (anti-spoofing/KYC) decision is
+  // a security-critical action. The role is re-checked from the DB on every
+  // call (never trusted from the session/JWT), matching adminRouter's
+  // adminProcedure pattern.
   overrideDecision: protectedProcedure
     .input(z.object({
       id: z.string(),
@@ -119,15 +123,26 @@ export const wave159Router = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      await db.update(livenessSessions)
+      const { users } = await import("../../drizzle/schema");
+      const [adminUser] = await db.select({ role: users.role })
+        .from(users)
+        .where(eq(users.openId, ctx.user.openId))
+        .limit(1);
+      if (!adminUser || adminUser.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required to override liveness decisions" });
+      }
+
+      const [updated] = await db.update(livenessSessions)
         .set({
           overrideDecision: input.decision,
           overrideNote: input.note ?? null,
           overrideBy: String(ctx.user.id),
           overrideAt: new Date(),
         })
-        .where(eq(livenessSessions.id, input.id));
+        .where(eq(livenessSessions.id, input.id))
+        .returning({ id: livenessSessions.id });
 
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
       return { success: true };
     }),
 

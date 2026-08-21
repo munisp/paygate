@@ -192,12 +192,10 @@ export default function SubMerchantOnboarding() {
       });
       const result = await uploadKybDocMutation.mutateAsync({
         verificationId: kybVerificationId,
-        merchantId: merchantId ?? "",
         documentType: docKey,
         fileName: file.name,
         mimeType: file.type,
         fileSizeBytes: file.size,
-        uploadedBy: "merchant",
         fileContent: base64.includes(",") ? base64.split(",")[1] : base64,
       });
       setUploadedDocs(prev => ({ ...prev, [docKey]: { url: result.fileUrl, name: file.name } }));

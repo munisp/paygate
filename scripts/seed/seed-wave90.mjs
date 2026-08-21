@@ -21,6 +21,7 @@
 import pg from './node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
 const { Client } = pg;
 
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DATABASE_URL = process.env.PG_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
 const uid = () => crypto.randomUUID();
 const now = () => new Date().toISOString();

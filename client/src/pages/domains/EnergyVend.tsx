@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
@@ -50,8 +51,10 @@ export default function EnergyVend() {
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
   const { data: stats } = trpc.energy.getVendStats.useQuery();
+  const vendKey = useIdempotencyKey();
   const vendMut = trpc.energy.initiateVend.useMutation({
     onSuccess: (d) => {
+      vendKey.reset();
       if (d.token) {
         toast.success(`Vend successful! Token: ${d.token} (${d.units} kWh)`);
       } else {
@@ -60,7 +63,7 @@ export default function EnergyVend() {
       setShowVendDialog(false);
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => { vendKey.reset(); toast.error(e.message); },
   });
   const { data: meterInfo, refetch: lookupMeter } = trpc.energy.lookupMeter.useQuery(
     { meterNumber: meterInput, disco: meterDisco },
@@ -71,7 +74,7 @@ export default function EnergyVend() {
     if (!form.meterNumber || !form.amount || !form.customerPhone || !form.customerFsp) {
       toast.error("Please fill all required fields"); return;
     }
-    vendMut.mutate({ ...form, amount: parseFloat(form.amount) });
+    vendMut.mutate({ ...form, amount: parseFloat(form.amount), idempotencyKey: vendKey.getKey() });
   };
 
   const totalVended = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_amount), 0) ?? 0;
@@ -108,12 +111,17 @@ export default function EnergyVend() {
                 </div>
                 <Button className="w-full" onClick={() => lookupMeter()}>Lookup Meter</Button>
                 {meterInfo && (
-                  <div className="p-3 rounded-lg bg-green-50 border border-green-200 space-y-1">
-                    <div className="font-medium text-green-800">Meter Found</div>
-                    <div className="text-sm">Customer: {meterInfo.customerName}</div>
-                    <div className="text-sm">Address: {meterInfo.address}</div>
-                    <div className="text-sm">Tariff: {meterInfo.tariffClass}</div>
-                    <div className="text-sm">Min Vend: ₦{meterInfo.minimumVend?.toLocaleString()}</div>
+                  <div className={`p-3 rounded-lg border space-y-1 ${meterInfo.isValid ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
+                    <div className={`font-medium ${meterInfo.isValid ? "text-green-800" : "text-amber-800"}`}>
+                      {meterInfo.isValid ? "Meter Found" : "Meter Not Validated"}
+                    </div>
+                    {meterInfo.message && <div className="text-sm">{meterInfo.message}</div>}
+                    {meterInfo.customerName && <div className="text-sm">Customer: {meterInfo.customerName}</div>}
+                    {meterInfo.address && <div className="text-sm">Address: {meterInfo.address}</div>}
+                    {meterInfo.tariffClass && <div className="text-sm">Tariff: {meterInfo.tariffClass}</div>}
+                    {meterInfo.minimumVend != null && (
+                      <div className="text-sm">Min Vend: ₦{Number(meterInfo.minimumVend).toLocaleString()}</div>
+                    )}
                   </div>
                 )}
               </div>

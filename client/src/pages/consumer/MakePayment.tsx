@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
@@ -114,15 +115,17 @@ export default function MakePayment() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountNumber, bankCode]);
 
+  const sendKey = useIdempotencyKey();
   const send = trpc.p2p.send.useMutation({
     onSuccess: (data) => {
+      sendKey.reset();
       setTxRef(data.reference);
       setStep("success");
       utils.consumerWallet.getBalance.invalidate();
       utils.consumerWallet.history.invalidate();
       utils.p2p.savedBeneficiaries.invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { sendKey.reset(); toast.error(e.message); },
   });
 
   const fillFromBeneficiary = (b: { accountNumber: string; bankCode: string; bankName: string; accountName: string }) => {
@@ -328,6 +331,7 @@ export default function MakePayment() {
           recipientName: resolvedName!,
           narration: note || undefined,
           saveBeneficiary,
+          idempotencyKey: sendKey.getKey(),
         })}
         isPending={send.isPending}
       />

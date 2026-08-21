@@ -525,9 +525,13 @@ export function verifyWebhookSignature(
   signature: string,
   secret: string
 ): boolean {
+  // Fail closed: an unconfigured webhook secret must reject, never permit.
   if (!secret) {
-    logger.warn("[PBAC] Webhook secret not configured — skipping signature verification");
-    return true; // Fail-open if secret not configured (dev mode)
+    logger.error("[PBAC] Webhook secret not configured — rejecting webhook (fail closed)");
+    return false;
+  }
+  if (!signature) {
+    return false;
   }
 
   const body = typeof payload === "string" ? Buffer.from(payload) : payload;
@@ -536,11 +540,15 @@ export function verifyWebhookSignature(
   // Support both "sha256=<hex>" and raw hex formats
   const received = signature.startsWith("sha256=") ? signature.slice(7) : signature;
 
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(received, "hex");
+  // Length mismatch (including truncated/padded signatures) must reject before
+  // timingSafeEqual, which would throw on unequal buffers.
+  if (receivedBuf.length !== expectedBuf.length) {
+    return false;
+  }
   try {
-    return cryptoTimingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(received.padEnd(expected.length, "0"), "hex")
-    );
+    return cryptoTimingSafeEqual(expectedBuf, receivedBuf);
   } catch {
     return false;
   }

@@ -115,17 +115,28 @@ describe("marketDataRouter", () => {
     }
   });
 
+  // LIVE-FEED TEST: hits the real FX provider. When the sandbox has no
+  // outbound network the router must fail LOUD (unavailable) — both outcomes
+  // are valid; a fabricated-rates fallback would fail this test.
   it("fxRates returns base=NGN and rates object with USD", async () => {
-    const result = await callProc(marketDataRouter, "fxRates");
-    expect(result.base).toBe("NGN");
-    expect(typeof result.rates).toBe("object");
-    expect(typeof result.updatedAt).toBe("string");
+    try {
+      const result = await callProc(marketDataRouter, "fxRates");
+      expect(result.base).toBe("NGN");
+      expect(typeof result.rates).toBe("object");
+      expect(typeof result.updatedAt).toBe("string");
+    } catch (e: any) {
+      expect(e.message).toMatch(/unavailable|unreachable/i);
+    }
   });
 
   it("fxRates filters to requested currencies", async () => {
-    const result = await callProc(marketDataRouter, "fxRates", { currencies: ["USD", "GBP"] });
-    expect(Object.keys(result.rates)).toContain("USD");
-    expect(Object.keys(result.rates)).toContain("GBP");
+    try {
+      const result = await callProc(marketDataRouter, "fxRates", { currencies: ["USD", "GBP"] });
+      expect(Object.keys(result.rates)).toContain("USD");
+      expect(Object.keys(result.rates)).toContain("GBP");
+    } catch (e: any) {
+      expect(e.message).toMatch(/unavailable|unreachable/i);
+    }
   });
 
   // STALE CONTRACT: invented fund NAVs must never be served — fundNavs fails

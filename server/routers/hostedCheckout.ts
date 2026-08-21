@@ -6,11 +6,11 @@
 //          Temporal workflow start, webhook delivery, receipt email.
 
 import { z } from "zod";
-import { randomBytes } from "node:crypto";
-import { eq, and, desc } from "drizzle-orm";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { eq, and, ne, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
-import { db } from "../db";
+import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import { hostedPaymentSessions, checkoutThemes, paymentLinks } from "../../drizzle/schema";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -21,6 +21,69 @@ function nanoid(len = 12): string {
 
 function generateReference(prefix = "PG"): string {
   return `${prefix}_${Date.now()}_${nanoid(8)}`;
+}
+
+/**
+ * Resolve the merchant that owns the authenticated user. Merchant identity is
+ * ALWAYS derived server-side — a client-supplied merchantId is never trusted.
+ */
+async function resolveMerchantForUser(openId: string) {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account found for this user" });
+  return merchant;
+}
+
+/**
+ * Constant-time shared-secret verification for server-to-server webhooks.
+ * FAILS CLOSED: refuses all requests when the secret is not configured.
+ */
+function verifyWebhookSecret(provided: string | undefined | null, envVar: string): void {
+  const expected = process.env[envVar] ?? "";
+  if (!expected) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Webhook endpoint not configured (${envVar} unset); refusing unverifiable requests`,
+    });
+  }
+  const ok = !!provided &&
+    provided.length === expected.length &&
+    timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  if (!ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid webhook signature" });
+}
+
+/**
+ * Verify a Stripe PaymentIntent server-side (status === 'succeeded' and amount
+ * matches the session). Any verification failure blocks the money path.
+ */
+async function verifyStripePaymentIntent(paymentIntentId: string, expectedAmountKobo: number): Promise<void> {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Card payments are not configured (STRIPE_SECRET_KEY unset); payment cannot be verified",
+    });
+  }
+  let pi: { status?: string; amount?: number };
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}`, {
+      headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    pi = await res.json() as { status?: string; amount?: number };
+  } catch (err) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Could not verify payment with Stripe (${err instanceof Error ? err.message : String(err)}); try again shortly`,
+    });
+  }
+  if (pi.status !== "succeeded") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not completed (Stripe status: ${pi.status ?? "unknown"})` });
+  }
+  if (Number(pi.amount) !== expectedAmountKobo) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Payment amount does not match the checkout session" });
+  }
 }
 
 /** Fire-and-forget Kafka publish via Go bridge */
@@ -308,15 +371,40 @@ export const hostedCheckoutRouter = router({
       ipAddress: z.string().optional(),
       userAgent: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const reference = generateReference("PG");
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
+
+      // Resolve the authoritative merchant + tenant SERVER-SIDE. A client-supplied
+      // merchantId is never trusted on its own: it must either match the payment
+      // link being paid, or (for authenticated merchants) the session's merchant.
+      let merchantId: string;
+      let tenantId: string;
+      if (input.paymentLinkId) {
+        const [link] = await db.select().from(paymentLinks)
+          .where(eq(paymentLinks.id, input.paymentLinkId));
+        if (!link) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found" });
+        if (link.merchantId !== input.merchantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "merchantId does not match the payment link" });
+        }
+        merchantId = link.merchantId;
+        tenantId = link.tenantId;
+      } else if (ctx.user) {
+        const merchant = await resolveMerchantForUser(ctx.user.openId);
+        merchantId = merchant.id;
+        tenantId = merchant.tenantId;
+      } else {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "paymentLinkId is required for public checkout initiation",
+        });
+      }
 
       // Base session data
       const sessionData: Partial<typeof hostedPaymentSessions.$inferInsert> = {
         paymentLinkId: input.paymentLinkId,
-        merchantId: input.merchantId,
-        tenantId: input.tenantId,
+        merchantId,
+        tenantId,
         customerEmail: input.customerEmail,
         customerName: input.customerName,
         customerPhone: input.customerPhone,
@@ -338,7 +426,7 @@ export const hostedCheckoutRouter = router({
           amountKobo: input.amountKobo,
           currency: input.currency,
           reference,
-          merchantId: input.merchantId,
+          merchantId,
           description: input.description,
         });
         if (pi) {
@@ -356,7 +444,7 @@ export const hostedCheckoutRouter = router({
           va = await generateNIPVirtualAccount({
             amountKobo: input.amountKobo,
             reference,
-            merchantId: input.merchantId,
+            merchantId,
             customerName: input.customerName,
             expiresInMinutes: 30,
           });
@@ -408,10 +496,10 @@ export const hostedCheckoutRouter = router({
       const [session] = await db.insert(hostedPaymentSessions).values(sessionData as any).returning();
 
       // Publish Kafka event
-      await publishKafka(`${input.tenantId}.payment.initiated`, {
+      await publishKafka(`${tenantId}.payment.initiated`, {
         sessionId: session.id,
         reference,
-        merchantId: input.merchantId,
+        merchantId,
         amountKobo: input.amountKobo,
         paymentMethod: input.paymentMethod,
       });
@@ -439,11 +527,18 @@ export const hostedCheckoutRouter = router({
             if (res.ok) {
               const json = await res.json() as { status: string; paidAt?: string };
               if (json.status === "paid" && json.paidAt) {
+                // Guarded flip (status != 'completed') — consistent with the
+                // single-writer invariant enforced in confirmPayment/nipWebhook.
+                // NOTE: no TigerBeetle credit is recorded here; the signed NIP
+                // webhook remains the sole ledger writer for bank transfers.
                 await db.update(hostedPaymentSessions).set({
                   status: "completed",
                   paidAt: new Date(json.paidAt),
                   updatedAt: new Date(),
-                }).where(eq(hostedPaymentSessions.id, session.id));
+                }).where(and(
+                  eq(hostedPaymentSessions.id, session.id),
+                  ne(hostedPaymentSessions.status, "completed"),
+                ));
                 return { ...session, status: "completed", paidAt: new Date(json.paidAt) };
               }
             }
@@ -464,25 +559,45 @@ export const hostedCheckoutRouter = router({
       const [session] = await db.select().from(hostedPaymentSessions)
         .where(eq(hostedPaymentSessions.id, input.sessionId));
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
-      if (session.status === "completed") return { success: true, session };
+      if (session.status === "completed") return { success: true, session }; // idempotent replay
       if (session.status === "expired") throw new TRPCError({ code: "BAD_REQUEST", message: "Session expired" });
 
-      // Verify Stripe PaymentIntent if card
-      if (session.paymentMethod === "card" && session.stripePaymentIntentId && process.env.STRIPE_SECRET_KEY) {
-        const piRes = await fetch(`https://api.stripe.com/v1/payment_intents/${session.stripePaymentIntentId}`, {
-          headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+      // Non-card methods (bank_transfer/ussd/bnpl/usdc) can ONLY be confirmed by
+      // the payment provider's signed webhook — never by an unauthenticated client.
+      if (session.paymentMethod !== "card") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${session.paymentMethod} payments are confirmed by the payment provider webhook, not by this endpoint`,
         });
-        if (piRes.ok) {
-          const pi = await piRes.json() as { status: string };
-          if (pi.status !== "succeeded" && pi.status !== "processing") {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not confirmed by Stripe: ${pi.status}` });
-          }
-        }
       }
+      if (!session.stripePaymentIntentId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This session has no Stripe PaymentIntent; the payment cannot be verified",
+        });
+      }
+      if (input.stripePaymentIntentId && input.stripePaymentIntentId !== session.stripePaymentIntentId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "stripePaymentIntentId does not match this session" });
+      }
+
+      // Card: proof of payment REQUIRED — verify the PaymentIntent with Stripe.
+      await verifyStripePaymentIntent(session.stripePaymentIntentId, Number(session.amountKobo));
 
       const now = new Date();
 
-      // Record TigerBeetle transfer
+      // Atomic status flip: exactly one concurrent/replayed caller transitions the
+      // session. TigerBeetle credit + side effects happen ONLY on the transition.
+      const [flipped] = await db.update(hostedPaymentSessions).set({
+        status: "completed",
+        paidAt: now,
+        updatedAt: now,
+      }).where(and(
+        eq(hostedPaymentSessions.id, session.id),
+        ne(hostedPaymentSessions.status, "completed"),
+      )).returning();
+      if (!flipped) return { success: true, session }; // lost the race — already completed
+
+      // Record TigerBeetle transfer (only the transition winner reaches here)
       const tbId = await recordTBTransfer({
         amountKobo: Number(session.amountKobo),
         merchantId: session.merchantId,
@@ -492,14 +607,13 @@ export const hostedCheckoutRouter = router({
       // Start Temporal workflow
       const workflowId = await startTemporalWorkflow(session.id, session.merchantId);
 
-      // Mark session completed
-      await db.update(hostedPaymentSessions).set({
-        status: "completed",
-        paidAt: now,
-        tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
-        temporalWorkflowId: workflowId ?? undefined,
-        updatedAt: now,
-      }).where(eq(hostedPaymentSessions.id, session.id));
+      if (tbId || workflowId) {
+        await db.update(hostedPaymentSessions).set({
+          tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
+          temporalWorkflowId: workflowId ?? undefined,
+          updatedAt: new Date(),
+        }).where(eq(hostedPaymentSessions.id, session.id));
+      }
 
       // Publish Kafka payment.completed event
       await publishKafka(`${session.tenantId}.payment.completed`, {
@@ -531,81 +645,6 @@ export const hostedCheckoutRouter = router({
       return { success: true, session: { ...session, status: "completed", paidAt: now } };
     }),
 
-  // ── Stripe webhook handler ────────────────────────────────────────────────
-  stripeWebhook: publicProcedure
-    .input(z.object({
-      stripeEventType: z.string(),
-      stripePaymentIntentId: z.string().optional(),
-      stripeChargeId: z.string().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
-    }))
-    .mutation(async ({ input }) => {
-      if (!input.stripePaymentIntentId) return { received: true, matched: false };
-
-      const [session] = await db.select().from(hostedPaymentSessions)
-        .where(eq(hostedPaymentSessions.stripePaymentIntentId, input.stripePaymentIntentId));
-
-      if (!session) return { received: true, matched: false };
-
-      if (input.stripeEventType === "payment_intent.succeeded") {
-        const now = new Date();
-        const tbId = await recordTBTransfer({
-          amountKobo: Number(session.amountKobo),
-          merchantId: session.merchantId,
-          reference: session.reference,
-        });
-        const workflowId = await startTemporalWorkflow(session.id, session.merchantId);
-
-        await db.update(hostedPaymentSessions).set({
-          status: "completed",
-          paidAt: now,
-          tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
-          temporalWorkflowId: workflowId ?? undefined,
-          webhookDeliveredAt: now,
-          updatedAt: now,
-        }).where(eq(hostedPaymentSessions.id, session.id));
-
-        await publishKafka(`${session.tenantId}.payment.completed`, {
-          sessionId: session.id,
-          reference: session.reference,
-          merchantId: session.merchantId,
-          amountKobo: Number(session.amountKobo),
-          paymentMethod: "card",
-          source: "stripe_webhook",
-        });
-
-        if (session.customerEmail) {
-          sendReceiptEmail({
-            to: session.customerEmail,
-            customerName: session.customerName ?? "Customer",
-            amountKobo: Number(session.amountKobo),
-            currency: session.currency,
-            reference: session.reference,
-            merchantName: session.merchantId,
-            description: session.description ?? undefined,
-          }).catch(() => {});
-        }
-      }
-
-      if (input.stripeEventType === "payment_intent.payment_failed") {
-        await db.update(hostedPaymentSessions).set({
-          status: "failed",
-          failedAt: new Date(),
-          failureReason: "Stripe payment failed",
-          updatedAt: new Date(),
-        }).where(eq(hostedPaymentSessions.id, session.id));
-
-        await publishKafka(`${session.tenantId}.payment.failed`, {
-          sessionId: session.id,
-          reference: session.reference,
-          merchantId: session.merchantId,
-          reason: "stripe_payment_failed",
-        });
-      }
-
-      return { received: true, matched: true, sessionId: session.id };
-    }),
-
   // ── NIBSS NIP webhook (bank transfer confirmed) ───────────────────────────
   nipWebhook: publicProcedure
     .input(z.object({
@@ -613,53 +652,80 @@ export const hostedCheckoutRouter = router({
       status: z.enum(["paid", "failed", "expired"]),
       paidAt: z.string().optional(),
       amount: z.number().optional(),
+      // Shared-secret signature (also accepted via the x-nip-signature header).
+      signature: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Authenticate the caller BEFORE touching any state. Fail closed when
+      // NIP_WEBHOOK_SECRET is unset or the signature does not match.
+      const headerSig = ctx.req.headers["x-nip-signature"];
+      verifyWebhookSecret(
+        input.signature ?? (Array.isArray(headerSig) ? headerSig[0] : headerSig),
+        "NIP_WEBHOOK_SECRET",
+      );
+
       const [session] = await db.select().from(hostedPaymentSessions)
         .where(eq(hostedPaymentSessions.nipSessionId, input.nipSessionId));
       if (!session) return { received: true, matched: false };
 
       if (input.status === "paid") {
         const now = input.paidAt ? new Date(input.paidAt) : new Date();
-        const tbId = await recordTBTransfer({
-          amountKobo: Number(session.amountKobo),
-          merchantId: session.merchantId,
-          reference: session.reference,
-        });
-        await db.update(hostedPaymentSessions).set({
+        // Atomic status flip — replays and concurrent deliveries no-op here, so
+        // the TigerBeetle credit can never be recorded twice for one session.
+        const [flipped] = await db.update(hostedPaymentSessions).set({
           status: "completed",
           paidAt: now,
-          tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
           webhookDeliveredAt: new Date(),
           updatedAt: new Date(),
-        }).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(and(
+          eq(hostedPaymentSessions.id, session.id),
+          ne(hostedPaymentSessions.status, "completed"),
+        )).returning();
 
-        await publishKafka(`${session.tenantId}.payment.completed`, {
-          sessionId: session.id,
-          reference: session.reference,
-          merchantId: session.merchantId,
-          amountKobo: Number(session.amountKobo),
-          paymentMethod: "bank_transfer",
-          source: "nip_webhook",
-        });
-
-        if (session.customerEmail) {
-          sendReceiptEmail({
-            to: session.customerEmail,
-            customerName: session.customerName ?? "Customer",
+        if (flipped) {
+          const tbId = await recordTBTransfer({
             amountKobo: Number(session.amountKobo),
-            currency: session.currency,
+            merchantId: session.merchantId,
             reference: session.reference,
-            merchantName: session.merchantId,
-          }).catch(() => {});
+          });
+          if (tbId) {
+            await db.update(hostedPaymentSessions).set({
+              tigerBeetleTransferId: Number(tbId),
+              updatedAt: new Date(),
+            }).where(eq(hostedPaymentSessions.id, session.id));
+          }
+
+          await publishKafka(`${session.tenantId}.payment.completed`, {
+            sessionId: session.id,
+            reference: session.reference,
+            merchantId: session.merchantId,
+            amountKobo: Number(session.amountKobo),
+            paymentMethod: "bank_transfer",
+            source: "nip_webhook",
+          });
+
+          if (session.customerEmail) {
+            sendReceiptEmail({
+              to: session.customerEmail,
+              customerName: session.customerName ?? "Customer",
+              amountKobo: Number(session.amountKobo),
+              currency: session.currency,
+              reference: session.reference,
+              merchantName: session.merchantId,
+            }).catch(() => {});
+          }
         }
       } else {
+        // A replayed failure/expiry must never downgrade a completed session.
         await db.update(hostedPaymentSessions).set({
           status: input.status === "expired" ? "expired" : "failed",
           failedAt: new Date(),
           failureReason: `NIP ${input.status}`,
           updatedAt: new Date(),
-        }).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(and(
+          eq(hostedPaymentSessions.id, session.id),
+          ne(hostedPaymentSessions.status, "completed"),
+        ));
       }
 
       return { received: true, matched: true };
@@ -668,22 +734,19 @@ export const hostedCheckoutRouter = router({
   // ── List sessions for a merchant (dashboard) ──────────────────────────────
   listSessions: protectedProcedure
     .input(z.object({
+      // Accepted for backwards compatibility but IGNORED — the merchant scope is
+      // always resolved from the authenticated session, never from the client.
       merchantId: z.string().optional(),
       status: z.string().optional(),
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const conditions = [eq(hostedPaymentSessions.merchantId, merchant.id)];
+      if (input.status) conditions.push(eq(hostedPaymentSessions.status, input.status));
       const rows = await db.select().from(hostedPaymentSessions)
-        .where(
-          input.merchantId && input.status
-            ? and(eq(hostedPaymentSessions.merchantId, input.merchantId), eq(hostedPaymentSessions.status, input.status))
-            : input.merchantId
-            ? eq(hostedPaymentSessions.merchantId, input.merchantId)
-            : input.status
-            ? eq(hostedPaymentSessions.status, input.status)
-            : undefined,
-        )
+        .where(and(...conditions))
         .orderBy(desc(hostedPaymentSessions.createdAt))
         .limit(input.limit)
         .offset(input.offset);
@@ -692,10 +755,16 @@ export const hostedCheckoutRouter = router({
 
   // ── Checkout Theme CRUD ───────────────────────────────────────────────────
   getTheme: protectedProcedure
-    .input(z.object({ merchantId: z.string() }))
-    .query(async ({ input }) => {
+    .input(z.object({
+      // Accepted for backwards compatibility but IGNORED — the merchant scope is
+      // always resolved from the authenticated session, never from the client.
+      // (The public theme for a payment link is served by getPaymentLinkDetails.)
+      merchantId: z.string().optional(),
+    }))
+    .query(async ({ ctx }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
       const [theme] = await db.select().from(checkoutThemes)
-        .where(eq(checkoutThemes.merchantId, input.merchantId));
+        .where(eq(checkoutThemes.merchantId, merchant.id));
       return theme ?? null;
     }),
 
@@ -720,20 +789,24 @@ export const hostedCheckoutRouter = router({
       requireBillingAddress: z.boolean().optional(),
       customCss: z.string().max(10000).optional(),
     }))
-    .mutation(async ({ input }) => {
-      const { merchantId, tenantId, ...updates } = input;
+    .mutation(async ({ ctx, input }) => {
+      // merchantId/tenantId in the input are IGNORED — ownership is resolved
+      // from the authenticated session so a client can never upsert another
+      // merchant's theme.
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const { merchantId: _ignoredMerchantId, tenantId: _ignoredTenantId, ...updates } = input;
       const existing = await db.select().from(checkoutThemes)
-        .where(eq(checkoutThemes.merchantId, merchantId));
+        .where(eq(checkoutThemes.merchantId, merchant.id));
 
       if (existing.length > 0) {
         const [updated] = await db.update(checkoutThemes)
           .set({ ...updates, updatedAt: new Date() })
-          .where(eq(checkoutThemes.merchantId, merchantId))
+          .where(eq(checkoutThemes.merchantId, merchant.id))
           .returning();
         return updated;
       } else {
         const [created] = await db.insert(checkoutThemes)
-          .values({ merchantId, tenantId, ...updates } as any)
+          .values({ merchantId: merchant.id, tenantId: merchant.tenantId, ...updates } as any)
           .returning();
         return created;
       }

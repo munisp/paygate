@@ -14,6 +14,7 @@ import {
   Building2, DollarSign, Globe, Zap,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 const CIPS_BANKS = [
   { code: "ICBKCNBJ", name: "ICBC (Industrial & Commercial Bank of China)" },
@@ -40,12 +41,14 @@ export default function CIPSGateway() {
     { bankCode, accountNumber },
     { enabled: step === "quote" && !!bankCode && accountNumber.length >= 16 , staleTime: 30_000 })
 
+  const initiateKey = useIdempotencyKey();
   const initiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
+      initiateKey.reset();
       setStep("done");
       toast.success("CIPS transfer initiated successfully!");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => { initiateKey.reset(); toast.error(err.message); },
   });
 
   const quote = quoteQuery.data;
@@ -69,7 +72,7 @@ export default function CIPSGateway() {
       receiverIdType: "ACCOUNT",
       corridor: `${sourceCurrency}_CNY`,
       receiverName: CIPS_BANKS.find(b => b.code === bankCode)?.name ?? "CIPS Receiver",
-      idempotencyKey: `cips_${Date.now()}`,
+      idempotencyKey: initiateKey.getKey(),
     });
   };
 

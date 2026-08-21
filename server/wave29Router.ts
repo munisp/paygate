@@ -7,6 +7,7 @@
  * Prometheus Metrics, JWT Revocation, Security Hardening
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, execRaw } from "./db";
 import crypto from "crypto";
@@ -495,86 +496,36 @@ const tenantApiKeyRouter = router({
 
 // ─── Loyalty Auto-promotion ──────────────────────────────────────────────────
 
+// The tier model this router was written against does NOT exist in the real
+// schema: loyalty_accounts has no user_id/total_points/current_tier columns
+// and loyalty_programs has no tier/min_points/name/cashback_pct columns (see
+// drizzle/schema.ts — loyalty_accounts is keyed by merchant_id/customer_id and
+// tracks points_balance; loyalty_programs only holds points_per_kobo /
+// redeem_rate). Every query below therefore failed and the errors were
+// previously masked as empty success. Until a tier model is provisioned
+// (columns + thresholds), these endpoints fail loud instead of returning
+// fabricated results.
+const TIER_MODEL_NOT_PROVISIONED =
+  "Loyalty tier model not provisioned: loyalty_accounts has no user_id/total_points/current_tier and loyalty_programs has no tier/min_points — tier promotion is unavailable until the tier schema is migrated";
+
+function tierModelUnavailable(): never {
+  throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: TIER_MODEL_NOT_PROVISIONED });
+}
+
 const loyaltyRouter = router({
   getConsumerPoints: protectedProcedure
     .input(z.object({ userId: z.number() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Database unavailable");
-      const rows = await execRaw(db, `SELECT la.*, lp.name as tier_name, lp.min_points, lp.cashback_pct
-         FROM loyalty_accounts la
-         LEFT JOIN loyalty_programs lp ON lp.tier = la.current_tier
-         WHERE la.user_id = $1`, [input.userId]);
-      return rows[0] ?? null;
-    }),
+    .query(() => tierModelUnavailable()),
 
   getPromotionHistory: protectedProcedure
     .input(z.object({ userId: z.number() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Database unavailable");
-      const rows = await execRaw(db, `SELECT * FROM loyalty_promotion_log WHERE user_id = $1 ORDER BY promoted_at DESC LIMIT 20`, [input.userId]);
-      return rows;
-    }),
+    .query(() => tierModelUnavailable()),
 
   runPromotion: protectedProcedure
     .input(z.object({ userId: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Database unavailable");
-      // Get current points and tier
-      const acctRows = await execRaw(db, `SELECT * FROM loyalty_accounts WHERE user_id = $1`, [input.userId]);
-      if (!acctRows[0]) return { promoted: false, reason: "no_account" };
-      const acct = acctRows[0];
+    .mutation(() => tierModelUnavailable()),
 
-      // Get tier thresholds
-      const tiers = await execRaw(db, `SELECT * FROM loyalty_programs ORDER BY min_points DESC`);
-
-      let newTier = "bronze";
-      for (const tier of tiers) {
-        if (Number(acct.total_points) >= Number(tier.min_points)) {
-          newTier = tier.tier;
-          break;
-        }
-      }
-
-      if (newTier === acct.current_tier) return { promoted: false, reason: "same_tier" };
-
-      // Update tier
-      await execRaw(db, `UPDATE loyalty_accounts SET current_tier = $1, updated_at = NOW() WHERE user_id = $2`, [newTier, input.userId]);
-
-      // Log promotion
-      await execRaw(db, `INSERT INTO loyalty_promotion_log (user_id, old_tier, new_tier, points_at_promotion)
-         VALUES ($1, $2, $3, $4)`, [input.userId, acct.current_tier, newTier, acct.total_points]);
-
-      return { promoted: true, oldTier: acct.current_tier, newTier };
-    }),
-
-  runBatchPromotion: protectedProcedure.mutation(async () => {
-    const db = await getDb();
-    if (!db) throw new Error("Database unavailable");
-    // Get all accounts that might need tier change
-    const accounts = await execRaw(db, `SELECT la.user_id, la.total_points, la.current_tier FROM loyalty_accounts la`);
-    const tiers = await execRaw(db, `SELECT * FROM loyalty_programs ORDER BY min_points DESC`);
-
-    let promoted = 0;
-    for (const acct of accounts) {
-      let newTier = "bronze";
-      for (const tier of tiers) {
-        if (Number(acct.total_points) >= Number(tier.min_points)) {
-          newTier = tier.tier;
-          break;
-        }
-      }
-      if (newTier !== acct.current_tier) {
-        await execRaw(db, `UPDATE loyalty_accounts SET current_tier = $1, updated_at = NOW() WHERE user_id = $2`, [newTier, acct.user_id]);
-        await execRaw(db, `INSERT INTO loyalty_promotion_log (user_id, old_tier, new_tier, points_at_promotion)
-           VALUES ($1, $2, $3, $4)`, [acct.user_id, acct.current_tier, newTier, acct.total_points]);
-        promoted++;
-      }
-    }
-    return { promoted, total: accounts.length };
-  }),
+  runBatchPromotion: protectedProcedure.mutation(() => tierModelUnavailable()),
 });
 
 // ─── BNPL Repayment Tracker ──────────────────────────────────────────────────
@@ -1195,17 +1146,16 @@ const slaMonitoringAliasRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      try {
-        const result = await execRaw(db, `
-          SELECT id, service_name, status, message, started_at, resolved_at, duration_ms
-          FROM sla_incidents
-          ORDER BY started_at DESC
-          LIMIT $1
-        `, [input.limit]);
-        return (result as any).rows;
-      } catch {
-        return [];
-      }
+      // This wave's incident shape (service_name, message, started_at,
+      // duration_ms) lives in sla_incident_reports — wave30's sla_incidents
+      // table has a different shape. Query the right table, and fail loud
+      // instead of masking errors as an empty list.
+      return execRaw(db, `
+        SELECT id, service_name, message, started_at, duration_ms
+        FROM sla_incident_reports
+        ORDER BY started_at DESC
+        LIMIT $1
+      `, [input.limit]);
     }),
   recordPing: protectedProcedure
     .input(z.object({

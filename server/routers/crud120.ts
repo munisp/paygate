@@ -13,6 +13,7 @@
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { publishAuditEvent } from "../kafkaClient";
+import { demoOrFail } from "../_core/demoData";
 import { getDb } from "../db";
 import { z } from "zod";
 import {
@@ -97,6 +98,7 @@ import {
   superAgentV2Networks,
   supportMessages,
   taxFilingRecords,
+  teamMembers,
   tenantBillingInvoices,
   tenantConfig,
   tenantCorridorDailyStats,
@@ -112,11 +114,13 @@ import {
   usdcV2Transactions,
   usdcV2Wallets,
   userInsuranceClaims,
+  users,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
 import { eq, desc, and, or, gte, lte, like, sql, isNull } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 
 const paginationInput = z.object({
   page: z.number().int().min(1).default(1),
@@ -128,6 +132,50 @@ const paginationInput = z.object({
 function paginate(page: number, limit: number) {
   return { offset: (page - 1) * limit, limit };
 }
+
+/**
+ * Audit events on money/approval paths must never vanish silently.
+ * publishEvent returns `false` when the event bus is unavailable
+ * (non-regulatory topics) and throws for durable-outbox failures — both
+ * outcomes are logged loudly here instead of being swallowed with
+ * `.catch(() => {})`.
+ */
+function publishAuditEventLoud(payload: Parameters<typeof publishAuditEvent>[0]): void {
+  publishAuditEvent(payload)
+    .then((delivered) => {
+      if (delivered === false) {
+        logger.error("AUDIT EVENT NOT DELIVERED — event bus unavailable, audit event dropped", {
+          action: payload.action,
+          targetId: payload.targetId,
+        });
+      }
+    })
+    .catch((err) => {
+      logger.error("AUDIT EVENT PUBLISH FAILED", {
+        action: payload.action,
+        targetId: payload.targetId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB-checked, adminRouter pattern). */
+async function requirePlatformAdmin(db: Db, openId: string): Promise<void> {
+  const [caller] = await db.select({ role: users.role }).from(users).where(eq(users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/** Platform-admin-gated procedure (feature flags and other platform-global config). */
+const platformAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  await requirePlatformAdmin(db, ctx.user.openId);
+  return next({ ctx });
+});
 
 // ─── 1. Admin Notification Prefs ─────────────────────────────────────────────
 
@@ -733,11 +781,26 @@ const emiLoansRouter = router({
     }).returning();
     return row;
   }),
-  approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(emiLoans).set({ status: "active" })
-      .where(eq(emiLoans.id, input.id));
-    publishAuditEvent({ action: 'emi_loan.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    // Loan approval is a lender-side action: emi_loans has no merchant column,
+    // so the ownership anchor is platform-admin role (DB-checked). A borrower
+    // must never approve their own loan.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Maker-checker: only a loan awaiting approval can transition to active,
+    // enforced atomically.
+    const [updated] = await db.update(emiLoans).set({ status: "active" })
+      .where(and(
+        eq(emiLoans.id, input.id),
+        or(eq(emiLoans.status, "pending"), eq(emiLoans.status, "pending_approval")),
+      ))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(emiLoans).where(eq(emiLoans.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Loan is '${existing.status}', only pending loans can be approved` });
+    }
+    publishAuditEventLoud({ action: 'emi_loan.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   listRepayments: protectedProcedure.input(paginationInput.extend({
@@ -760,15 +823,33 @@ const emiLoansRouter = router({
     channel: z.string().default("bank_transfer"),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Ownership: the loan must belong to the caller (platform admins excepted).
+    const [loan] = await db.select().from(emiLoans).where(eq(emiLoans.id, input.loanId)).limit(1);
+    if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
+    if (loan.userId !== ctx.user.id && ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only record repayments against your own loans" });
+    }
+    const paymentReference = input.paymentReference ?? `repay_${crypto.randomUUID().slice(0, 12)}`;
+    // Idempotency/dedup: a payment reference may only be recorded once —
+    // otherwise the same bank transfer could be booked against many instalments.
+    const [existing] = await db.select({ id: emiRepayments.id }).from(emiRepayments)
+      .where(eq(emiRepayments.paymentReference, paymentReference)).limit(1);
+    if (existing) {
+      throw new TRPCError({ code: "CONFLICT", message: "A repayment with this paymentReference has already been recorded" });
+    }
+    // No payment-rail verification is wired to this endpoint, so the repayment
+    // is recorded as pending_verification — NEVER auto-"paid" without evidence
+    // from a real rail. A reconciliation/verification step (or rail webhook)
+    // must confirm it before it counts against the loan.
     const [row] = await db.insert(emiRepayments).values({
       id: crypto.randomUUID(),
       loanId: input.loanId,
-      userId: ctx.user.id,
+      userId: loan.userId,
       instalmentNumber: input.instalmentNumber,
       amountKobo: input.amountKobo,
-      paymentReference: input.paymentReference ?? `repay_${crypto.randomUUID().slice(0, 12)}`,
-      status: "paid",
-      paidAt: new Date(),
+      paymentReference,
+      status: "pending_verification",
+      paidAt: null,
     }).returning();
     return row;
   }),
@@ -811,6 +892,15 @@ const escrowRouter = router({
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // The caller must be a party to the contract — buyerId/sellerId from raw
+    // input must never bind strangers into an escrow they didn't create.
+    const tenantId = ctx.user.tenantId ?? "";
+    if (input.buyerId !== tenantId && input.sellerId !== tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Caller must be the buyer or the seller of the escrow contract" });
+    }
+    // Created UNFUNDED (status "pending"): no wallet/escrow funding rail is
+    // integrated here, so the contract must not claim to hold funds until a
+    // funding event transitions it to "funded".
     const [row] = await db.insert(escrowContracts).values({
       escrowId: `esc_${crypto.randomUUID()}`,
       buyerMerchantId: input.buyerId,
@@ -826,16 +916,48 @@ const escrowRouter = router({
     }).returning();
     return row;
   }),
-  release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ input }) => {
+  release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
-      .where(eq(escrowContracts.escrowId, input.id));
-    return { success: true };
+    const tenantId = ctx.user.tenantId ?? "";
+    const [contract] = await db.select().from(escrowContracts).where(eq(escrowContracts.escrowId, input.id)).limit(1);
+    if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+    // escrow_contracts has no arbiter column — only the buyer or seller of
+    // this contract may release it.
+    if (contract.buyerMerchantId !== tenantId && contract.sellerMerchantId !== tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Only the buyer or seller of this escrow can release it" });
+    }
+    // Release only when funded. There is no wallet/payout rail integrated on
+    // this path, so an unfunded escrow must NOT transition — there is no money
+    // to move and pretending otherwise fabricates a payout.
+    if (contract.status !== "funded") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Escrow is '${contract.status}', not funded — no funds were moved (no funding rail is integrated on this path)` });
+    }
+    const [released] = await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
+      .where(and(eq(escrowContracts.escrowId, input.id), eq(escrowContracts.status, "funded")))
+      .returning();
+    if (!released) throw new TRPCError({ code: "CONFLICT", message: "Escrow status changed concurrently — release aborted" });
+    return {
+      success: true,
+      escrowId: input.id,
+      status: "released",
+      // FUNDING GAP (documented, not hidden): this records the release
+      // decision only. No wallet/payout rail moves the escrowed funds here;
+      // settlement must be executed via the escrow middleware out-of-band.
+      fundsMoved: false,
+      note: "Status transition recorded only — no wallet/payout rail is integrated, funds settlement must occur via the escrow middleware",
+    };
   }),
-  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
+  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "disputed" })
-      .where(eq(escrowContracts.escrowId, input.id));
+    const tenantId = ctx.user.tenantId ?? "";
+    // Only a party to the contract may dispute it.
+    const [updated] = await db.update(escrowContracts).set({ status: "disputed" })
+      .where(and(
+        eq(escrowContracts.escrowId, input.id),
+        or(eq(escrowContracts.buyerMerchantId, tenantId), eq(escrowContracts.sellerMerchantId, tenantId)),
+      ))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found (or caller is not a party to it)" });
     return { success: true };
   }),
   listV2: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -868,7 +990,7 @@ const featureFlagsRouter = router({
     const rows = await db.select().from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
     return rows[0] ?? null;
   }),
-  create: protectedProcedure.input(z.object({
+  create: platformAdminProcedure.input(z.object({
     key: z.string().regex(/^[a-z][a-zA-Z0-9_]*$/),
     name: z.string().min(1).max(500),
     description: z.string().optional(),
@@ -884,12 +1006,12 @@ const featureFlagsRouter = router({
     }).returning();
     return row;
   }),
-  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+  toggle: platformAdminProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(featureFlags).set({ enabled: input.enabled }).where(eq(featureFlags.id, input.id));
     return { success: true };
   }),
-  update: protectedProcedure.input(z.object({
+  update: platformAdminProcedure.input(z.object({
     id: z.string(),
     rolloutPercentage: z.number().int().min(0).max(100).optional(),
     targetMerchantIds: z.string().optional(),
@@ -903,7 +1025,7 @@ const featureFlagsRouter = router({
     }).where(eq(featureFlags.id, id));
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: platformAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.delete(featureFlags).where(eq(featureFlags.id, input.id));
     return { success: true };
@@ -966,14 +1088,21 @@ const geofenceRouter = router({
     }).returning();
     return row;
   }),
-  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(geofenceRules).set({ active: input.enabled }).where(eq(geofenceRules.id, input.id));
+    // Tenant-scoped: a rule id alone must never authorise mutating another tenant's geofence.
+    const [row] = await db.update(geofenceRules).set({ active: input.enabled })
+      .where(and(eq(geofenceRules.id, input.id), eq(geofenceRules.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.delete(geofenceRules).where(eq(geofenceRules.id, input.id));
+    const [row] = await db.delete(geofenceRules)
+      .where(and(eq(geofenceRules.id, input.id), eq(geofenceRules.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return { success: true };
   }),
 });
@@ -1120,6 +1249,21 @@ const inviteCodesRouter = router({
     maxUses: z.number().int().min(1).default(1),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Minting an admin-type invite code is privilege escalation unless the
+    // caller already holds an admin role: platform admin (users.role) or a
+    // tenant team admin (team_members.role, same lookup pattern as team.*).
+    if (input.role === "admin") {
+      let authorized = ctx.user.role === "admin";
+      if (!authorized) {
+        const [membership] = await db.select({ role: teamMembers.role }).from(teamMembers)
+          .where(and(eq(teamMembers.tenantId, ctx.user.tenantId ?? ""), eq(teamMembers.userId, ctx.user.id)))
+          .limit(1);
+        authorized = membership?.role === "admin";
+      }
+      if (!authorized) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only an existing platform or tenant admin may create admin-type invite codes" });
+      }
+    }
     const code = `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(inviteCodes).values({
       tenantId: ctx.user.tenantId ?? "",
@@ -1133,10 +1277,14 @@ const inviteCodesRouter = router({
     }).returning();
     return row;
   }),
-  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(inviteCodes).set({ isRevoked: true }).where(eq(inviteCodes.id, input.id));
-    publishAuditEvent({ action: 'invite_code.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    // Tenant-scoped: a caller may only revoke invite codes of their own tenant.
+    const [row] = await db.update(inviteCodes).set({ isRevoked: true })
+      .where(and(eq(inviteCodes.id, input.id), eq(inviteCodes.tenantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    publishAuditEventLoud({ action: 'invite_code.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
@@ -1196,14 +1344,30 @@ const invoiceFinancingRouter = router({
     id: z.string(),
     approvedAmountKobo: z.number().int().positive(),
     interestRateBps: z.number().int().min(0),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoiceFinancingV2Applications).set({
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only a PENDING application owned by the
+    // caller's merchant can be approved, enforced atomically.
+    const [updated] = await db.update(invoiceFinancingV2Applications).set({
       status: "approved",
       approvedAmount: input.approvedAmountKobo,
       interestRate: String(input.interestRateBps / 100),
       updatedAt: new Date(),
-    }).where(eq(invoiceFinancingV2Applications.id, input.id));
+    }).where(and(
+      eq(invoiceFinancingV2Applications.id, input.id),
+      eq(invoiceFinancingV2Applications.merchantId, merchantId),
+      eq(invoiceFinancingV2Applications.status, "pending"),
+    )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoiceFinancingV2Applications)
+        .where(eq(invoiceFinancingV2Applications.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Application not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Application is '${existing.status}', only 'pending' applications can be approved` });
+    }
+    publishAuditEventLoud({ action: 'invoice_financing.approved', userId: String(ctx.user.id), targetId: input.id, metadata: { approvedAmountKobo: input.approvedAmountKobo }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -1558,12 +1722,31 @@ const moneyRequestsRouter = router({
     }).returning();
     return row;
   }),
-  approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "paid", paidAt: new Date() })
-      .where(eq(moneyRequests.id, input.id));
-    publishAuditEvent({ action: 'money_request.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
-    return { success: true };
+    // Ownership + maker-checker: only the designated payer (or a platform
+    // admin) may approve, and only while the request is still 'pending' —
+    // enforced atomically in the UPDATE's WHERE clause.
+    const isAdmin = ctx.user.role === "admin";
+    const conditions = [eq(moneyRequests.id, input.id), eq(moneyRequests.status, "pending")];
+    if (!isAdmin) conditions.push(eq(moneyRequests.payerUserId, ctx.user.id));
+    // No payment rail is wired to this endpoint, so approval NEVER marks the
+    // request "paid" — it moves to 'pending_verification' until a real rail /
+    // reconciliation step confirms the transfer (same treatment as
+    // emi.recordRepayment). paidAt stays null.
+    const [updated] = await db.update(moneyRequests)
+      .set({ status: "pending_verification", paidAt: null } as any)
+      .where(and(...conditions))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(moneyRequests).where(eq(moneyRequests.id, input.id)).limit(1);
+      if (!existing || (!isAdmin && existing.payerUserId !== ctx.user.id)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Money request not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Money request is '${existing.status}', only 'pending' requests can be approved` });
+    }
+    publishAuditEventLoud({ action: 'money_request.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
+    return { success: true, status: "pending_verification" };
   }),
   decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
@@ -1611,22 +1794,55 @@ const multiCurrencyRouter = router({
   createEntry: protectedProcedure.input(z.object({
     accountId: z.string(),
     currency: z.string().length(3),
-    amountKobo: z.number().int(),
+    // Positive magnitudes only — the entryType carries the sign. A negative
+    // "debit" would be a credit inversion.
+    amountKobo: z.number().int().positive(),
     entryType: z.enum(["debit", "credit"]),
     description: z.string().optional(),
     referenceId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const [row] = await db.insert(multiCurrencyLedgerEntries).values({
-      merchantId: ctx.user.tenantId ?? "",
-      accountId: input.accountId,
-      currency: input.currency,
-      amount: input.amountKobo,
-      type: input.entryType,
-      description: input.description,
-      reference: input.referenceId,
-    }).returning();
-    return row;
+    const tenantId = ctx.user.tenantId ?? "";
+    // Same money-printer guard as wave80 multiCurrencyLedger.postEntry:
+    // self-service credits (money-in with no backing source transaction) are
+    // platform-admin only.
+    if (input.entryType === "credit") {
+      await requirePlatformAdmin(db, ctx.user.openId);
+    }
+    // The account model carries a materialised balance column, so the entry
+    // and the balance update must reconcile atomically in ONE transaction.
+    return db.transaction(async (tx) => {
+      // Ownership: the account must belong to the caller's tenant.
+      const [account] = await tx.select().from(multiCurrencyLedgerAccounts)
+        .where(and(eq(multiCurrencyLedgerAccounts.id, input.accountId), eq(multiCurrencyLedgerAccounts.merchantId, tenantId)))
+        .limit(1);
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Ledger account not found" });
+      if (account.currency !== input.currency) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Currency does not match the account currency" });
+      }
+      if (input.entryType === "debit") {
+        // Guarded atomic debit — cannot overdraw under concurrency.
+        const [updated] = await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} - ${input.amountKobo}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} - ${input.amountKobo}`, updatedAt: new Date() })
+          .where(and(eq(multiCurrencyLedgerAccounts.id, account.id), gte(multiCurrencyLedgerAccounts.balance, input.amountKobo)))
+          .returning();
+        if (!updated) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+      } else {
+        await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} + ${input.amountKobo}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} + ${input.amountKobo}`, updatedAt: new Date() })
+          .where(eq(multiCurrencyLedgerAccounts.id, account.id));
+      }
+      const [row] = await tx.insert(multiCurrencyLedgerEntries).values({
+        merchantId: tenantId,
+        accountId: input.accountId,
+        currency: input.currency,
+        amount: input.amountKobo,
+        type: input.entryType,
+        description: input.description,
+        reference: input.referenceId,
+      }).returning();
+      return row;
+    });
   }),
 });
 
@@ -1798,7 +2014,7 @@ const openBankingRouter = router({
     const db = (await getDb())!;
     await db.update(openBankingConsentsV2).set({ status: "revoked", updatedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
-    publishAuditEvent({ action: 'open_banking_consent.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEventLoud({ action: 'open_banking_consent.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -1881,18 +2097,56 @@ const payrollRouter = router({
     }).returning();
     return row;
   }),
-  approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "approved" })
-      .where(eq(payrollRuns.id, input.id));
-    publishAuditEvent({ action: 'payroll_run.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only a DRAFT run owned by the caller's
+    // merchant can be approved, enforced atomically.
+    const [updated] = await db.update(payrollRuns).set({ status: "approved" })
+      .where(and(
+        eq(payrollRuns.id, input.id),
+        eq(payrollRuns.merchantId, merchantId),
+        eq(payrollRuns.status, "draft"),
+      ))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payroll run not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Payroll run is '${existing.status}', only 'draft' runs can be approved` });
+    }
+    publishAuditEventLoud({ action: 'payroll_run.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "paid" })
-      .where(eq(payrollRuns.id, input.id));
-    return { success: true };
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only an APPROVED run owned by the caller's
+    // merchant can move forward; the atomic claim prevents double-processing.
+    const [claimed] = await db.update(payrollRuns).set({ status: "disbursement_pending" })
+      .where(and(
+        eq(payrollRuns.id, input.id),
+        eq(payrollRuns.merchantId, merchantId),
+        eq(payrollRuns.status, "approved"),
+      ))
+      .returning();
+    if (!claimed) {
+      const [existing] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payroll run not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Payroll run is '${existing.status}', must be 'approved' before processing (maker-checker)` });
+    }
+    // No real payroll disbursement rail exists in this repo. Fail loud in
+    // production (SERVICE_UNAVAILABLE); only simulate behind
+    // PAYGATE_SIMULATION_MODE=true. Money is NEVER marked as moved: the run
+    // stays in 'disbursement_pending' until a real rail settles it.
+    const rail = demoOrFail(
+      { runId: claimed.id, amountKobo: claimed.totalKobo, status: "disbursement_pending", rail: "none-in-repo" },
+      "Payroll disbursement rail",
+    );
+    return { success: true, status: "disbursement_pending", rail };
   }),
   listV3Employees: protectedProcedure.input(paginationInput.extend({
     department: z.string().optional(),
@@ -2405,7 +2659,7 @@ const sdkTokensRouter = router({
     const db = (await getDb())!;
     await db.update(sdkTokens).set({ isRevoked: 1 })
       .where(eq(sdkTokens.tokenId, input.id));
-    publishAuditEvent({ action: 'sdk_token.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEventLoud({ action: 'sdk_token.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {

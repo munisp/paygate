@@ -100,10 +100,18 @@ export default function HostedPayment() {
     { staleTime: 5 * 60 * 1000 }
   );
 
-  const { data: paymentLink, isLoading: linkLoading } = trpc.paymentLinks.getPublic.useQuery(
-    { linkId: linkId || "" },
+  const { data: paymentLinkDetails, isLoading: linkLoading } = trpc.hostedCheckout.getPaymentLinkDetails.useQuery(
+    { slug: linkId || "" },
     { enabled: !!linkId, retry: false }
   );
+  const paymentLink = paymentLinkDetails?.link
+    ? {
+        ...paymentLinkDetails.link,
+        // Hosted page works in minor units; schema stores the amount as-is.
+        amountMinor: paymentLinkDetails.link.amount ?? undefined,
+        merchantName: undefined as string | undefined,
+      }
+    : undefined;
 
   const nameEnquiryMutation = trpc.nipBanks.nameEnquiry.useMutation();
   const generateVirtualAccountMutation = trpc.nipBanks.generateVirtualAccount.useMutation();

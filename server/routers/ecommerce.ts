@@ -5,10 +5,10 @@
 
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { eq, and, desc, asc, inArray, sql, like, or } from "drizzle-orm";
+import { eq, and, ne, desc, asc, inArray, sql, like, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
-import { db } from "../db";
+import { db, getUserByOpenId, getMerchantByOwnerId, getMerchantById } from "../db";
 import {
   products, productVariants, carts, cartItems,
   checkoutSessions, orders, orderItems, fulfilmentEvents,
@@ -20,6 +20,64 @@ function generateOrderNumber(): string {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = randomBytes(2).toString("hex").toUpperCase();
   return `ORD-${ts}-${rand}`;
+}
+
+/**
+ * Resolve the merchant that owns the authenticated user. Merchant identity is
+ * ALWAYS derived server-side — a client-supplied merchantId is never trusted.
+ */
+async function resolveMerchantForUser(openId: string) {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account found for this user" });
+  return merchant;
+}
+
+/**
+ * Verify a Stripe PaymentIntent server-side (status === 'succeeded' and amount
+ * matches the session). Any verification failure blocks the money path.
+ */
+async function verifyStripePaymentIntent(paymentIntentId: string, expectedAmountKobo: number): Promise<void> {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Card payments are not configured (STRIPE_SECRET_KEY unset); payment cannot be verified",
+    });
+  }
+  let pi: { status?: string; amount?: number };
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}`, {
+      headers: { "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    pi = await res.json() as { status?: string; amount?: number };
+  } catch (err) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Could not verify payment with Stripe (${err instanceof Error ? err.message : String(err)}); try again shortly`,
+    });
+  }
+  if (pi.status !== "succeeded") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not completed (Stripe status: ${pi.status ?? "unknown"})` });
+  }
+  if (Number(pi.amount) !== expectedAmountKobo) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Payment amount does not match the checkout session" });
+  }
+}
+
+/**
+ * Cart ownership capability: every cart mutation/read must present the cart's
+ * sessionToken. Guest carts are anonymous, so the (high-entropy) sessionToken
+ * IS the ownership proof — a bare cartId must never be sufficient.
+ */
+function requireCartAccess<T extends { sessionToken: string | null }>(cart: T | undefined, sessionToken: string | undefined): T {
+  if (!cart) throw new TRPCError({ code: "NOT_FOUND", message: "Cart not found" });
+  if (!sessionToken || !cart.sessionToken || cart.sessionToken !== sessionToken) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid cart session token" });
+  }
+  return cart;
 }
 
 async function recalcCart(cartId: string) {
@@ -111,6 +169,8 @@ async function startFulfilmentWorkflow(orderId: string, merchantId: string): Pro
 const productsRouter = router({
   list: protectedProcedure
     .input(z.object({
+      // Accepted for backwards compatibility but IGNORED — the merchant scope is
+      // always resolved from the authenticated session, never from the client.
       merchantId: z.string().optional(),
       status: z.enum(["draft", "active", "archived"]).optional(),
       category: z.string().optional(),
@@ -121,8 +181,8 @@ const productsRouter = router({
       sortDir: z.enum(["asc", "desc"]).default("desc"),
     }))
     .query(async ({ ctx, input }) => {
-      const conditions = [];
-      if (input.merchantId) conditions.push(eq(products.merchantId, input.merchantId));
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const conditions = [eq(products.merchantId, merchant.id)];
       if (input.status) conditions.push(eq(products.status, input.status));
       if (input.category) conditions.push(eq(products.category, input.category));
       if (input.search) {
@@ -151,8 +211,10 @@ const productsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
-      const [product] = await db.select().from(products).where(eq(products.id, input.id));
+    .query(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const [product] = await db.select().from(products)
+        .where(and(eq(products.id, input.id), eq(products.merchantId, merchant.id)));
       if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       const variants = await db.select().from(productVariants)
         .where(eq(productVariants.productId, input.id))
@@ -162,8 +224,10 @@ const productsRouter = router({
 
   create: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      tenantId: z.string(),
+      // Accepted for backwards compatibility but IGNORED — merchant/tenant are
+      // always resolved from the authenticated session, never from the client.
+      merchantId: z.string().optional(),
+      tenantId: z.string().optional(),
       name: z.string().min(1).max(255),
       description: z.string().optional(),
       status: z.enum(["draft", "active", "archived"]).default("draft"),
@@ -187,17 +251,20 @@ const productsRouter = router({
         options: z.record(z.string(), z.string()).default({}),
       })).default([]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const { variants: variantInputs, merchantId: _m, tenantId: _t, ...productFields } = input;
       const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36);
       const [product] = await db.insert(products).values({
-        ...input,
+        ...productFields,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId,
         slug,
-        variants: undefined,
       } as any).returning();
 
-      if (input.variants.length > 0) {
+      if (variantInputs.length > 0) {
         await db.insert(productVariants).values(
-          input.variants.map((v, i) => ({
+          variantInputs.map((v, i) => ({
             productId: product.id,
             title: v.title,
             sku: v.sku,
@@ -209,8 +276,8 @@ const productsRouter = router({
         );
       }
 
-      await publishKafkaEvent(`${input.tenantId}.product.created`, {
-        productId: product.id, merchantId: input.merchantId, name: input.name,
+      await publishKafkaEvent(`${merchant.tenantId}.product.created`, {
+        productId: product.id, merchantId: merchant.id, name: input.name,
       });
 
       return product;
@@ -231,11 +298,12 @@ const productsRouter = router({
       taxable: z.boolean().optional(),
       requiresShipping: z.boolean().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
       const { id, ...updates } = input;
       const [product] = await db.update(products)
         .set({ ...updates, updatedAt: new Date() })
-        .where(eq(products.id, id))
+        .where(and(eq(products.id, id), eq(products.merchantId, merchant.id)))
         .returning();
       if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       return product;
@@ -243,10 +311,11 @@ const productsRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
       const [product] = await db.update(products)
         .set({ status: "archived", updatedAt: new Date() })
-        .where(eq(products.id, input.id))
+        .where(and(eq(products.id, input.id), eq(products.merchantId, merchant.id)))
         .returning();
       if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       return { success: true };
@@ -259,17 +328,21 @@ const cartRouter = router({
   get: publicProcedure
     .input(z.object({
       cartId: z.string().optional(),
-      sessionToken: z.string().optional(),
+      // Ownership capability — REQUIRED. A bare cartId is never enough.
+      sessionToken: z.string().min(16),
     }))
     .query(async ({ input }) => {
       if (!input.cartId && !input.sessionToken) return null;
 
       const condition = input.cartId
         ? eq(carts.id, input.cartId)
-        : eq(carts.sessionToken, input.sessionToken!);
+        : eq(carts.sessionToken, input.sessionToken);
 
       const [cart] = await db.select().from(carts).where(condition);
       if (!cart) return null;
+      if (!cart.sessionToken || cart.sessionToken !== input.sessionToken) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid cart session token" });
+      }
 
       const items = await db.select().from(cartItems).where(eq(cartItems.cartId, cart.id));
       return { cart, items };
@@ -277,28 +350,57 @@ const cartRouter = router({
 
   create: publicProcedure
     .input(z.object({
+      // Store selector for guest carts (not a capability). tenantId is ALWAYS
+      // resolved server-side from the merchant row / session — never trusted.
       merchantId: z.string(),
-      tenantId: z.string(),
+      tenantId: z.string().optional(),
       consumerId: z.string().optional(),
-      sessionToken: z.string().optional(),
+      // Guest carts: client may supply a high-entropy token; otherwise the
+      // server issues one. This token is the ownership capability for all
+      // subsequent cart operations.
+      sessionToken: z.string().min(32).optional(),
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // When logged in, the merchant identity comes from the session; for
+      // guests the merchantId only selects the storefront and the tenant is
+      // still resolved from the merchant row server-side.
+      let merchantId: string;
+      let tenantId: string;
+      if (ctx.user) {
+        const merchant = await resolveMerchantForUser(ctx.user.openId);
+        merchantId = merchant.id;
+        tenantId = merchant.tenantId;
+      } else {
+        const merchant = await getMerchantById(input.merchantId);
+        if (!merchant) throw new TRPCError({ code: "NOT_FOUND", message: "Merchant not found" });
+        merchantId = merchant.id;
+        tenantId = merchant.tenantId;
+      }
+      const sessionToken = input.sessionToken ?? randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-      const [cart] = await db.insert(carts).values({ ...input, expiresAt }).returning();
+      const [cart] = await db.insert(carts).values({
+        merchantId,
+        tenantId,
+        consumerId: input.consumerId,
+        sessionToken,
+        currency: input.currency,
+        expiresAt,
+      }).returning();
       return cart;
     }),
 
   addItem: publicProcedure
     .input(z.object({
       cartId: z.string(),
+      sessionToken: z.string().min(16),
       productId: z.string(),
       variantId: z.string().optional(),
       quantity: z.number().int().positive().default(1),
     }))
     .mutation(async ({ input }) => {
-      const [cart] = await db.select().from(carts).where(eq(carts.id, input.cartId));
-      if (!cart) throw new TRPCError({ code: "NOT_FOUND", message: "Cart not found" });
+      const [cartRow] = await db.select().from(carts).where(eq(carts.id, input.cartId));
+      requireCartAccess(cartRow, input.sessionToken);
 
       const [product] = await db.select().from(products).where(eq(products.id, input.productId));
       if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
@@ -342,10 +444,12 @@ const cartRouter = router({
     }),
 
   removeItem: publicProcedure
-    .input(z.object({ cartItemId: z.string() }))
+    .input(z.object({ cartItemId: z.string(), sessionToken: z.string().min(16) }))
     .mutation(async ({ input }) => {
       const [item] = await db.select().from(cartItems).where(eq(cartItems.id, input.cartItemId));
       if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Cart item not found" });
+      const [ownerCart] = await db.select().from(carts).where(eq(carts.id, item.cartId));
+      requireCartAccess(ownerCart, input.sessionToken);
       await db.delete(cartItems).where(eq(cartItems.id, input.cartItemId));
       await recalcCart(item.cartId);
       const [cart] = await db.select().from(carts).where(eq(carts.id, item.cartId));
@@ -354,10 +458,12 @@ const cartRouter = router({
     }),
 
   updateQuantity: publicProcedure
-    .input(z.object({ cartItemId: z.string(), quantity: z.number().int().positive() }))
+    .input(z.object({ cartItemId: z.string(), sessionToken: z.string().min(16), quantity: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       const [item] = await db.select().from(cartItems).where(eq(cartItems.id, input.cartItemId));
       if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Cart item not found" });
+      const [ownerCart] = await db.select().from(carts).where(eq(carts.id, item.cartId));
+      requireCartAccess(ownerCart, input.sessionToken);
       await db.update(cartItems).set({
         quantity: input.quantity,
         totalPriceKobo: Number(item.unitPriceKobo) * input.quantity,
@@ -370,8 +476,10 @@ const cartRouter = router({
     }),
 
   clear: publicProcedure
-    .input(z.object({ cartId: z.string() }))
+    .input(z.object({ cartId: z.string(), sessionToken: z.string().min(16) }))
     .mutation(async ({ input }) => {
+      const [cartRow] = await db.select().from(carts).where(eq(carts.id, input.cartId));
+      requireCartAccess(cartRow, input.sessionToken);
       await db.delete(cartItems).where(eq(cartItems.cartId, input.cartId));
       await db.update(carts).set({
         subtotalKobo: 0, totalKobo: 0, updatedAt: new Date(),
@@ -386,8 +494,12 @@ const checkoutRouter = router({
   createSession: publicProcedure
     .input(z.object({
       cartId: z.string(),
-      merchantId: z.string(),
-      tenantId: z.string(),
+      // Cart ownership capability — must match the cart's sessionToken.
+      sessionToken: z.string().min(16),
+      // Accepted for backwards compatibility but IGNORED — merchant/tenant are
+      // derived from the cart row, never trusted from the client.
+      merchantId: z.string().optional(),
+      tenantId: z.string().optional(),
       consumerId: z.string().optional(),
       paymentMethod: z.enum(["card", "bank_transfer", "ussd", "bnpl", "usdc"]).default("card"),
       shippingName: z.string(),
@@ -401,8 +513,8 @@ const checkoutRouter = router({
       shippingPostalCode: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const [cart] = await db.select().from(carts).where(eq(carts.id, input.cartId));
-      if (!cart) throw new TRPCError({ code: "NOT_FOUND", message: "Cart not found" });
+      const [cartRow] = await db.select().from(carts).where(eq(carts.id, input.cartId));
+      const cart = requireCartAccess(cartRow, input.sessionToken);
       if (Number(cart.totalKobo) <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Cart is empty" });
 
       // Create Stripe PaymentIntent for card payments
@@ -422,7 +534,7 @@ const checkoutRouter = router({
               currency: "ngn",
               "payment_method_types[]": "card",
               "metadata[cartId]": input.cartId,
-              "metadata[merchantId]": input.merchantId,
+              "metadata[merchantId]": cart.merchantId,
             }).toString(),
           });
           if (stripeRes.ok) {
@@ -438,8 +550,8 @@ const checkoutRouter = router({
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
       const [session] = await db.insert(checkoutSessions).values({
         cartId: input.cartId,
-        merchantId: input.merchantId,
-        tenantId: input.tenantId,
+        merchantId: cart.merchantId,
+        tenantId: cart.tenantId,
         consumerId: input.consumerId,
         paymentMethod: input.paymentMethod,
         paymentIntentId,
@@ -458,8 +570,8 @@ const checkoutRouter = router({
         expiresAt,
       }).returning();
 
-      await publishKafkaEvent(`${input.tenantId}.checkout.session_created`, {
-        sessionId: session.id, cartId: input.cartId, merchantId: input.merchantId,
+      await publishKafkaEvent(`${cart.tenantId}.checkout.session_created`, {
+        sessionId: session.id, cartId: input.cartId, merchantId: cart.merchantId,
         amountKobo: Number(cart.totalKobo),
       });
 
@@ -474,36 +586,68 @@ const checkoutRouter = router({
     .mutation(async ({ input }) => {
       const [session] = await db.select().from(checkoutSessions).where(eq(checkoutSessions.id, input.sessionId));
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Checkout session not found" });
-      if (session.status === "completed") throw new TRPCError({ code: "BAD_REQUEST", message: "Already completed" });
+
+      const findExistingOrder = async () => {
+        const [existing] = await db.select().from(orders)
+          .where(eq(orders.checkoutSessionId, session.id));
+        return existing;
+      };
+
+      // Idempotent replay: a completed session returns its existing order.
+      if (session.status === "completed") {
+        const existing = await findExistingOrder();
+        if (existing) return { order: existing, orderNumber: existing.orderNumber };
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Already completed" });
+      }
       if (session.status === "expired") throw new TRPCError({ code: "BAD_REQUEST", message: "Session expired" });
 
-      // Verify Stripe PaymentIntent status
-      if (session.paymentIntentId && process.env.STRIPE_SECRET_KEY) {
-        const piRes = await fetch(`https://api.stripe.com/v1/payment_intents/${session.paymentIntentId}`, {
-          headers: { "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+      // Non-card methods can ONLY be confirmed by the payment provider's signed
+      // webhook — never by an unauthenticated client.
+      if (session.paymentMethod !== "card") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${session.paymentMethod} payments are confirmed by the payment provider webhook, not by this endpoint`,
         });
-        if (piRes.ok) {
-          const pi = await piRes.json() as { status: string };
-          if (pi.status !== "succeeded" && pi.status !== "processing") {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not confirmed: ${pi.status}` });
-          }
-        }
+      }
+      if (!session.paymentIntentId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This session has no Stripe PaymentIntent; the payment cannot be verified",
+        });
+      }
+      if (input.paymentIntentId && input.paymentIntentId !== session.paymentIntentId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "paymentIntentId does not match this session" });
       }
 
-      // Mark session completed
-      await db.update(checkoutSessions).set({
+      // Card: proof of payment REQUIRED — verify the PaymentIntent with Stripe.
+      await verifyStripePaymentIntent(session.paymentIntentId, Number(session.amountKobo));
+
+      // Atomic status flip: exactly one concurrent/replayed caller transitions
+      // the session; only that caller creates the order and the ledger credit.
+      const [flipped] = await db.update(checkoutSessions).set({
         status: "completed",
         completedAt: new Date(),
         updatedAt: new Date(),
-      }).where(eq(checkoutSessions.id, input.sessionId));
+      }).where(and(
+        eq(checkoutSessions.id, input.sessionId),
+        ne(checkoutSessions.status, "completed"),
+      )).returning();
+      if (!flipped) {
+        const existing = await findExistingOrder();
+        if (existing) return { order: existing, orderNumber: existing.orderNumber };
+        throw new TRPCError({ code: "CONFLICT", message: "Checkout session is already being completed" });
+      }
 
       // Fetch cart items to create order
       const cartItemRows = await db.select().from(cartItems).where(eq(cartItems.cartId, session.cartId));
       if (cartItemRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Cart is empty" });
 
-      // Create order
+      // Create order (unique-guard by checkoutSessionId: if a concurrent winner
+      // already inserted, return the existing order instead of duplicating)
       const orderNumber = generateOrderNumber();
-      const [order] = await db.insert(orders).values({
+      let order: typeof orders.$inferSelect;
+      try {
+        [order] = await db.insert(orders).values({
         orderNumber,
         merchantId: session.merchantId,
         tenantId: session.tenantId,
@@ -526,6 +670,15 @@ const checkoutRouter = router({
         shippingCountry: session.shippingCountry,
         shippingPostalCode: session.shippingPostalCode,
       }).returning();
+      } catch (err) {
+        // Unique violation (e.g. duplicate checkoutSessionId/orderNumber) → the
+        // order already exists; return it instead of creating a duplicate.
+        if ((err as { code?: string })?.code === "23505") {
+          const existing = await findExistingOrder();
+          if (existing) return { order: existing, orderNumber: existing.orderNumber };
+        }
+        throw err;
+      }
 
       // Create order items from cart items
       await db.insert(orderItems).values(cartItemRows.map(ci => ({
@@ -599,6 +752,8 @@ const checkoutRouter = router({
 const ordersRouter = router({
   list: protectedProcedure
     .input(z.object({
+      // Accepted for backwards compatibility but IGNORED — the merchant scope is
+      // always resolved from the authenticated session, never from the client.
       merchantId: z.string().optional(),
       status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]).optional(),
       fulfilmentStatus: z.enum(["unfulfilled", "partial", "fulfilled", "returned"]).optional(),
@@ -606,9 +761,9 @@ const ordersRouter = router({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
     }))
-    .query(async ({ input }) => {
-      const conditions = [];
-      if (input.merchantId) conditions.push(eq(orders.merchantId, input.merchantId));
+    .query(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const conditions = [eq(orders.merchantId, merchant.id)];
       if (input.status) conditions.push(eq(orders.status, input.status));
       if (input.fulfilmentStatus) conditions.push(eq(orders.fulfilmentStatus, input.fulfilmentStatus));
       if (input.search) {
@@ -633,8 +788,10 @@ const ordersRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
-      const [order] = await db.select().from(orders).where(eq(orders.id, input.id));
+    .query(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const [order] = await db.select().from(orders)
+        .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)));
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
 
       const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.id));
@@ -655,7 +812,9 @@ const ordersRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const [order] = await db.select().from(orders).where(eq(orders.id, input.id));
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const [order] = await db.select().from(orders)
+        .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)));
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
 
       const updates: Partial<typeof orders.$inferInsert> = {
@@ -679,7 +838,9 @@ const ordersRouter = router({
       }
       if (input.notes) updates.notes = input.notes;
 
-      const [updated] = await db.update(orders).set(updates).where(eq(orders.id, input.id)).returning();
+      const [updated] = await db.update(orders).set(updates)
+        .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)))
+        .returning();
 
       // Record fulfilment event
       await db.insert(fulfilmentEvents).values({
@@ -711,7 +872,9 @@ const ordersRouter = router({
   cancel: protectedProcedure
     .input(z.object({ id: z.string(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const [order] = await db.select().from(orders).where(eq(orders.id, input.id));
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const [order] = await db.select().from(orders)
+        .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)));
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       if (["shipped", "delivered"].includes(order.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot cancel a shipped or delivered order" });
@@ -722,7 +885,7 @@ const ordersRouter = router({
         cancelledAt: new Date(),
         cancelReason: input.reason,
         updatedAt: new Date(),
-      }).where(eq(orders.id, input.id)).returning();
+      }).where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id))).returning();
 
       await db.insert(fulfilmentEvents).values({
         orderId: input.id,
@@ -749,12 +912,17 @@ const ordersRouter = router({
       status: z.enum(["confirmed", "processing", "shipped", "delivered", "cancelled"]),
     }))
     .mutation(async ({ ctx, input }) => {
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      // Scope BOTH the update and the event fan-out to the caller's merchant —
+      // ids belonging to other merchants are silently excluded.
+      const scopedWhere = and(inArray(orders.id, input.ids), eq(orders.merchantId, merchant.id));
+
       await db.update(orders).set({ status: input.status, updatedAt: new Date() })
-        .where(inArray(orders.id, input.ids));
+        .where(scopedWhere);
 
       // Bulk fulfilment events
       const orderRows = await db.select({ id: orders.id, merchantId: orders.merchantId })
-        .from(orders).where(inArray(orders.id, input.ids));
+        .from(orders).where(scopedWhere);
 
       if (orderRows.length > 0) {
         await db.insert(fulfilmentEvents).values(orderRows.map(o => ({
@@ -769,78 +937,22 @@ const ordersRouter = router({
         })));
       }
 
-      return { updated: input.ids.length };
+      return { updated: orderRows.length };
     }),
 });
 
 // ─── Fulfilment Sub-router ────────────────────────────────────────────────────
 
 const fulfilmentRouter = router({
-  webhook: publicProcedure
-    .input(z.object({
-      source: z.enum(["stripe", "temporal", "manual"]),
-      eventType: z.string(),
-      orderId: z.string().optional(),
-      paymentIntentId: z.string().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
-    }))
-    .mutation(async ({ input }) => {
-      let order: typeof orders.$inferSelect | undefined;
-
-      // Resolve order by paymentIntentId or orderId
-      if (input.paymentIntentId) {
-        const rows = await db.select().from(orders).where(eq(orders.paymentIntentId, input.paymentIntentId));
-        order = rows[0];
-      } else if (input.orderId) {
-        const rows = await db.select().from(orders).where(eq(orders.id, input.orderId));
-        order = rows[0];
-      }
-
-      if (!order) {
-        // Webhook for unknown order — log and return 200 to avoid Stripe retries
-        return { received: true, matched: false };
-      }
-
-      // Map Stripe event types to order status
-      const statusMap: Record<string, typeof orders.$inferInsert["status"]> = {
-        "payment_intent.succeeded": "confirmed",
-        "payment_intent.payment_failed": "cancelled",
-        "charge.refunded": "refunded",
-      };
-
-      const newStatus = statusMap[input.eventType];
-      if (newStatus) {
-        await db.update(orders).set({ status: newStatus, updatedAt: new Date() }).where(eq(orders.id, order.id));
-      }
-
-      // Record fulfilment event
-      await db.insert(fulfilmentEvents).values({
-        orderId: order.id,
-        merchantId: order.merchantId,
-        eventType: input.eventType,
-        status: newStatus ?? "updated",
-        message: `Webhook received from ${input.source}: ${input.eventType}`,
-        actorType: "system",
-        webhookSource: input.source,
-        metadata: (input.metadata ?? {}) as Record<string, unknown>,
-      });
-
-      // Publish Kafka event
-      await publishKafkaEvent(`${order.tenantId}.order.webhook`, {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        merchantId: order.merchantId,
-        source: input.source,
-        eventType: input.eventType,
-        newStatus,
-      });
-
-      return { received: true, matched: true, orderId: order.id };
-    }),
-
   getTimeline: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Verify the order belongs to the caller's merchant before exposing events.
+      const merchant = await resolveMerchantForUser(ctx.user.openId);
+      const [order] = await db.select({ id: orders.id }).from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.merchantId, merchant.id)));
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+
       const events = await db.select().from(fulfilmentEvents)
         .where(eq(fulfilmentEvents.orderId, input.orderId))
         .orderBy(asc(fulfilmentEvents.createdAt));

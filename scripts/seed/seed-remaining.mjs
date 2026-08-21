@@ -6,7 +6,9 @@
 import pg from './node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
 const { Client } = pg;
 
-const PG_URL = 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
+// Dev/test seed script: the fallback below targets the LOCAL embedded dev DB
+// (localhost) only. For any non-localhost database set PG_DATABASE_URL/DATABASE_URL.
+const PG_URL = process.env.PG_DATABASE_URL ?? 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
 const TENANT_ID = 'tenant-paygate-demo-001';
 const MERCHANT_IDS = ['merch_001', 'merch_002', 'merch_003', 'merch_004', 'merch_005'];
 const M = MERCHANT_IDS[0];

@@ -140,24 +140,22 @@ export const adminNotifPrefsRouter = router({
       const user = await getUserByOpenId(ctx.user.openId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
-      const setParts: string[] = [];
+      // Parameterized SET clauses — column names come from the whitelisted
+      // COLUMN_MAP (safe as sql.raw identifiers); every VALUE is bound as a
+      // parameter. No string-built SQL. (This also fixes digestFrequency:
+      // string enum values previously went through Number(val) → NaN.)
+      const setParts: ReturnType<typeof sql>[] = [];
       for (const [key, col] of Object.entries(COLUMN_MAP)) {
         const val = (input as any)[key];
         if (val === undefined) continue;
-        if (typeof val === "boolean") {
-          setParts.push(`${col} = ${val}`);
-        } else {
-          setParts.push(`${col} = ${Number(val)}`);
-        }
+        setParts.push(sql`${sql.raw(col)} = ${val}`);
       }
       if (setParts.length === 0) return { updated: false };
 
       await db.execute(
-        sql.raw(
-          `UPDATE admin_notification_prefs
-           SET ${setParts.join(", ")}, updated_at = now()
-           WHERE user_id = ${user.id}`
-        )
+        sql`UPDATE admin_notification_prefs
+            SET ${sql.join(setParts, sql`, `)}, updated_at = now()
+            WHERE user_id = ${user.id}`
       );
       return { updated: true };
     }),

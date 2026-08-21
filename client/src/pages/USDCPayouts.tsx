@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
@@ -68,15 +69,18 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
   const [network, setNetwork] = useState<"mainnet" | "devnet">("mainnet");
   const [expanded, setExpanded] = useState(false);
 
+  const idem = useIdempotencyKey();
   const initiatePayout = trpc.usdc.initiatePayout.useMutation({
     onSuccess: (data) => {
       toast.success(`Payout initiated — ID: ${data.payoutId}`);
       setRecipient("");
       setAmount("");
       setReference("");
+      idem.reset();
       onSuccess();
     },
     onError: (err) => {
+      idem.reset();
       toast.error(err.message);
     },
   });
@@ -92,6 +96,7 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
       amountUsdc: amountNum,
       reference: reference.trim() || undefined,
       network,
+      idempotencyKey: idem.getKey(),
     });
   };
 

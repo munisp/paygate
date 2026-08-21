@@ -23,14 +23,37 @@ async function executeDueSipPlans() {
   if (!db) return;
 
   try {
-    // Find all active SIP plans whose next_execution_at is in the past
+    // Claim-then-execute: atomically advance next_execution_at for the plans we
+    // pick up (FOR UPDATE SKIP LOCKED so concurrent cron instances claim
+    // disjoint sets). A plan that has been claimed can never be selected by
+    // another run, so the external purchase below can never execute twice for
+    // the same schedule slot. On execution failure the claim is rolled back
+    // (per-plan, below) so the plan is retried on the next tick.
     const due = await db.execute(sql`
-      SELECT sp.id, sp.user_id, sp.asset_type, sp.amount_kobo, sp.frequency,
+      WITH claimed AS (
+        UPDATE sip_plans
+        SET next_execution_at = CASE frequency
+              -- GREATEST(..., NOW()): an overdue plan must advance to a FUTURE
+              -- slot, otherwise it would still be due and get reclaimed by
+              -- another cron instance while this purchase is in flight.
+              WHEN 'daily'  THEN GREATEST(next_execution_at, NOW()) + interval '1 day'
+              WHEN 'weekly' THEN GREATEST(next_execution_at, NOW()) + interval '7 days'
+              ELSE GREATEST(next_execution_at, NOW()) + interval '1 month'
+            END,
+            updated_at = NOW()
+        WHERE id IN (
+          SELECT id FROM sip_plans
+          WHERE status = 'active' AND next_execution_at <= NOW()
+          ORDER BY next_execution_at
+          LIMIT 50
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, user_id, asset_type, amount_kobo, frequency
+      )
+      SELECT c.id, c.user_id, c.asset_type, c.amount_kobo, c.frequency,
              u.email, u.name
-      FROM sip_plans sp
-      LEFT JOIN users u ON u.id = sp.user_id
-      WHERE sp.status = 'active' AND sp.next_execution_at <= NOW()
-      LIMIT 50
+      FROM claimed c
+      LEFT JOIN users u ON u.id = c.user_id
     `);
 
     if (!due.rows.length) return;
@@ -48,6 +71,11 @@ async function executeDueSipPlans() {
         : plan.asset_type === "pension" ? "Pension (NPS)"
         : plan.asset_type;
 
+      // Tracks whether the external purchase actually settled. If recording
+      // fails AFTER the purchase, the catch path must NOT roll back the claim
+      // or record a plain "failed" execution — that would cause a duplicate
+      // debit on the next tick. It must alert for manual reconciliation.
+      let purchaseSettled = false;
       try {
         // REAL EXECUTION REQUIRED — a SIP execution must actually debit the
         // wallet and purchase the asset via the provider bridge BEFORE anything
@@ -66,6 +94,7 @@ async function executeDueSipPlans() {
           if (!purchase) {
             throw new Error("Gold provider bridge returned no result — SIP purchase NOT executed");
           }
+          purchaseSettled = true; // money moved — never roll back the claim below
         } else {
           // mutual_fund / pension SIP executions have no provider integration.
           throw new Error(`No purchase provider integrated for asset_type '${plan.asset_type}' — SIP purchase NOT executed`);
@@ -78,19 +107,14 @@ async function executeDueSipPlans() {
           ON CONFLICT (id) DO NOTHING
         `);
 
-        // Compute PostgreSQL interval string
-        const intervalStr = plan.frequency === "daily" ? "1 day"
-          : plan.frequency === "weekly" ? "7 days"
-          : "1 month";
-
-        // Update plan stats and advance next execution using PostgreSQL interval
+        // Update plan stats. next_execution_at was already advanced when the
+        // plan was claimed (above) — do NOT advance it again here.
         await db.execute(sql`
           UPDATE sip_plans
           SET
             total_invested_kobo = total_invested_kobo + ${plan.amount_kobo},
             execution_count = execution_count + 1,
             last_executed_at = NOW(),
-            next_execution_at = next_execution_at + ${intervalStr}::interval,
             updated_at = NOW()
           WHERE id = ${plan.id}
         `);
@@ -125,12 +149,43 @@ async function executeDueSipPlans() {
         logger.error(`[SIP] Failed to execute plan ${plan.id}: ${err.message}`);
         failed++;
 
-        // Record failed execution
+        if (purchaseSettled) {
+          // CRITICAL: money moved but the bookkeeping failed. Do NOT roll back
+          // the claim (a retry would double-debit) and do NOT record a plain
+          // "failed" execution — page the owner for manual reconciliation.
+          logger.error(`[SIP] CRITICAL: purchase settled for plan ${plan.id} but post-debit recording failed: ${err.message}. Manual reconciliation required.`);
+          notifyOwner({
+            title: `🚨 SIP RECONCILIATION REQUIRED: Plan ${plan.id}`,
+            content: `The gold purchase for SIP plan ${plan.id} (₦${amountNGN}) SETTLED at the provider, but recording the execution failed: ${err.message}. The plan was NOT rolled back (this prevents a duplicate debit). Reconcile manually: credit the execution/stats rows for plan ${plan.id}.`,
+          }).catch((e: any) => logger.warn(`[SIP] reconcile alert failed: ${e.message}`));
+          continue;
+        }
+
+        // Roll back the claim (next_execution_at was advanced when the plan
+        // was claimed) so the plan is due again on the next tick — the
+        // purchase above did NOT happen, so a retry is safe and correct.
+        await db.execute(sql`
+          UPDATE sip_plans
+          SET next_execution_at = CASE frequency
+                WHEN 'daily'  THEN next_execution_at - interval '1 day'
+                WHEN 'weekly' THEN next_execution_at - interval '7 days'
+                ELSE next_execution_at - interval '1 month'
+              END,
+              updated_at = NOW()
+          WHERE id = ${plan.id} AND status = 'active'
+        `).catch((rbErr: any) =>
+          logger.error(`[SIP] CRITICAL: claim rollback failed for plan ${plan.id} — plan will skip one cycle: ${rbErr.message}`)
+        );
+
+        // Record failed execution (dead-letter). A failure to write the
+        // dead-letter MUST be logged — never swallowed silently.
         await db.execute(sql`
           INSERT INTO sip_executions (id, plan_id, amount_kobo, status, error_message, executed_at)
           VALUES (${execId}, ${plan.id}, ${plan.amount_kobo}, 'failed', ${err.message}, NOW())
           ON CONFLICT (id) DO NOTHING
-        `).catch(() => {});
+        `).catch((dlErr: any) =>
+          logger.error(`[SIP] CRITICAL: failed to record dead-letter execution row for plan ${plan.id}: ${dlErr.message}`)
+        );
 
         // Send failure email
         if (plan.email) {

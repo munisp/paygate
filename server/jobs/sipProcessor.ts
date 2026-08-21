@@ -138,9 +138,10 @@ export async function executeSIPPlan(
     throw new Error("Gold provider bridge is not configured — SIP purchase NOT executed");
   }
 
+  // Bridge signature is (merchantId, customerId, amountNGN) — merchant first.
   const result = await buyDigitalGoldViaMiddleware(
-    plan.userId,
     plan.merchantId,
+    plan.userId,
     amountNGN
   );
   if (!result || !result.txId) {
@@ -195,10 +196,20 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
 
     for (const plan of duePlans) {
       result.processed++;
+      // Tracks whether the external purchase actually settled — a failure
+      // AFTER settlement is a reconciliation emergency, not a "failed debit",
+      // and must be messaged as such (the plan was already claimed, so there
+      // is no double-debit risk, but the totals are stranded until reconciled).
+      let purchaseSettled = false;
       try {
         const { grams, amountNGN, txId } = await executeSIPPlan(plan, goldPrice);
+        purchaseSettled = true;
 
-        // Update plan record
+        // Money has moved. Update the plan totals — this MUST NOT fail
+        // silently: updateSIPPlanAfterExecution throws on any DB error so the
+        // failure path below records the stranded state and alerts the owner.
+        // The plan's next_run_at was already advanced atomically at claim time
+        // (see getDueSIPPlans), so a retry can never double-debit this plan.
         await updateSIPPlanAfterExecution(db, plan.id, {
           totalGramsAccumulated: plan.totalGramsAccumulated + grams,
           totalInvestedNGN: plan.totalInvestedNGN + amountNGN,
@@ -232,15 +243,32 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
         result.errors.push({ planId: plan.id, error: errorMsg });
         logger.error(`SIP Processor: Plan ${plan.id} failed: ${errorMsg}`);
 
-        // Notify owner of failure
-        await notifyOwner({
-          title: `Gold SIP Failed: Plan ${plan.id}`,
-          content: `Auto-debit failed for SIP plan ${plan.id}: ${errorMsg}. Manual intervention may be required.`,
-        }).catch(() => {});
+        if (purchaseSettled) {
+          // Money MOVED but bookkeeping failed — reconciliation emergency.
+          // Do NOT message this as a failed debit; the debit succeeded.
+          await notifyOwner({
+            title: `🚨 Gold SIP RECONCILIATION REQUIRED: Plan ${plan.id}`,
+            content:
+              `The gold purchase for SIP plan ${plan.id} SETTLED at the provider, but the ` +
+              `post-debit plan update failed: ${errorMsg}. The plan was already claimed ` +
+              `(no duplicate debit can occur), but its totals are stale. Reconcile manually.`,
+          }).catch(() => {});
+        } else {
+          // Notify owner of failure
+          await notifyOwner({
+            title: `Gold SIP Failed: Plan ${plan.id}`,
+            content: `Auto-debit failed for SIP plan ${plan.id}: ${errorMsg}. Manual intervention may be required.`,
+          }).catch(() => {});
+        }
       }
     }
   } catch (err) {
-    logger.error(`SIP Processor: Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+    // FAIL LOUD — a fatal run error (e.g. the claim query failed) must
+    // propagate to the scheduler/operator, not vanish into a log line.
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`SIP Processor: Fatal error: ${msg}`);
+    result.errors.push({ planId: "*", error: msg });
+    throw err;
   }
 
   logger.info(
@@ -254,51 +282,118 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
 
 // ─── DB Helpers (production-ready — wired to gold_sip_plans schema) ──────────────
 
-async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
-  try {
-    // Try to query actual gold_sip_plans table
-    const { sql } = await import("drizzle-orm");
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-    // Dynamic import to avoid hard dependency on schema table existence
-    const schema = await import("../../drizzle/schema");
-    if (!schema.goldSipPlans) return [];
-
-    const { and, eq, gte, lt } = await import("drizzle-orm");
-    return db
-      .select()
-      .from(schema.goldSipPlans)
-      .where(
-        and(
-          eq(schema.goldSipPlans.status, "active"),
-          gte(schema.goldSipPlans.nextRunAt, today),
-          lt(schema.goldSipPlans.nextRunAt, tomorrow)
-        )
-      );
-  } catch {
-    // Table doesn't exist yet — return empty array gracefully
-    return [];
-  }
+/**
+ * Map a gold_sip_plans row (snake_case from raw SQL) onto the SIPPlan shape.
+ * The table stores kobo (NGN minor units); SIPPlan works in naira.
+ */
+function rowToSIPPlan(row: any): SIPPlan {
+  const nextRunAt = row.next_run_at ?? row.nextRunAt ?? null;
+  return {
+    id: String(row.id),
+    merchantId: String(row.merchant_id ?? row.merchantId),
+    // gold_sip_plans has no separate user column — the merchant IS the investor.
+    userId: String(row.merchant_id ?? row.merchantId),
+    monthlyAmountNGN: Number(row.amount_kobo ?? row.amountKobo ?? 0) / 100,
+    frequency: (row.frequency ?? "monthly") as SIPPlan["frequency"],
+    dayOfMonth: nextRunAt ? new Date(nextRunAt).getUTCDate() : 1,
+    status: (row.status ?? "active") as SIPPlan["status"],
+    nextDebitAt: nextRunAt ? new Date(nextRunAt) : new Date(),
+    totalGramsAccumulated: Number(row.total_gold_grams ?? row.totalGoldGrams ?? 0),
+    totalInvestedNGN: Number(row.total_invested_kobo ?? row.totalInvestedKobo ?? 0) / 100,
+    runCount: 0,
+    lastRunAt: null,
+    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+  };
 }
 
+/**
+ * Claim-then-execute: atomically advance next_run_at for every plan due today
+ * and return the claimed rows. This is the idempotency guard for the external
+ * gold purchase — once claimed, no concurrent cron instance (or retry of this
+ * run) can select the same plan, so a plan can never be double-debited.
+ * FOR UPDATE SKIP LOCKED makes two racing pollers claim disjoint sets.
+ *
+ * FAILS LOUD: a query error throws (it previously returned [], silently
+ * skipping every due debit for the day).
+ */
+async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
+  const { sql } = await import("drizzle-orm");
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+  let rows: any[];
+  try {
+    const res = await db.execute(sql`
+      UPDATE gold_sip_plans
+      SET next_run_at = CASE frequency
+            WHEN 'daily'  THEN next_run_at + interval '1 day'
+            WHEN 'weekly' THEN next_run_at + interval '7 days'
+            ELSE next_run_at + interval '1 month'
+          END,
+          updated_at = now()
+      WHERE id IN (
+        SELECT id FROM gold_sip_plans
+        WHERE status = 'active'
+          AND next_run_at >= ${today}
+          AND next_run_at < ${tomorrow}
+        ORDER BY next_run_at
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `);
+    rows = ((res as any)?.rows ?? res ?? []) as any[];
+  } catch (err) {
+    // Table missing in a pre-migration environment → no plans, but LOG it;
+    // any other failure is thrown so the run aborts loudly.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("gold_sip_plans") && msg.includes("does not exist")) {
+      logger.warn("SIP Processor: gold_sip_plans table not migrated yet — skipping run");
+      return [];
+    }
+    throw new Error(`SIP Processor: failed to claim due plans: ${msg}`);
+  }
+  return rows.map(rowToSIPPlan);
+}
+
+/**
+ * Post-debit plan update. Money has ALREADY moved when this runs, so a silent
+ * failure here strands state (totals never recorded) and, worse, used to be
+ * swallowed entirely. This function FAILS LOUD: it logs and rethrows so the
+ * caller records the plan as failed and alerts the owner for manual
+ * reconciliation. The update is guarded (RETURNING) so a missing/inactive
+ * plan row is an error, not a no-op.
+ */
 async function updateSIPPlanAfterExecution(
   db: any,
   planId: string,
   updates: Partial<SIPPlan>
 ): Promise<void> {
+  const { sql } = await import("drizzle-orm");
   try {
-    const schema = await import("../../drizzle/schema");
-    if (!schema.goldSipPlans) return;
-    const { eq } = await import("drizzle-orm");
-    await db
-      .update(schema.goldSipPlans)
-      .set(updates)
-      .where(eq(schema.goldSipPlans.id, planId));
-  } catch {
-    // Graceful degradation
+    const res = await db.execute(sql`
+      UPDATE gold_sip_plans
+      SET total_gold_grams = ${String(updates.totalGramsAccumulated ?? 0)},
+          total_invested_kobo = ${Math.round((updates.totalInvestedNGN ?? 0) * 100)},
+          updated_at = now()
+      WHERE id = ${planId} AND status = 'active'
+      RETURNING id
+    `);
+    const rows = ((res as any)?.rows ?? res ?? []) as any[];
+    if (rows.length === 0) {
+      throw new Error(`no active gold_sip_plans row matched id=${planId}`);
+    }
+  } catch (err) {
+    // FAIL LOUD — the gold purchase already settled; swallowing this strands
+    // the execution state. Rethrow so the run marks the plan failed and the
+    // owner is alerted. The plan's next_run_at was advanced at claim time,
+    // so this can never cause a duplicate debit on retry.
+    logger.error(
+      `SIP Processor: CRITICAL — post-debit update failed for plan ${planId} ` +
+      `after money moved: ${err instanceof Error ? err.message : String(err)}`
+    );
+    throw err;
   }
 }
 

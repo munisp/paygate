@@ -40,23 +40,25 @@ export const portfolioRebalancingRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = String(ctx.user.id);
 
-      // Fetch current holdings from each asset class
+      // Fetch current holdings from each asset class — real tables/columns
+      // (drizzle/schema.ts: digital_gold_holdings :2472, mutual_fund_holdings
+      // :2514, pension_accounts :2577; all keyed by merchant_id).
       const [goldHoldings] = await db.execute(sql`
-        SELECT COALESCE(SUM(amount_grams * current_price_per_gram_kobo), 0) AS total_kobo
-        FROM consumer_gold_holdings
-        WHERE user_id = ${userId} AND status = 'active'
+        SELECT COALESCE(SUM(current_value_kobo), 0) AS total_kobo
+        FROM digital_gold_holdings
+        WHERE merchant_id = ${userId}
       `);
       const [mfHoldings] = await db.execute(sql`
-        SELECT COALESCE(SUM(units * current_nav_kobo), 0) AS total_kobo
-        FROM consumer_mutual_fund_holdings
-        WHERE user_id = ${userId} AND status = 'active'
+        SELECT COALESCE(SUM(current_value_kobo), 0) AS total_kobo
+        FROM mutual_fund_holdings
+        WHERE merchant_id = ${userId}
       `);
       const [pensionHoldings] = await db.execute(sql`
         SELECT COALESCE(SUM(balance_kobo), 0) AS total_kobo
-        FROM consumer_pension_accounts
-        WHERE user_id = ${userId} AND status = 'active'
+        FROM pension_accounts
+        WHERE merchant_id = ${userId} AND status = 'active'
       `);
 
       const goldKobo = Number((goldHoldings as any)?.total_kobo ?? 0);
@@ -149,7 +151,7 @@ export const portfolioRebalancingRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
       const orderId = nanoid("reb_");
       const createdOrders = [];
 
@@ -193,7 +195,7 @@ export const portfolioRebalancingRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
       const orders = await db.select()
         .from(schema.portfolioRebalancingOrders)
         .where(eq(schema.portfolioRebalancingOrders.userId, userId))
@@ -223,7 +225,7 @@ export const claimDocumentsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
 
       // Verify claim belongs to this user
       const [claim] = await db.select()
@@ -279,7 +281,7 @@ export const claimDocumentsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
 
       // Verify claim belongs to this user
       const [claim] = await db.select()
@@ -311,7 +313,7 @@ export const claimDocumentsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
 
       const [doc] = await db.select()
         .from(schema.claimDocuments)
@@ -582,7 +584,7 @@ export const whiteLabelSdkRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
       const tokens = await db.execute(sql`
         SELECT id, name, token_prefix, scopes, is_active, last_used_at, created_at, expires_at
         FROM sdk_tokens
@@ -607,7 +609,7 @@ export const whiteLabelSdkRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
       const tokenId = nanoid("sdk_");
       const rawToken = `pg_sdk_${crypto.randomBytes(32).toString("hex")}`;
       const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
@@ -646,7 +648,7 @@ export const whiteLabelSdkRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const userId = (ctx.user as any).id;
+      const userId = ctx.user.id;
       await db.execute(sql`
         UPDATE sdk_tokens
         SET is_active = false, revoked_at = NOW()

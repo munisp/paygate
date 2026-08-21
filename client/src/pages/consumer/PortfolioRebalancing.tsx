@@ -62,15 +62,18 @@ export default function PortfolioRebalancing() {
   const [isRebalancing, setIsRebalancing] = useState(false);
 
   // Fetch holdings
-  const { data: goldData, isLoading: goldLoading } = trpc.newFeatures.consumerGold.getHoldings.useQuery();
-  const { data: mfData, isLoading: mfLoading } = trpc.newFeatures.consumerMutualFunds.getPortfolio.useQuery();
-  const { data: pensionData, isLoading: pensionLoading } = trpc.newFeatures.consumerPension.getBalance.useQuery();
+  const { data: goldData, isLoading: goldLoading } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
+  const { data: mfData, isLoading: mfLoading } = trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
+  const { data: pensionData, isLoading: pensionLoading } = trpc.newFeatures.pension.getAccount.useQuery();
   const isLoading = goldLoading || mfLoading || pensionLoading;
 
   const holdings = useMemo(() => {
-    const goldVal = (goldData?.investments?.currentValueKobo ?? 0) / 100;
-    const mfVal = (mfData?.portfolio?.totalValueKobo ?? 0) / 100;
-    const pensionVal = (pensionData?.balance?.totalValueKobo ?? 0) / 100;
+    // digitalGold.getHoldings → { grams, currentValueKobo, ... } (top-level)
+    const goldVal = ((goldData as any)?.currentValueKobo ?? goldData?.investments?.currentValueKobo ?? 0) / 100;
+    // mutualFunds.getPortfolio → { investments, totalCurrentValueKobo, ... }
+    const mfVal = ((mfData as any)?.totalCurrentValueKobo ?? mfData?.portfolio?.totalValueKobo ?? 0) / 100;
+    // pension.getAccount returns the account row directly (currentValueKobo).
+    const pensionVal = ((pensionData as any)?.currentValueKobo ?? pensionData?.balance?.totalValueKobo ?? 0) / 100;
     const total = goldVal + mfVal + pensionVal;
     return {
       gold: goldVal,

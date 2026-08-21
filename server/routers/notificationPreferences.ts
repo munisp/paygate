@@ -88,8 +88,10 @@ export const notificationPreferencesRouter = router({
       const merchant = await getMerchantByOwnerId(user.id);
       if (!merchant) throw new TRPCError({ code: "NOT_FOUND", message: "Merchant not found" });
 
-      const sets: string[] = [];
-      const vals: any[] = [];
+      // Parameterized SET clauses — column names come from the whitelisted
+      // fieldMap (safe as sql.raw identifiers); every VALUE and the
+      // merchant_id are bound parameters. No string-built SQL.
+      const sets: ReturnType<typeof sql>[] = [];
 
       const fieldMap: Record<string, string> = {
         pushEnabled:    "push_enabled",
@@ -109,22 +111,18 @@ export const notificationPreferencesRouter = router({
       for (const [key, col] of Object.entries(fieldMap)) {
         const val = (input as any)[key];
         if (val !== undefined) {
-          if (key === "digestFrequency") {
-            sets.push(`${col} = '${String(val).replace(/'/g, "''")}'`);
-          } else {
-            sets.push(`${col} = ${val ? 1 : 0}`);
-          }
+          // Boolean flags are stored as integer 1/0 (see table DDL);
+          // digestFrequency is a text enum.
+          sets.push(sql`${sql.raw(col)} = ${key === "digestFrequency" ? String(val) : val ? 1 : 0}`);
         }
       }
 
       if (sets.length === 0) return { updated: false };
 
       await db.execute(
-        sql.raw(
-          `UPDATE realtime_notification_preferences
-           SET ${sets.join(", ")}, updated_at = now()
-           WHERE merchant_id = '${merchant.id}'`
-        )
+        sql`UPDATE realtime_notification_preferences
+            SET ${sql.join(sets, sql`, `)}, updated_at = now()
+            WHERE merchant_id = ${merchant.id}`
       );
 
       return { updated: true };

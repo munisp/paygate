@@ -12,16 +12,16 @@ import { DomainTableToolbar } from "@/components/DomainTableToolbar";
 import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
-import { Shield, Plus, TrendingDown, AlertTriangle, CheckCircle, DollarSign } from "lucide-react";
+import { Shield, Plus, AlertTriangle, CheckCircle, DollarSign } from "lucide-react";
 import { DomainProtocolBanner } from "@/components/ProtocolBadge";
 import { ACORDSchemaExplorer } from "@/components/ACORDSchemaExplorer";
 
 const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "bg-green-100 text-green-800",
-  LAPSED: "bg-red-100 text-red-800",
-  CANCELLED: "bg-gray-100 text-gray-800",
-  EXPIRED: "bg-yellow-100 text-yellow-800",
-  PENDING: "bg-blue-100 text-blue-800",
+  active: "bg-green-100 text-green-800",
+  lapsed: "bg-red-100 text-red-800",
+  cancelled: "bg-gray-100 text-gray-800",
+  expired: "bg-yellow-100 text-yellow-800",
+  pending: "bg-blue-100 text-blue-800",
 };
 
 const POLICY_TYPES = ["LIFE", "HEALTH", "MOTOR", "PROPERTY", "MICRO", "AGRI"];
@@ -31,7 +31,6 @@ export default function Insurance() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [lapseCheckId, setLapseCheckId] = useState("");
   const [form, setForm] = useState({
     holderName: "", holderFsp: "", holderAccount: "",
     insurerId: "", policyType: "LIFE", premiumAmount: "",
@@ -39,43 +38,42 @@ export default function Insurance() {
     startDate: "", endDate: "", gracePeriodDays: "30",
   });
 
-  const { data: policies, refetch, isLoading } = trpc.insurance.listPolicies.useQuery({ page: 1, pageSize: 200 });
-  const allPolicies = policies?.policies ?? [];
+  const { data: policies, refetch, isLoading } = trpc.insurancePolicies.list.useQuery({ limit: 200, offset: 0 });
+  const allPolicies = policies?.rows ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
     filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
-  } = useDomainTable(allPolicies, ["id", "policy_number", "holder_name", "status"], "created_at");
+  } = useDomainTable(allPolicies, ["policyId", "productName", "provider", "status"], "createdAt");
   const CSV_COLS = [
-    { key: "id", label: "ID" }, { key: "policy_number", label: "Policy #" },
-    { key: "holder_name", label: "Holder" }, { key: "policy_type", label: "Type" },
-    { key: "premium_amount", label: "Premium" }, { key: "status", label: "Status" },
-    { key: "created_at", label: "Date" },
+    { key: "policyId", label: "Policy #" }, { key: "productName", label: "Product" },
+    { key: "customerId", label: "Holder" }, { key: "coverageType", label: "Type" },
+    { key: "premiumKobo", label: "Premium (kobo)" }, { key: "status", label: "Status" },
+    { key: "createdAt", label: "Date" },
   ];
-  const { data: stats, isLoading } = trpc.insurance.getPolicyStats.useQuery();
-  const createMut = trpc.insurance.createPolicy.useMutation({
-    onSuccess: (d) => { toast.success(`Policy created: ${d.policyNumber}`); setShowCreateDialog(false); refetch(); },
+  const { data: stats } = trpc.insurancePolicies.stats.useQuery();
+  const createMut = trpc.insurancePolicies.create.useMutation({
+    onSuccess: (d) => { toast.success(`Policy created: ${d.policyId}`); setShowCreateDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const { data: lapseRisk, refetch: checkLapse, isLoading } = trpc.insurance.scoreLapseRisk.useQuery(
-    { policyId: lapseCheckId },
-    { enabled: false }
-  );
 
   const handleCreate = () => {
     if (!form.holderName || !form.holderFsp || !form.premiumAmount || !form.coverageAmount || !form.startDate || !form.endDate) {
       toast.error("Please fill all required fields"); return;
     }
     createMut.mutate({
-      ...form,
-      premiumAmount: parseFloat(form.premiumAmount),
-      coverageAmount: parseFloat(form.coverageAmount),
-      gracePeriodDays: parseInt(form.gracePeriodDays),
+      customerId: form.holderAccount || form.holderName,
+      productId: form.policyType,
+      productName: `${form.policyType} policy for ${form.holderName}`,
+      provider: form.insurerId || form.holderFsp,
+      premiumKobo: Math.round(parseFloat(form.premiumAmount) * 100),
+      coverageType: form.policyType,
+      expiresAt: form.endDate,
     });
   };
 
-  const totalPolicies = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.count), 0) ?? 0;
-  const activePolicies = stats?.filter((s: Record<string, unknown>) => s.status === "ACTIVE").reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.count), 0) ?? 0;
-  const totalPremium = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_premium), 0) ?? 0;
+  const totalPolicies = Number(stats?.total ?? 0);
+  const activePolicies = Number(stats?.active ?? 0);
+  const totalPremium = Number(stats?.totalPremiumKobo ?? 0) / 100;
 
   if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
@@ -92,27 +90,6 @@ export default function Insurance() {
           <p className="text-muted-foreground text-sm mt-1">Wave 213 — Policy lifecycle management with AI lapse prediction</p>
         </div>
         <div className="flex gap-2">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="gap-2"><TrendingDown className="w-4 h-4" /> Lapse Risk</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Lapse Risk Scoring</DialogTitle></DialogHeader>
-              <div className="space-y-3">
-                <div><Label>Policy ID</Label>
-                  <Input value={lapseCheckId} onChange={e => setLapseCheckId(e.target.value)} placeholder="POL-..." />
-                </div>
-                <Button className="w-full" onClick={() => checkLapse()}>Score Lapse Risk</Button>
-                {lapseRisk && (
-                  <div className={`p-3 rounded-lg border ${lapseRisk.riskLevel === "CRITICAL" ? "bg-red-50 border-red-200" : lapseRisk.riskLevel === "HIGH" ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200"}`}>
-                    <div className="font-medium">Risk Level: {lapseRisk.riskLevel}</div>
-                    <div className="text-sm mt-1">Lapse Probability: {((lapseRisk.lapseProbability ?? 0) * 100).toFixed(1)}%</div>
-                    <div className="text-sm">Missed Payments: {lapseRisk.missedPayments}</div>
-                  </div>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="w-4 h-4" /> New Policy</Button>
@@ -176,7 +153,7 @@ export default function Insurance() {
 
       {/* Filter */}
       <div className="flex gap-2 flex-wrap">
-        {[undefined, "ACTIVE", "LAPSED", "CANCELLED", "EXPIRED"].map(s => (
+        {[undefined, "active", "lapsed", "cancelled", "expired"].map(s => (
           <Button key={s ?? "all"} variant={statusFilter === s ? "default" : "outline"} size="sm"
             onClick={() => { setStatusFilter(s); setPage(1); }}>
             {s ?? "All"}
@@ -193,33 +170,33 @@ export default function Insurance() {
               <thead>
                 <tr className="border-b text-muted-foreground">
                   <th className="text-left py-2 pr-4">Policy #</th>
-                  <th className="text-left py-2 pr-4">Holder</th>
+                  <th className="text-left py-2 pr-4">Product</th>
                   <th className="text-left py-2 pr-4">Type</th>
-                  <th className="text-left py-2 pr-4">Frequency</th>
+                  <th className="text-left py-2 pr-4">Provider</th>
                   <th className="text-right py-2 pr-4">Premium</th>
-                  <th className="text-right py-2 pr-4">Coverage</th>
+                  <th className="text-right py-2 pr-4">Holder</th>
                   <th className="text-left py-2 pr-4">Status</th>
                   <th className="text-left py-2">Expires</th>
                 </tr>
               </thead>
               <tbody>
-                {policies?.policies?.length === 0 && (
+                {(policies?.rows?.length ?? 0) === 0 && (
                   <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No policies yet</td></tr>
                 )}
-                {policies?.policies?.map((p: Record<string, unknown>) => (
-                  <tr key={p.id as string} className="border-b hover:bg-muted/30">
-                    <td className="py-2 pr-4 font-mono text-xs font-medium">{p.policy_number as string}</td>
-                    <td className="py-2 pr-4">{p.holder_name as string}</td>
-                    <td className="py-2 pr-4"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{p.policy_type as string}</span></td>
-                    <td className="py-2 pr-4 text-xs">{p.frequency as string}</td>
-                    <td className="py-2 pr-4 text-right font-medium">₦{(p.premium_amount as number)?.toLocaleString()}</td>
-                    <td className="py-2 pr-4 text-right">₦{(p.coverage_amount as number)?.toLocaleString()}</td>
+                {policies?.rows?.map((p: Record<string, unknown>) => (
+                  <tr key={p.policyId as string} className="border-b hover:bg-muted/30">
+                    <td className="py-2 pr-4 font-mono text-xs font-medium">{p.policyId as string}</td>
+                    <td className="py-2 pr-4">{p.productName as string}</td>
+                    <td className="py-2 pr-4"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{p.coverageType as string}</span></td>
+                    <td className="py-2 pr-4 text-xs">{p.provider as string}</td>
+                    <td className="py-2 pr-4 text-right font-medium">₦{((p.premiumKobo as number) / 100)?.toLocaleString()}</td>
+                    <td className="py-2 pr-4 text-right">{p.customerId as string}</td>
                     <td className="py-2 pr-4">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[p.status as string] || "bg-gray-100 text-gray-800"}`}>
                         {p.status as string}
                       </span>
                     </td>
-                    <td className="py-2 text-muted-foreground text-xs">{p.end_date as string}</td>
+                    <td className="py-2 text-muted-foreground text-xs">{p.expiresAt ? new Date(p.expiresAt as string).toLocaleDateString() : "—"}</td>
                   </tr>
                 ))}
               </tbody>

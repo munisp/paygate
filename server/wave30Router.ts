@@ -710,7 +710,8 @@ const fxHedgingRouter = router({
       if (!db) throw new Error("Database unavailable");
       const where = input.status ? `WHERE status = $1` : '';
       const params = input.status ? [input.status] : [];
-      const { rows } = (await db.execute(sql.raw(`SELECT * FROM fx_hedging_positions ${where} ORDER BY created_at DESC`))) as any;
+      // Migrated table (0084): fx_hedge_positions — see drizzle/schema.ts:6639.
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM fx_hedge_positions ${where} ORDER BY created_at DESC`))) as any;
       return rows;
     }),
 
@@ -724,15 +725,24 @@ const fxHedgingRouter = router({
       hedgeRatio: z.number().min(0).max(1).default(0.8),
       expiryDate: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const id = `hedge_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      await execRaw(db, `INSERT INTO fx_hedging_positions 
-           (id, base_currency, quote_currency, position_type, notional_amount, entry_rate, current_rate, hedge_ratio, expiry_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`, [id, input.baseCurrency, input.quoteCurrency, input.positionType,
-         input.notionalAmount, input.entryRate, input.hedgeRatio, input.expiryDate ?? null]);
-      return { id, status: 'open' };
+      // Column mapping to the migrated fx_hedge_positions:
+      //   position_type long/short → direction buy/sell
+      //   entry_rate → hedge_rate (entry rate is immutable; there is no current_rate column)
+      //   hedge_ratio → hedge_amount = notional_amount * hedge_ratio
+      const hedgeAmount = Math.round(input.notionalAmount * input.hedgeRatio * 1e8) / 1e8;
+      await execRaw(db, `INSERT INTO fx_hedge_positions
+           (id, position_id, base_currency, quote_currency, currency_pair, direction,
+            notional_amount, hedge_amount, hedge_rate, expiry_date, status, opened_by)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)`,
+        [id, input.baseCurrency, input.quoteCurrency, `${input.baseCurrency}/${input.quoteCurrency}`,
+         input.positionType === 'long' ? 'buy' : 'sell',
+         input.notionalAmount, hedgeAmount, input.entryRate, input.expiryDate ?? null,
+         (ctx.user as any)?.id ?? null]);
+      return { id, status: 'active' };
     }),
 
   updateRate: protectedProcedure
@@ -740,18 +750,17 @@ const fxHedgingRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      // Calculate unrealized P&L
-      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
+      // fx_hedge_positions has no current_rate/unrealized_pnl columns — the
+      // entry rate (hedge_rate) is immutable, so P&L is computed on the fly
+      // against the caller-supplied market rate and returned, never persisted.
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedge_positions WHERE id = $1 OR position_id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.currentRate - parseFloat(String((pos as any).entry_rate));
-      const pnl = (pos as any).position_type === 'long'
+      const priceDiff = input.currentRate - parseFloat(String((pos as any).hedge_rate));
+      const pnl = (pos as any).direction === 'buy'
         ? priceDiff * parseFloat(String((pos as any).notional_amount))
         : -priceDiff * parseFloat(String((pos as any).notional_amount));
-      await execRaw(db, `UPDATE fx_hedging_positions 
-         SET current_rate = $2, unrealized_pnl = $3, updated_at = NOW()
-         WHERE id = $1`, [input.positionId, input.currentRate, pnl]);
-      return { unrealizedPnl: pnl };
+      return { positionId: input.positionId, currentRate: input.currentRate, unrealizedPnl: pnl };
     }),
 
   closePosition: protectedProcedure
@@ -759,30 +768,31 @@ const fxHedgingRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedge_positions WHERE id = $1 OR position_id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.closingRate - parseFloat(String((pos as any).entry_rate));
-      const realizedPnl = (pos as any).position_type === 'long'
+      const priceDiff = input.closingRate - parseFloat(String((pos as any).hedge_rate));
+      const realizedPnl = (pos as any).direction === 'buy'
         ? priceDiff * parseFloat(String((pos as any).notional_amount))
         : -priceDiff * parseFloat(String((pos as any).notional_amount));
-      await execRaw(db, `UPDATE fx_hedging_positions 
-         SET status = 'closed', current_rate = $2, realized_pnl = $3, unrealized_pnl = 0, 
-             closed_at = NOW(), updated_at = NOW()
-         WHERE id = $1`, [input.positionId, input.closingRate, realizedPnl]);
+      await execRaw(db, `UPDATE fx_hedge_positions
+         SET status = 'closed', closed_at = NOW(), updated_at = NOW()
+         WHERE id = $1 OR position_id = $1`, [input.positionId]);
       return { realizedPnl };
     }),
 
   getPortfolioSummary: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT 
-         COUNT(*) FILTER (WHERE status = 'open') as open_positions,
-         SUM(unrealized_pnl) FILTER (WHERE status = 'open') as total_unrealized_pnl,
-         SUM(realized_pnl) FILTER (WHERE status = 'closed') as total_realized_pnl,
-         SUM(notional_amount) FILTER (WHERE status = 'open') as total_notional,
-         COUNT(DISTINCT base_currency || quote_currency) as currency_pairs
-       FROM fx_hedging_positions`)));
+    // fx_hedge_positions stores no persisted P&L columns — summary reports
+    // counts and notionals only; P&L is computed per-position via updateRate.
+    const { rows } = (await db.execute(sql.raw(`SELECT
+         COUNT(*) FILTER (WHERE status = 'active') as open_positions,
+         COUNT(*) FILTER (WHERE status = 'closed') as closed_positions,
+         SUM(notional_amount) FILTER (WHERE status = 'active') as total_notional,
+         SUM(hedge_amount) FILTER (WHERE status = 'active') as total_hedged,
+         COUNT(DISTINCT COALESCE(currency_pair, base_currency || quote_currency)) as currency_pairs
+       FROM fx_hedge_positions`)));
     return rows[0];
   }),
 });

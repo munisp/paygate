@@ -49,11 +49,23 @@ vi.mock("./db", () => {
   db.returning = vi.fn().mockResolvedValue([MOCK_RECORD]);
   db.update = vi.fn().mockReturnValue(db);
   db.set = vi.fn().mockReturnValue(db);
+  // Transactions run the callback against the same flat chainable mock.
+  db.transaction = vi.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(db));
 
   return {
     getDb: vi.fn().mockResolvedValue(db),
   };
 });
+
+// ─── Mock middleware bridge (ramp quote / wallet rails) ──────────────────────
+const bridgeMocks = vi.hoisted(() => ({
+  // Default: provider unreachable (tests override per-case). A resolved
+  // undefined would break `.catch()` chains inside the router.
+  getCryptoRampQuoteViaMiddleware: vi.fn().mockRejectedValue(new Error("ramp provider unreachable")),
+  debitWalletViaMiddleware: vi.fn().mockResolvedValue({ success: true }),
+  creditWalletViaMiddleware: vi.fn().mockResolvedValue({ success: true }),
+}));
+vi.mock("./middlewareBridge", () => bridgeMocks);
 
 // ─── Test context factory ─────────────────────────────────────────────────────
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
@@ -620,11 +632,37 @@ describe("wave80.usdcV2", () => {
     expect(result).toHaveProperty("totalTransactions");
   });
 
-  it("convertToNgn returns NGN amount at 1650 rate", async () => {
+  it("convertToNgn converts at the LIVE ramp rate (no hardcoded rate) and records the ledger movement", async () => {
+    // Deliberately NOT 1650 — proves the committed conversion uses the
+    // provider quote, not the old hardcoded rate.
+    bridgeMocks.getCryptoRampQuoteViaMiddleware.mockResolvedValue({ rate: 1600 });
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.usdcV2.convertToNgn({ amountUsdc: "10" });
-    expect(result.ngnAmount).toBe(16500);
-    expect(result.rate).toBe(1650);
+    expect(result.rate).toBe(1600);
+    expect(result.ngnAmount).toBe(16000);
+    expect(result).toHaveProperty("transaction");
+    expect(bridgeMocks.getCryptoRampQuoteViaMiddleware).toHaveBeenCalledWith("USDC", "NGN", 1);
+  });
+
+  it("convertToNgn fails loud when the ramp provider is unreachable (nothing recorded)", async () => {
+    bridgeMocks.getCryptoRampQuoteViaMiddleware.mockRejectedValue(new Error("bridge down"));
+    const caller = wave80Router.createCaller(createCtx());
+    await expect(caller.usdcV2.convertToNgn({ amountUsdc: "10" })).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+    });
+  });
+
+  it("convertToNgn rejects an underfunded wallet (guarded debit — nothing recorded)", async () => {
+    bridgeMocks.getCryptoRampQuoteViaMiddleware.mockResolvedValue({ rate: 1600 });
+    const { getDb } = await import("./db");
+    const db = (await getDb()) as any;
+    // Guarded UPDATE ... WHERE balance >= amount RETURNING yields no row.
+    db.returning.mockResolvedValueOnce([]);
+    const caller = wave80Router.createCaller(createCtx());
+    await expect(caller.usdcV2.convertToNgn({ amountUsdc: "10" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Insufficient USDC balance"),
+    });
   });
 });
 

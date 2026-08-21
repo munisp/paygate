@@ -507,11 +507,11 @@ export default function Layout({ children }: LayoutProps) {
   );
 
   // ─── Stripe Mode Banner ─────────────────────────────────────────────────
-  const { data: checklistData } = trpc.system.goLiveChecklist.useQuery(undefined, {
+  const { data: checklistData } = trpc.portalHealth.getGoLiveChecklist.useQuery(undefined, {
     refetchInterval: layout300Interval,
     staleTime: 240_000,
   });
-  const stripeItem = checklistData?.items.find((i: any) => i.id === "stripe_live_keys");
+  const stripeItem = checklistData?.goLive.find((i: any) => i.id === "stripe");
   const isTestMode = stripeItem?.status !== "ok";
   const [dismissedStripeBanner, setDismissedStripeBanner] = useState(false);
 
