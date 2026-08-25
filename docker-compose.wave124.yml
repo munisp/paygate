@@ -1,0 +1,421 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Wave 124 — Docker Compose
+# Services: Bill Payments Gateway, Carbon Registry, Subscription Engine,
+#           QR Payment Generator, POS Terminal Manager, Referral Engine,
+#           USSD Gateway, Purchase Order Workflow, Insurance Claims Processor,
+#           Loan Repayment Engine, Coupon Engine, Fraud Alert Comments Service,
+#           Saved Beneficiaries Cache, Device Push Token Registry
+#
+# ⚠️  ALL 13 services below reference paygate/*:latest images that are NOT built
+# by this repo (no Dockerfile / source exists for them). They are kept as
+# PLANNED definitions only and are disabled via `profiles: ["disabled"]` so a
+# plain `docker compose up` will never attempt to pull or run them.
+# Remove the profile gate only after the corresponding service source lands.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  paygate-wave124:
+    driver: bridge
+    name: paygate-wave124
+
+volumes:
+  bill_payments_data:
+  carbon_registry_data:
+  subscription_engine_data:
+  qr_payment_data:
+  pos_manager_data:
+  referral_engine_data:
+  ussd_gateway_data:
+  purchase_order_data:
+  insurance_claims_data:
+  loan_repayment_data:
+  coupon_engine_data:
+  beneficiaries_cache_data:
+
+services:
+
+  # ─── Bill Payments Gateway ──────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/bill-payments-gateway)
+  bill-payments-gateway:
+    profiles: ["disabled"]
+    image: paygate/bill-payments-gateway:latest
+    container_name: paygate-bill-payments-gateway
+    restart: unless-stopped
+    ports:
+      - "9401:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL}
+      NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE}
+      NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY}
+      VTPASS_API_KEY: ${VTPASS_API_KEY}
+      VTPASS_SECRET_KEY: ${VTPASS_SECRET_KEY}
+      VTPASS_SANDBOX: ${VTPASS_SANDBOX:-true}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - bill_payments_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Carbon Credit Registry ─────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/carbon-registry)
+  carbon-registry:
+    profiles: ["disabled"]
+    image: paygate/carbon-registry:latest
+    container_name: paygate-carbon-registry
+    restart: unless-stopped
+    ports:
+      - "9402:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_SERVICE_NAME: paygate-carbon-registry
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      CARBON_MARKET_API_URL: ${CARBON_MARKET_API_URL:-https://api.carbonregistry.com}
+      CARBON_MARKET_API_KEY: ${CARBON_MARKET_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - carbon_registry_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Subscription Engine ────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/subscription-engine)
+  subscription-engine:
+    profiles: ["disabled"]
+    image: paygate/subscription-engine:latest
+    container_name: paygate-subscription-engine
+    restart: unless-stopped
+    ports:
+      - "9403:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      TEMPORAL_HOST_PORT: ${TEMPORAL_HOST_PORT}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - subscription_engine_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── QR Payment Generator ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/qr-payment-generator)
+  qr-payment-generator:
+    profiles: ["disabled"]
+    image: paygate/qr-payment-generator:latest
+    container_name: paygate-qr-payment-generator
+    restart: unless-stopped
+    ports:
+      - "9404:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS}
+      PAYMENT_LINK_BASE_URL: ${PAYMENT_LINK_BASE_URL}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      QR_CODE_TTL_SECONDS: "300"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - qr_payment_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── POS Terminal Manager ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/pos-terminal-manager)
+  pos-terminal-manager:
+    profiles: ["disabled"]
+    image: paygate/pos-terminal-manager:latest
+    container_name: paygate-pos-terminal-manager
+    restart: unless-stopped
+    ports:
+      - "9405:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      POS_FIRMWARE_BUCKET: ${POS_FIRMWARE_BUCKET:-paygate-pos-firmware}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - pos_manager_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Referral Engine ────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/referral-engine)
+  referral-engine:
+    profiles: ["disabled"]
+    image: paygate/referral-engine:latest
+    container_name: paygate-referral-engine
+    restart: unless-stopped
+    ports:
+      - "9406:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      REFERRAL_REWARD_KOBO: "50000"
+      MAX_REFERRAL_DEPTH: "3"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - referral_engine_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── USSD Gateway ───────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/ussd-gateway)
+  ussd-gateway:
+    profiles: ["disabled"]
+    image: paygate/ussd-gateway:latest
+    container_name: paygate-ussd-gateway
+    restart: unless-stopped
+    ports:
+      - "9407:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      USSD_GATEWAY_URL: ${USSD_GATEWAY_URL}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      SESSION_TTL_SECONDS: "120"
+      MAX_MENU_DEPTH: "5"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ussd_gateway_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Purchase Order Workflow ─────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/purchase-order-workflow)
+  purchase-order-workflow:
+    profiles: ["disabled"]
+    image: paygate/purchase-order-workflow:latest
+    container_name: paygate-purchase-order-workflow
+    restart: unless-stopped
+    ports:
+      - "9408:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TEMPORAL_HOST_PORT: ${TEMPORAL_HOST_PORT}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      PAYOUT_APPROVER_EMAIL: ${PAYOUT_APPROVER_EMAIL}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - purchase_order_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Insurance Claims Processor ─────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/insurance-claims-processor)
+  insurance-claims-processor:
+    profiles: ["disabled"]
+    image: paygate/insurance-claims-processor:latest
+    container_name: paygate-insurance-claims-processor
+    restart: unless-stopped
+    ports:
+      - "9409:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TEMPORAL_HOST_PORT: ${TEMPORAL_HOST_PORT}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - insurance_claims_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Loan Repayment Engine ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/loan-repayment-engine)
+  loan-repayment-engine:
+    profiles: ["disabled"]
+    image: paygate/loan-repayment-engine:latest
+    container_name: paygate-loan-repayment-engine
+    restart: unless-stopped
+    ports:
+      - "9410:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS}
+      TEMPORAL_HOST_PORT: ${TEMPORAL_HOST_PORT}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - loan_repayment_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Coupon Engine ───────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/coupon-engine)
+  coupon-engine:
+    profiles: ["disabled"]
+    image: paygate/coupon-engine:latest
+    container_name: paygate-coupon-engine
+    restart: unless-stopped
+    ports:
+      - "9411:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      COUPON_CACHE_TTL_SECONDS: "300"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - coupon_engine_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Saved Beneficiaries Cache ───────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/saved-beneficiaries-cache)
+  saved-beneficiaries-cache:
+    profiles: ["disabled"]
+    image: paygate/saved-beneficiaries-cache:latest
+    container_name: paygate-saved-beneficiaries-cache
+    restart: unless-stopped
+    ports:
+      - "9412:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      BENEFICIARY_CACHE_TTL_SECONDS: "3600"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - beneficiaries_cache_data:/data
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Device Push Token Registry ─────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/device-push-token-registry)
+  device-push-token-registry:
+    profiles: ["disabled"]
+    image: paygate/device-push-token-registry:latest
+    container_name: paygate-device-push-token-registry
+    restart: unless-stopped
+    ports:
+      - "9413:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      PUSH_SERVICE_URL: ${PUSH_SERVICE_URL}
+      PUSH_SERVICE_KEY: ${PUSH_SERVICE_KEY}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - paygate-wave124
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
