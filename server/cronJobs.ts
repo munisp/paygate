@@ -7,9 +7,12 @@
  * 5. BNPL Overdue Alert: marks overdue instalments and applies late fee every hour
  * 6. STR 24h Deadline Monitor: alerts compliance team and auto-retries NFIU submission every 15 minutes
  * 7. Interchange Fee Auto-Calculation: calculates fees for completed transactions every 5 minutes
+ * 8. AP Recurring Bill Executor: claims due ap_recurring_schedules and generates bills every hour
  */
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
+import { apBills, apBillLineItems, merchantNotifications } from "../drizzle/schema";
+import { auditLog } from "./auditTrail";
 import { logger } from "./logger";
 import { sendEmail } from "./emailService";
 import { notifyOwner } from "./_core/notification";
@@ -373,6 +376,266 @@ async function runBnplOverdueAlerts(): Promise<void> {
   }
 }
 
+// ─── AP Recurring Bill Executor (P1-d) ───────────────────────────────────────
+// Claim-slot-then-execute (same semantic as executeDueSipPlans, L30): due
+// schedules are claimed by ATOMICALLY advancing next_run_at + run_count in one
+// UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING, so
+// concurrent cron instances claim disjoint schedules and a claimed slot can
+// never be executed twice. Unlike SIP there is NO claim rollback on failure:
+// the executor only INSERTs a new ap_bills row (idempotency key
+// `recurring:{scheduleId}:{slot ISO}`), so a retry of a failed slot would risk
+// a duplicate bill — instead the slot is skipped, the merchant is notified,
+// and the schedule resumes on its next (already-claimed) slot.
+
+export type RecurringScheduleRunTarget = {
+  id: number;
+  merchantId: string;
+  vendorId: string | null;
+  billTemplate: unknown;
+  /** Post-claim run number (1-based) — used in billNumber/source_ref. */
+  runCount: number;
+  maxAmountKobo: number | null;
+  autoApproveBelowKobo: number | null;
+  createdBy: number | null;
+};
+
+export type RecurringRunResult = {
+  status: "created" | "skipped_max_amount";
+  billId: string | null;
+  totalKobo: number;
+};
+
+type RecurringTemplateLineItem = {
+  description: string;
+  quantity: number;
+  unitPriceKobo: number;
+  amountKobo?: number;
+  accountCode?: string;
+};
+
+/** Non-fatal in-app notification for recurring-schedule events. */
+async function notifyRecurring(
+  db: any,
+  opts: { merchantId: string; scheduleId: number; title: string; body: string; metadata?: Record<string, unknown> },
+): Promise<void> {
+  try {
+    await db.insert(merchantNotifications).values({
+      merchantId: opts.merchantId,
+      type: "ap_recurring",
+      title: opts.title,
+      body: opts.body,
+      entityId: String(opts.scheduleId),
+      entityType: "ap_recurring_schedule",
+      priority: "high",
+      actionUrl: "/ap/recurring",
+      metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
+    });
+  } catch (err: any) {
+    logger.warn(`[RecurringAP] notification insert failed for schedule ${opts.scheduleId}: ${err.message}`);
+  }
+}
+
+/**
+ * Core executor: generate one ap_bills row (+ line items) from a claimed
+ * schedule's bill template. Shared by the cron sweep below and by
+ * apRecurring.triggerNow (manual run). Inserts directly via drizzle — no
+ * cross-router import of apBillPay.
+ *
+ * Throws on hard failure (caller logs + notifies; the claim is NOT rolled
+ * back — see claim-slot semantic above).
+ */
+export async function executeRecurringScheduleRun(
+  db: any,
+  schedule: RecurringScheduleRunTarget,
+  opts: { slotKey: string },
+): Promise<RecurringRunResult> {
+  const template = (schedule.billTemplate ?? {}) as {
+    description?: string;
+    lineItems?: RecurringTemplateLineItem[];
+    taxKobo?: number;
+  };
+  const lineItems = (template.lineItems ?? []).map((li) => ({
+    ...li,
+    amountKobo: li.amountKobo ?? Math.round(li.quantity * li.unitPriceKobo),
+  }));
+  if (lineItems.length === 0) {
+    throw new Error(`schedule ${schedule.id} bill_template has no line items`);
+  }
+  const subtotalKobo = lineItems.reduce((sum, li) => sum + li.amountKobo, 0);
+  const taxKobo = template.taxKobo ?? 0;
+  const totalKobo = subtotalKobo + taxKobo;
+
+  // Max-amount guard: skip this slot (no bill), warn the merchant, audit.
+  if (schedule.maxAmountKobo != null && totalKobo > schedule.maxAmountKobo) {
+    logger.warn(`[RecurringAP] schedule ${schedule.id} skipped: total ${totalKobo} kobo exceeds max_amount_kobo ${schedule.maxAmountKobo}`);
+    await notifyRecurring(db, {
+      merchantId: schedule.merchantId,
+      scheduleId: schedule.id,
+      title: "Recurring bill skipped — amount limit exceeded",
+      body: `Run #${schedule.runCount} of recurring schedule ${schedule.id} was skipped: the generated total (₦${(totalKobo / 100).toFixed(2)}) exceeds the schedule's maximum amount (₦${(schedule.maxAmountKobo / 100).toFixed(2)}). Review the schedule or its bill template.`,
+      metadata: { runCount: schedule.runCount, totalKobo, maxAmountKobo: schedule.maxAmountKobo },
+    });
+    await auditLog({
+      merchantId: schedule.merchantId,
+      actorId: "system",
+      actorName: "ap-recurring-executor",
+      action: "ap_recurring.run_skipped_max_amount",
+      resource: "ap_recurring_schedule",
+      resourceId: String(schedule.id),
+      metadata: { runCount: schedule.runCount, totalKobo, maxAmountKobo: schedule.maxAmountKobo },
+    });
+    return { status: "skipped_max_amount", billId: null, totalKobo };
+  }
+
+  const status = schedule.autoApproveBelowKobo != null && totalKobo <= schedule.autoApproveBelowKobo
+    ? "approved"
+    : "pending_approval";
+  const billId = crypto.randomUUID();
+  const sourceRef = `recurring:${schedule.id}:${schedule.runCount}`;
+
+  await db.insert(apBills).values({
+    id: billId,
+    merchantId: schedule.merchantId,
+    vendorId: schedule.vendorId,
+    billNumber: `REC-${schedule.id}-${schedule.runCount}`,
+    status,
+    currency: "NGN",
+    subtotalKobo,
+    taxKobo,
+    totalKobo,
+    source: "manual",
+    sourceRef,
+    idempotencyKey: opts.slotKey,
+    createdBy: schedule.createdBy,
+  });
+  await db.insert(apBillLineItems).values(lineItems.map((li) => ({
+    billId,
+    description: li.description,
+    quantity: String(li.quantity),
+    unitPriceKobo: li.unitPriceKobo,
+    amountKobo: li.amountKobo,
+    accountCode: li.accountCode ?? null,
+  })));
+
+  await auditLog({
+    merchantId: schedule.merchantId,
+    actorId: "system",
+    actorName: "ap-recurring-executor",
+    action: "ap_recurring.bill_created",
+    resource: "ap_bill",
+    resourceId: billId,
+    metadata: {
+      scheduleId: schedule.id, runCount: schedule.runCount,
+      sourceRef, status, subtotalKobo, taxKobo, totalKobo,
+    },
+  });
+  return { status: "created", billId, totalKobo };
+}
+
+/**
+ * Hourly sweep: claim due schedules (batch of 25, FOR UPDATE SKIP LOCKED)
+ * then execute each claimed schedule in its own try/catch — one failure never
+ * blocks the rest of the batch. Registered below at the same cadence as the
+ * BNPL repayment-schedule sweep.
+ */
+export async function processRecurringBillSchedules(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    // Claim: atomically roll each due schedule to its NEXT slot. RETURNING
+    // carries d.slot_at = the pre-claim next_run_at = the slot being executed
+    // (drives the idempotency key `recurring:{id}:{slot ISO}`).
+    const claimed = await db.execute(sql`
+      WITH due AS (
+        SELECT id, next_run_at AS slot_at
+        FROM ap_recurring_schedules
+        WHERE is_active = TRUE
+          AND next_run_at <= NOW()
+          AND (max_runs IS NULL OR run_count < max_runs)
+        ORDER BY next_run_at
+        LIMIT 25
+        FOR UPDATE SKIP LOCKED
+      ),
+      claimed AS (
+        UPDATE ap_recurring_schedules s
+        SET next_run_at = CASE s.frequency
+              WHEN 'weekly'    THEN GREATEST(s.next_run_at, NOW()) + INTERVAL '7 days'
+              WHEN 'quarterly' THEN GREATEST(s.next_run_at, NOW()) + INTERVAL '3 months'
+              ELSE GREATEST(s.next_run_at, NOW()) + INTERVAL '1 month'
+            END,
+            last_run_at = NOW(),
+            run_count = s.run_count + 1
+        FROM due d
+        WHERE s.id = d.id
+        RETURNING s.id, s.merchant_id, s.vendor_id, s.bill_template,
+                  d.slot_at, s.run_count, s.max_amount_kobo,
+                  s.auto_approve_below_kobo, s.created_by
+      )
+      SELECT * FROM claimed
+    `);
+
+    const rows = claimed.rows as any[];
+    if (!rows.length) return;
+
+    logger.info(`[RecurringAP] Processing ${rows.length} due recurring bill schedules`);
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      try {
+        const slotAt = new Date(row.slot_at);
+        const result = await executeRecurringScheduleRun(db, {
+          id: Number(row.id),
+          merchantId: String(row.merchant_id),
+          vendorId: row.vendor_id ?? null,
+          billTemplate: typeof row.bill_template === "string" ? JSON.parse(row.bill_template) : row.bill_template,
+          runCount: Number(row.run_count),
+          maxAmountKobo: row.max_amount_kobo != null ? Number(row.max_amount_kobo) : null,
+          autoApproveBelowKobo: row.auto_approve_below_kobo != null ? Number(row.auto_approve_below_kobo) : null,
+          createdBy: row.created_by != null ? Number(row.created_by) : null,
+        }, { slotKey: `recurring:${row.id}:${slotAt.toISOString()}` });
+        if (result.status === "created") {
+          created++;
+          logger.info(`[RecurringAP] schedule ${row.id} run #${row.run_count}: bill ${result.billId} created (₦${(result.totalKobo / 100).toFixed(2)})`);
+        } else {
+          skipped++;
+        }
+      } catch (err: any) {
+        // Claim already rolled forward (claim-slot semantic — documented
+        // above): log + notify the merchant, continue with the next schedule.
+        failed++;
+        logger.error(`[RecurringAP] schedule ${row.id} run failed: ${err.message}`);
+        await notifyRecurring(db, {
+          merchantId: String(row.merchant_id),
+          scheduleId: Number(row.id),
+          title: "Recurring bill run failed",
+          body: `Run #${row.run_count} of recurring schedule ${row.id} failed: ${err.message}. The schedule will resume on its next slot; this slot was skipped.`,
+          metadata: { runCount: Number(row.run_count), error: err.message },
+        });
+        await auditLog({
+          merchantId: String(row.merchant_id),
+          actorId: "system",
+          actorName: "ap-recurring-executor",
+          action: "ap_recurring.run_failed",
+          resource: "ap_recurring_schedule",
+          resourceId: String(row.id),
+          metadata: { runCount: Number(row.run_count), error: err.message },
+        });
+      }
+    }
+
+    logger.info(`[RecurringAP] sweep complete: ${created} bills created, ${skipped} skipped (max amount), ${failed} failed`);
+  } catch (err: any) {
+    // Table may not exist yet (migration 0089 not applied) — non-fatal, same
+    // tolerance as the other crons in this file.
+    if (!isSuppressedWorkerError(err) && !err.message?.includes("does not exist") && !err.message?.includes("ap_recurring_schedules")) {
+      logger.error(`[RecurringAP] sweep cron error: ${err.message}`);
+    }
+  }
+}
+
 // ─── STR 24-Hour Deadline Monitor ────────────────────────────────────────────
 /**
  * Runs every 15 minutes.
@@ -697,6 +960,9 @@ export function startCronJobs() {
   // BNPL overdue alert — every hour
   setInterval(runBnplOverdueAlerts, 60 * 60 * 1000);
 
+  // AP recurring bill executor — every hour (same cadence as the BNPL sweep)
+  setInterval(processRecurringBillSchedules, 60 * 60 * 1000);
+
   // STR 24h deadline monitor — every 15 minutes
   setInterval(monitorStrDeadlines, 15 * 60 * 1000);
 
@@ -713,10 +979,11 @@ export function startCronJobs() {
     checkSettlementSLA().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SLA initial run: ${e.message}`); });
     runLoyaltyTierPromotion().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] LoyaltyTier initial run: ${e.message}`); });
     runBnplOverdueAlerts().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] BNPL initial run: ${e.message}`); });
+    processRecurringBillSchedules().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] RecurringAP initial run: ${e.message}`); });
     monitorStrDeadlines().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] STR initial run: ${e.message}`); });
     calculatePendingInterchangeFees().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] Interchange initial run: ${e.message}`); });
     sweepExpiredRedEnvelopes().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] RedEnvelope initial run: ${e.message}`); });
   }, 15_000);
 
-  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), STRDeadline(15m), InterchangeFee(5m), RedEnvelopeExpiry(15m)");
+  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), RecurringAP(1h), STRDeadline(15m), InterchangeFee(5m), RedEnvelopeExpiry(15m)");
 }

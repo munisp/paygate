@@ -604,6 +604,61 @@ export async function freezeVirtualCardViaMiddleware(req: FreezeVirtualCardReque
   });
 }
 
+// ── STRICT money-path variants (Melio AP single-use vendor cards) ────────────
+// These ride bridgeCallStrict (not safe()): on a wallet-funded card issuance
+// or a credential reveal a silent null fallback is a money-correctness /
+// credential-fabrication bug, so bridge outages surface as
+// TRPCError(SERVICE_UNAVAILABLE) and the caller's transaction rolls back.
+
+export interface IssueVirtualCardStrictRequest {
+  cardId: string; merchantId: string;
+  /** Exact authorised amount in kobo — becomes the card spending limit. */
+  amountKobo: number;
+  currency: string;
+  /** Single-use vendor card — terminated on first authorisation / 30-day sweep. */
+  singleUse: boolean;
+  /** Vendor lock: the card may only be charged by this vendor (null = unlocked). */
+  vendorId?: string | null;
+  label: string; issuerId: string;
+}
+export interface IssueVirtualCardStrictResponse {
+  cardId: string; workflowId: string; reservationId: string;
+  maskedPan: string; status: string;
+  brand?: "visa" | "mastercard"; expiryMonth?: number; expiryYear?: number;
+}
+
+/**
+ * STRICT variant of issueVirtualCardViaMiddleware — used by
+ * apVendorCards.issueVendorCard where the merchant wallet has already been
+ * debited inside the caller's transaction and a null return would strand funds.
+ */
+export async function issueVirtualCardStrict(req: IssueVirtualCardStrictRequest): Promise<IssueVirtualCardStrictResponse> {
+  return bridgeCallStrict<IssueVirtualCardStrictResponse>("POST", "/v1/virtual-cards/issue", {
+    card_id: req.cardId, merchant_id: req.merchantId,
+    spending_limit: req.amountKobo, currency: req.currency,
+    single_use: req.singleUse, vendor_id: req.vendorId ?? null,
+    label: req.label, issuer_id: req.issuerId,
+  });
+}
+
+export interface VirtualCardCredentials {
+  cardId: string; pan: string; cvv: string; brand: string;
+  expiryMonth: number; expiryYear: number; maskedPan: string;
+}
+
+/**
+ * STRICT credential reveal — full PAN/CVV are NEVER read from or stored in the
+ * portal DB; they are only fetched from the bridge over this strict path (a
+ * null fallback here would silently fabricate credentials). Every call must be
+ * audit-logged by the caller.
+ */
+export async function getVirtualCardCredentialsStrict(cardId: string): Promise<VirtualCardCredentials> {
+  return bridgeCallStrict<VirtualCardCredentials>(
+    "GET",
+    `/v1/virtual-cards/${encodeURIComponent(cardId)}/credentials`
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PAYMENT LINKS
 // ═══════════════════════════════════════════════════════════════════════════════

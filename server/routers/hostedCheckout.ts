@@ -7,12 +7,14 @@
 
 import { z } from "zod";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { eq, and, ne, desc } from "drizzle-orm";
+import { eq, and, ne, desc, or, like } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
-import { hostedPaymentSessions, checkoutThemes, paymentLinks, merchantSolanaWallets, fxRates } from "../../drizzle/schema";
+import { hostedPaymentSessions, checkoutThemes, paymentLinks, merchantSolanaWallets, fxRates, invoices, invoicePayments } from "../../drizzle/schema";
 import { logger } from "../logger";
+import { __partialInternals } from "./arPartialPayments";
+import { __feeChoiceInternals } from "./arFeeChoice";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -328,6 +330,42 @@ async function sendReceiptEmail(opts: {
   } catch { /* non-blocking */ }
 }
 
+/**
+ * P2-c: when a hosted session is bound to an AR invoice (invoiceId stored in
+ * the session metadata at initiation), record the invoice_payments ledger row
+ * and recompute the invoice status (partially_paid → paid) via the SAME
+ * semantics as arPartialPayments.recordInvoicePayment. Runs ONLY on the
+ * atomic completion-transition winner (confirmPayment / nipWebhook — the
+ * sole ledger writers for card and bank transfer respectively), mirroring
+ * the single-writer invariant for side effects. Non-fatal: the hosted
+ * session is already settled — a ledger hiccup must never fail the
+ * customer-facing confirmation.
+ */
+async function settleLinkedInvoice(session: typeof hostedPaymentSessions.$inferSelect): Promise<void> {
+  const meta = ((session.metadata as Record<string, string> | null) ?? {});
+  const invoiceId = meta.invoiceId;
+  if (!invoiceId) return;
+  try {
+    const feeKobo = Number(meta.feeKobo ?? "0") || 0;
+    // Principal applied toward the invoice excludes the processing surcharge
+    // (the fee is merchant revenue, not invoice balance).
+    const principalKobo = Number(meta.baseAmountKobo ?? "0") || (Number(session.amountKobo) - feeKobo);
+    await __partialInternals.applyInvoicePayment(db, {
+      invoiceId,
+      amountKobo: Math.max(0, principalKobo),
+      method: session.paymentMethod ?? "card",
+      reference: session.reference,
+      meta: feeKobo > 0 ? { feeKobo, feePolicy: meta.feePolicy ?? "customer_pays" } : undefined,
+    });
+  } catch (err) {
+    logger.error("[hostedCheckout] linked-invoice ledger update failed", {
+      sessionId: session.id,
+      invoiceId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export const hostedCheckoutRouter = router({
@@ -354,7 +392,9 @@ export const hostedCheckoutRouter = router({
       paymentLinkId: z.string().optional(),
       merchantId: z.string(),
       tenantId: z.string(),
-      amountKobo: z.number().int().positive(),
+      // Optional for invoice-bound links: when omitted, the SERVER charges the
+      // invoice balance due. For plain payment links it remains required.
+      amountKobo: z.number().int().positive().optional(),
       currency: z.string().default("NGN"),
       description: z.string().optional(),
       paymentMethod: z.enum(["card", "bank_transfer", "ussd", "bnpl", "usdc"]),
@@ -381,6 +421,8 @@ export const hostedCheckoutRouter = router({
       // link being paid, or (for authenticated merchants) the session's merchant.
       let merchantId: string;
       let tenantId: string;
+      // P1-c/P2-c: an AR invoice bound to this payment link (resolved below).
+      let linkedInvoice: typeof invoices.$inferSelect | null = null;
       if (input.paymentLinkId) {
         const [link] = await db.select().from(paymentLinks)
           .where(eq(paymentLinks.id, input.paymentLinkId));
@@ -390,6 +432,17 @@ export const hostedCheckoutRouter = router({
         }
         merchantId = link.merchantId;
         tenantId = link.tenantId;
+        // AR invoice linkage: invoice.paymentLinkUrl carries the link id/slug.
+        const [inv] = await db.select().from(invoices)
+          .where(and(
+            eq(invoices.merchantId, merchantId),
+            or(
+              like(invoices.paymentLinkUrl, `%${link.id}%`),
+              like(invoices.paymentLinkUrl, `%${link.slug}%`),
+            ),
+          ))
+          .limit(1);
+        linkedInvoice = inv ?? null;
       } else if (ctx.user) {
         const merchant = await resolveMerchantForUser(ctx.user.openId);
         merchantId = merchant.id;
@@ -401,6 +454,51 @@ export const hostedCheckoutRouter = router({
         });
       }
 
+      // ── Server-side amount resolution (P1-c fee choice / P2-c partial) ────
+      // Every money total is computed HERE from the invoice row — client
+      // totals are never trusted.
+      let baseAmountKobo: number;
+      let feeKobo = 0;
+      if (linkedInvoice) {
+        if (linkedInvoice.status === "paid") {
+          throw new TRPCError({ code: "CONFLICT", message: "This invoice is already paid" });
+        }
+        const paidRows = await db.select().from(invoicePayments)
+          .where(eq(invoicePayments.invoiceId, linkedInvoice.invoiceId));
+        const paidSoFar = __partialInternals.sumPaymentsKobo(paidRows);
+        const balanceDue = Math.max(0, Number(linkedInvoice.totalKobo) - paidSoFar);
+        if (balanceDue <= 0) {
+          throw new TRPCError({ code: "CONFLICT", message: "This invoice has no balance due" });
+        }
+        baseAmountKobo = input.amountKobo ?? balanceDue;
+        if (baseAmountKobo > balanceDue) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Amount exceeds the balance due (${balanceDue} kobo)`,
+          });
+        }
+        if (baseAmountKobo < balanceDue && linkedInvoice.allowPartial === false) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This invoice does not allow partial payments — pay the full balance due",
+          });
+        }
+        if (baseAmountKobo < 100) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Minimum amount is ₦1 (100 kobo)" });
+        }
+        // Disclosed card surcharge when the merchant passes the fee on (P1-c).
+        if ((linkedInvoice.feePolicy ?? "merchant_absorbs") === "customer_pays" && input.paymentMethod === "card") {
+          const bps = await __feeChoiceInternals.resolveSurchargeBps(linkedInvoice);
+          feeKobo = __feeChoiceInternals.computeSurchargeKobo(baseAmountKobo, bps);
+        }
+      } else {
+        if (input.amountKobo == null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "amountKobo is required" });
+        }
+        baseAmountKobo = input.amountKobo;
+      }
+      const totalChargeKobo = baseAmountKobo + feeKobo;
+
       // Base session data
       const sessionData: Partial<typeof hostedPaymentSessions.$inferInsert> = {
         paymentLinkId: input.paymentLinkId,
@@ -409,13 +507,20 @@ export const hostedCheckoutRouter = router({
         customerEmail: input.customerEmail,
         customerName: input.customerName,
         customerPhone: input.customerPhone,
-        amountKobo: input.amountKobo,
+        amountKobo: totalChargeKobo,
         currency: input.currency,
         description: input.description,
         reference,
         status: "processing",
         paymentMethod: input.paymentMethod,
-        metadata: input.metadata ?? {},
+        metadata: {
+          ...(input.metadata ?? {}),
+          ...(linkedInvoice ? {
+            invoiceId: linkedInvoice.invoiceId,
+            baseAmountKobo: String(baseAmountKobo),
+            ...(feeKobo > 0 ? { feeKobo: String(feeKobo), feePolicy: "customer_pays" } : {}),
+          } : {}),
+        },
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
         expiresAt,
@@ -424,7 +529,7 @@ export const hostedCheckoutRouter = router({
       // ── Card: Stripe PaymentIntent ────────────────────────────────────────
       if (input.paymentMethod === "card") {
         const pi = await createStripePaymentIntent({
-          amountKobo: input.amountKobo,
+          amountKobo: totalChargeKobo,
           currency: input.currency,
           reference,
           merchantId,
@@ -443,7 +548,7 @@ export const hostedCheckoutRouter = router({
         let va;
         try {
           va = await generateNIPVirtualAccount({
-            amountKobo: input.amountKobo,
+            amountKobo: totalChargeKobo,
             reference,
             merchantId,
             customerName: input.customerName,
@@ -467,7 +572,7 @@ export const hostedCheckoutRouter = router({
         const ussd = generateUSSDCode({
           bankCode: input.ussdBankCode ?? "000",
           reference,
-          amountKobo: input.amountKobo,
+          amountKobo: totalChargeKobo,
         });
         sessionData.ussdCode = ussd.ussdCode;
         sessionData.ussdReference = ussd.reference;
@@ -507,7 +612,7 @@ export const hostedCheckoutRouter = router({
         const baseCurrency = (input.currency ?? "NGN").toUpperCase();
         let usdcAmountUsdc: number;
         if (baseCurrency === "USD") {
-          usdcAmountUsdc = input.amountKobo / 100;
+          usdcAmountUsdc = totalChargeKobo / 100;
         } else {
           const [fx] = await db.select().from(fxRates)
             .where(and(
@@ -523,7 +628,7 @@ export const hostedCheckoutRouter = router({
               message: `USDC checkout is unavailable: no stored FX rate for ${baseCurrency}->USD (fx_rates)`,
             });
           }
-          usdcAmountUsdc = (input.amountKobo / 100) / rate;
+          usdcAmountUsdc = (totalChargeKobo / 100) / rate;
         }
         sessionData.usdcWalletAddress = depositWallet.walletAddress;
         sessionData.usdcAmountUsdc = usdcAmountUsdc;
@@ -537,7 +642,7 @@ export const hostedCheckoutRouter = router({
         sessionId: session.id,
         reference,
         merchantId,
-        amountKobo: input.amountKobo,
+        amountKobo: totalChargeKobo,
         paymentMethod: input.paymentMethod,
       });
 
@@ -634,6 +739,9 @@ export const hostedCheckoutRouter = router({
       )).returning();
       if (!flipped) return { success: true, session }; // lost the race — already completed
 
+      // P2-c: settle the linked AR invoice ledger (partial → paid). Non-fatal.
+      await settleLinkedInvoice(session);
+
       // Record TigerBeetle transfer (only the transition winner reaches here)
       const tbId = await recordTBTransfer({
         amountKobo: Number(session.amountKobo),
@@ -721,6 +829,9 @@ export const hostedCheckoutRouter = router({
         )).returning();
 
         if (flipped) {
+          // P2-c: settle the linked AR invoice ledger (partial → paid). Non-fatal.
+          await settleLinkedInvoice(session);
+
           const tbId = await recordTBTransfer({
             amountKobo: Number(session.amountKobo),
             merchantId: session.merchantId,

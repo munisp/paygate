@@ -271,6 +271,7 @@ func main() {
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/freeze", authMiddleware(handlers.FreezeVirtualCard))
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/unfreeze", authMiddleware(handlers.UnfreezeVirtualCard))
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/terminate", authMiddleware(handlers.TerminateVirtualCard))
+	mux.HandleFunc("GET /v1/virtual-cards/{id}/credentials", authMiddleware(handlers.GetVirtualCardCredentials))
 
 	// Payment link operations
 	mux.HandleFunc("POST /v1/payment-links/create", authMiddleware(handlers.CreatePaymentLink))
