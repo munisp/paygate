@@ -27,6 +27,8 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 
 // ─── 1. Domain Health Heartbeat ─────────────────────────────────────────────
 const domainHealthRouter = router({
@@ -453,8 +455,11 @@ const bulkStatusUpdateRouter = router({
         // and ids are bound parameters — no string interpolation of input.
         await db.execute(sql`UPDATE ${sql.raw(table)} SET status = ${input.newStatus}, updated_at = NOW() WHERE id = ANY(${input.ids})`);
         // Audit log
-        await db.execute(sql`INSERT INTO domain_audit_log (id, domain, action, actor_id, payload, created_at) VALUES (gen_random_uuid(), ${input.domain}, 'BULK_STATUS_UPDATE', ${ctx.user.id}, ${JSON.stringify({ ids: input.ids, newStatus: input.newStatus, reason: input.reason })}, NOW())`).catch(() => {});
-      } catch { /* ok */ }
+        await db.execute(sql`INSERT INTO domain_audit_log (id, domain, action, actor_id, payload, created_at) VALUES (gen_random_uuid(), ${input.domain}, 'BULK_STATUS_UPDATE', ${ctx.user.id}, ${JSON.stringify({ ids: input.ids, newStatus: input.newStatus, reason: input.reason })}, NOW())`).catch((e) => logger.error("[wave218] domain_audit_log insert failed — bulk status update NOT audited", { domain: input.domain, error: e instanceof Error ? e.message : String(e) }));
+      } catch (e) {
+        logger.error("[wave218] bulk status update failed", { domain: input.domain, error: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Bulk status update failed" });
+      }
       return { updated: input.ids.length, domain: input.domain, newStatus: input.newStatus };
     }),
 });

@@ -1744,25 +1744,18 @@ export async function upsertSubAgent(data: Record<string, any>) {
 }
 
 export async function disburseAgentCommissions(superAgentMerchantId: string) {
-  const database = requireDbSync();
-  // Commission settlement: mark all active sub-agent relationships' accrued
-  // volume as disbursed by resetting the unsettled volume counters in a
-  // single transaction. Returns the agents affected.
-  return database.transaction(async (tx) => {
-    const agents = await tx
-      .select()
-      .from(agentNetwork)
-      .where(and(eq(agentNetwork.superAgentMerchantId, superAgentMerchantId), eq(agentNetwork.status, "active")));
-    let totalVolumeKobo = 0;
-    for (const agent of agents) {
-      totalVolumeKobo += Number(agent.totalVolumeKobo ?? 0);
-      await tx
-        .update(agentNetwork)
-        .set({ totalVolumeKobo: 0 })
-        .where(eq(agentNetwork.id, agent.id));
-    }
-    return { disbursed: agents.length, disbursedAgents: agents.length, totalVolumeKobo };
-  });
+  // R4 F13 (money-correctness): the previous implementation reset every active
+  // sub-agent's accrued total_volume_kobo counter to 0 WITHOUT crediting any
+  // wallet — the accrued commission value silently vanished. There is no
+  // commission-funding source wallet or payout rail wired for agent
+  // commissions in this codebase, so the honest behaviour is to fail loud and
+  // leave the counters fully intact until the real guarded credit (funding
+  // debit + agent credit + counter reset in one transaction) is implemented.
+  throw new Error(
+    `NOT_IMPLEMENTED: agent commission disbursement is not wired to a real wallet credit — ` +
+    `refusing to zero accrued commission counters without paying (superAgent=${superAgentMerchantId}). ` +
+    `Accrued volumes left intact.`
+  );
 }
 
 // ─── Restaurant: Tables ───────────────────────────────────────────────────────

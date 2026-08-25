@@ -20,7 +20,7 @@ logger = logging.getLogger("cohort-analytics")
 
 app = FastAPI(title="PayGate Cohort Analytics", version="1.0.0")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5)
 
 # ─── Models ──────────────────────────────────────────────────────────────────

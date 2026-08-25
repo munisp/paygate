@@ -10,6 +10,7 @@
  */
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 import { z } from "zod";
 import { getDb } from "../db";
 import { livenessSessions } from "../../drizzle/schema";
@@ -288,7 +289,7 @@ export const wave159Router = router({
         },
         input.merchantId,
         { "x-event-type": "liveness.completed" },
-      ).catch(() => {});
+      ).catch((e) => logger.error("[wave159] liveness.completed event publish failed", e));
       // ── Push notification: liveness result to merchant (Fix 3) ────────────────
       if (decision === "spoof") {
         notifyMerchant({
@@ -299,7 +300,7 @@ export const wave159Router = router({
           },
           type: "liveness_failed",
           data: { sessionId: id, decision, ensembleScore: String(ensembleScore) },
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave159] spoof alert notification failed — merchant NOT alerted of liveness failure", { sessionId: id, error: e instanceof Error ? e.message : String(e) }));
       }
       return { id, decision, ensembleScore };
     }),

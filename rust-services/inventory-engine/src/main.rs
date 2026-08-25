@@ -125,15 +125,51 @@ fn build_db_pool(database_url: &str) -> Option<Pool> {
 }
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
+/// Constant-time byte comparison — no early exit on length or content mismatch.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        let x = if i < a.len() { a[i] } else { 0 };
+        let y = if i < b.len() { b[i] } else { 0 };
+        diff |= (x ^ y) as usize;
+    }
+    diff == 0
+}
+
+/// Fail closed: startup guarantees a non-empty key (see resolve_internal_key);
+/// an empty presented key is always rejected.
 fn verify_internal_key(req: &HttpRequest, state: &web::Data<AppState>) -> bool {
     if state.internal_key.is_empty() {
-        return true; // No key configured — allow all (dev mode)
+        return false;
     }
-    req.headers()
+    match req
+        .headers()
         .get("X-Internal-Key")
         .and_then(|v| v.to_str().ok())
-        .map(|v| v == state.internal_key)
-        .unwrap_or(false)
+    {
+        Some(v) if !v.is_empty() => constant_time_eq(v.as_bytes(), state.internal_key.as_bytes()),
+        _ => false,
+    }
+}
+
+/// Resolve INTERNAL_API_KEY — fail closed (mirrors go-services/cips-gateway).
+/// Production (ENV=production|prod): refuse to boot when unset/empty.
+/// Dev: generate a per-boot random key and log it.
+fn resolve_internal_key() -> String {
+    match std::env::var("INTERNAL_API_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => {
+            let env = std::env::var("ENV").unwrap_or_default().to_lowercase();
+            if env == "production" || env == "prod" {
+                error!("FATAL: INTERNAL_API_KEY must be set when ENV=production — refusing to start");
+                std::process::exit(1);
+            }
+            let key = format!("dev-{}", Uuid::new_v4().simple());
+            warn!("INTERNAL_API_KEY unset — generated per-boot dev key (dev mode only)");
+            info!("dev-mode INTERNAL_API_KEY: {}", key);
+            key
+        }
+    }
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -231,9 +267,9 @@ async fn reserve_inventory(
 
     if let Some(pool) = &state.db_pool {
         match pool.get().await {
-            Ok(client) => {
+            Ok(mut client) => {
                 // Use a transaction to atomically check and reserve
-                let tx_result: Result<(), tokio_postgres::Error> = async {
+                let tx_result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
                     let tx = client.build_transaction().start().await?;
                     // Lock the row for update
                     let row = tx.query_opt(
@@ -248,7 +284,9 @@ async fn reserve_inventory(
                     ).await?.get(0);
 
                     if current_stock - reserved < body.quantity {
-                        return Err(tokio_postgres::Error::__private_api_not_stable());
+                        // Business-rule abort (tokio_postgres::Error has no public constructor):
+                        // roll back the tx; maps to 409 INSUFFICIENT_STOCK below.
+                        return Err("insufficient stock".into());
                     }
 
                     tx.execute(
@@ -455,7 +493,7 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or_else(|_| "8091".to_string())
         .parse()
         .unwrap_or(8091);
-    let internal_key = std::env::var("INTERNAL_API_KEY").unwrap_or_default();
+    let internal_key = resolve_internal_key();
     let database_url = std::env::var("DATABASE_URL").unwrap_or_default();
 
     // Build DB pool

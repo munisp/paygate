@@ -22,6 +22,21 @@ import {
 } from "../drizzle/schema";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
+import { TRPCError } from "@trpc/server";
+
+// ─── Platform-admin guard (DB re-check, mirrors adminRouter.ts:25-38) ────────
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const [user] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (!user || user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  }
+  return next({ ctx });
+});
 
 // ─── Chargeback Evidence Upload ───────────────────────────────────────────────
 const chargebackEvidenceRouter = router({
@@ -166,7 +181,7 @@ const consumerBudgetAlertsRouter = router({
 
 // ─── Merchant Ban/Suspend Workflow ────────────────────────────────────────────
 const merchantStatusRouter = router({
-  suspend: protectedProcedure
+  suspend: adminProcedure
     .input(z.object({
       merchantId: z.string(),
       reason: z.string().min(10),
@@ -187,7 +202,7 @@ const merchantStatusRouter = router({
       return { success: true, suspendedUntil, reason: input.reason };
     }),
 
-  ban: protectedProcedure
+  ban: adminProcedure
     .input(z.object({
       merchantId: z.string(),
       reason: z.string().min(10),
@@ -204,7 +219,7 @@ const merchantStatusRouter = router({
       return { success: true, reason: input.reason };
     }),
 
-  reinstate: protectedProcedure
+  reinstate: adminProcedure
     .input(z.object({
       merchantId: z.string(),
       notes: z.string().optional(),
@@ -634,7 +649,7 @@ const systemHealthRouter = router({
       checks,
       services: {
         creditScoring: ENV.creditScoringUrl ?? "http://credit-scoring:8100",
-        fraudScoring: ENV.fraudScoringUrl ?? "http://fraud-scoring:8200",
+        fraudScoring: ENV.fraudScoringUrl || "http://fraud-scoring:8083",
         middlewareBridge: ENV.middlewareBridgeUrl ?? "http://go-bridge:8080",
       },
     };
@@ -972,19 +987,29 @@ const payoutBatchRouter = router({
       return { rows, total: Number(total) };
     }),
   createBatch: protectedProcedure
-    .input(z.object({ payoutIds: z.array(z.string()), note: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutIds: z.array(z.string()).min(1), note: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const { payouts } = await import('../drizzle/schema');
+      // Merchant scoping: resolve the caller's own merchant — only its payouts
+      // may be batched, never arbitrary ids belonging to other merchants.
+      const [userRow] = await db.select().from(users).where(eq(users.openId, ctx.user.openId)).limit(1);
+      if (!userRow) throw new Error('User not found');
+      const [merchant] = await db.select().from(merchants).where(eq(merchants.ownerId, userRow.id)).limit(1);
+      if (!merchant) throw new Error('Merchant not found');
       const batchId = nanoid();
-      const amtRows = await db.select({ s: sum(payouts.amount) }).from(payouts)
-        .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})`);
-      const totalAmountKobo = Number(amtRows[0]?.s ?? 0);
-      await db.update(payouts)
+      // Status guard: only pending / pending_approval payouts may move to
+      // processing; already-processing/completed/failed payouts are skipped.
+      const updatedRows = await db.update(payouts)
         .set({ status: 'processing', updatedAt: new Date() })
-        .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})`);
-      return { batchId, count: input.payoutIds.length, totalAmountKobo };
+        .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})
+          AND ${payouts.merchantId} = ${merchant.id}
+          AND ${payouts.status} IN ('pending', 'pending_approval')`)
+        .returning({ id: payouts.id, amount: payouts.amount });
+      // Honest batch semantics: count/amount reflect payouts actually transitioned.
+      const totalAmountKobo = updatedRows.reduce((acc, r) => acc + Number(r.amount ?? 0), 0);
+      return { batchId, count: updatedRows.length, skipped: input.payoutIds.length - updatedRows.length, totalAmountKobo };
     }),
 });
 

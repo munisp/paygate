@@ -10,7 +10,23 @@
 import { z } from "zod";
 import { and, desc, eq, ilike, sql, count, sum, asc, inArray } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
+
+// ─── Platform-admin guard (DB re-check, mirrors adminRouter.ts:25-38) ────────
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { users } = await import("../drizzle/schema");
+  const [user] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (!user || user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  }
+  return next({ ctx });
+});
 import {
   tenants, merchants, transactions, featureFlags,
   chargebacks,
@@ -274,8 +290,8 @@ const featureFlagsEnhancedRouter = router({
       }>;
     }),
 
-  // Set per-tenant flag override
-  setTenantOverride: protectedProcedure
+  // Set per-tenant flag override (platform admin only — flips any tenant's flags)
+  setTenantOverride: adminProcedure
     .input(z.object({
       tenantId: z.string(),
       flagKey: z.string(),
@@ -314,8 +330,8 @@ const featureFlagsEnhancedRouter = router({
       return rows[0] ?? null;
     }),
 
-  // Bulk enable/create flags by key array (used by Onboarding wizard step 6)
-  bulkEnable: protectedProcedure
+  // Bulk enable/create flags by key array (platform admin only — global flags)
+  bulkEnable: adminProcedure
     .input(z.object({
       keys: z.array(z.string()).min(1).max(20),
       environment: z.enum(["production", "staging", "development"]).default("production"),

@@ -1,10 +1,14 @@
+# NOTE: this file must be rendered with envsubst (or a config-management
+# equivalent) at deploy time — APISIX does not expand ${VAR} itself.
+# APISIX_ADMIN_KEY must be provisioned from the secret manager; there is no
+# default. Never commit a real admin key here.
 apisix:
   node_listen: 9080
   enable_ipv6: false
   enable_admin: true
   admin_key:
     - name: admin
-      key: paygate-apisix-admin-key-changeme
+      key: "${APISIX_ADMIN_KEY:?must be set — provision via secret manager, no default admin key allowed}"
       role: admin
 
 etcd:

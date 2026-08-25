@@ -9,7 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import crypto from "crypto";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
-import { getDb, schema } from "./db";
+import { getDb, schema, getUserByOpenId, getMerchantByOwnerId } from "./db";
 import { eq, desc, and, sql, like, gte, lte, inArray, count } from "drizzle-orm";
 import { logger } from "./logger";
 import {
@@ -44,6 +44,23 @@ import { demoOrFail } from "./_core/demoData";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
+}
+
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB re-check, adminRouter pattern). */
+async function requirePlatformAdmin(db: any, openId: string): Promise<void> {
+  const [caller] = await db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/** Resolve the caller's merchant server-side — a client-supplied merchantId is never trusted. */
+async function resolveCallerMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "Caller has no merchant account" });
+  return merchant.id;
 }
 
 // Static consumer insurance catalog (fallback when the middleware bridge is down).
@@ -161,6 +178,8 @@ export const fraudRingRouter = router({
       validateFraudRingTransition('active', 'frozen');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // R4: the session role above is NOT trusted — re-check users.role from the DB.
+      await requirePlatformAdmin(db, ctx.user.openId);
 
       // Update all fraud alerts in this ring to frozen
       await db
@@ -187,6 +206,9 @@ export const fraudRingRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // R4: clearing a fraud ring is an admin action — DB re-check of users.role
+      // (previously completely ungated, same class as freezeRing/escalateRing).
+      await requirePlatformAdmin(db, ctx.user.openId);
 
       await db
         .update(schema.fraudAlerts)
@@ -213,6 +235,8 @@ export const fraudRingRouter = router({
       assertAdminCanFreezeRing(ctx.user.role ?? 'user');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // R4: the session role above is NOT trusted — re-check users.role from the DB.
+      await requirePlatformAdmin(db, ctx.user.openId);
 
       // 1. Update ring status to escalated
       await db
@@ -732,15 +756,13 @@ export const consumerFinancialRouter = router({
             `);
             const investment = (rows.rows as any[])[0];
             if (!investment) throw new TRPCError({ code: "NOT_FOUND", message: "Investment not found" });
-            if (investment.status !== "active") {
-              throw new TRPCError({ code: "BAD_REQUEST", message: `Investment is '${investment.status}', not redeemable` });
-            }
             const totalUnits = Number(investment.units);
             if (input.units > totalUnits) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot redeem ${input.units} units — only ${totalUnits} held` });
             }
             // Pro-rata redemption value in integer kobo.
             const proceedsKobo = Math.round((Number(investment.current_value_kobo) * input.units) / totalUnits);
+            const fullRedeem = input.units >= totalUnits;
 
             // Redemption must CREDIT the wallet. Without the ledger bridge
             // there is nowhere to credit — fail loud (demo in simulation mode).
@@ -750,27 +772,70 @@ export const consumerFinancialRouter = router({
                 "mutualFund.redeem wallet credit (ledger bridge unreachable)",
               );
             }
-            await creditWalletViaMiddleware({
-              walletId: `wallet_${userId}`,
-              userId,
-              amount: proceedsKobo,
-              currency: "NGN",
-              reference: nanoid("mf_redeem_"),
-              description: `Mutual fund redemption ${input.investmentId} (${input.units} units)`,
+
+            // Deterministic reference — a retry with the same idempotency key
+            // produces the SAME ledger reference (a fresh nanoid per attempt
+            // would defeat downstream dedupe).
+            const reference = `mf_redeem_${input.investmentId}_${input.idempotencyKey}`;
+
+            // Guarded state transition FIRST, row count CHECKED, inside a
+            // transaction: the wallet is only credited after the investment
+            // has verifiably left the redeemable state. An empty RETURNING
+            // means a concurrent redemption won the race → CONFLICT.
+            await db.transaction(async (tx: any) => {
+              if (fullRedeem) {
+                const flipped = await tx.execute(sql`
+                  UPDATE mutual_fund_investments
+                  SET status = 'redeemed', redeemed_at = NOW()
+                  WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active'
+                  RETURNING id
+                `);
+                if ((flipped.rows as any[]).length === 0) {
+                  throw new TRPCError({ code: "CONFLICT", message: "Investment is not active (already redeemed or concurrent redemption)" });
+                }
+              } else {
+                // Partial redemption: guarded decrement — units can never go
+                // negative and the investment must still be active.
+                const flipped = await tx.execute(sql`
+                  UPDATE mutual_fund_investments
+                  SET units = units - ${input.units},
+                      current_value_kobo = current_value_kobo - ${proceedsKobo}
+                  WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active' AND units >= ${input.units}
+                  RETURNING id
+                `);
+                if ((flipped.rows as any[]).length === 0) {
+                  throw new TRPCError({ code: "CONFLICT", message: "Investment is not active or has insufficient units (concurrent redemption)" });
+                }
+              }
             });
-            if (input.units >= totalUnits) {
-              await db.execute(sql`
-                UPDATE mutual_fund_investments
-                SET status = 'redeemed', redeemed_at = NOW()
-                WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active'
-              `);
-            } else {
-              await db.execute(sql`
-                UPDATE mutual_fund_investments
-                SET units = units - ${input.units},
-                    current_value_kobo = current_value_kobo - ${proceedsKobo}
-                WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'active'
-              `);
+
+            try {
+              await creditWalletViaMiddleware({
+                walletId: `wallet_${userId}`,
+                userId,
+                amount: proceedsKobo,
+                currency: "NGN",
+                reference,
+                description: `Mutual fund redemption ${input.investmentId} (${input.units} units)`,
+              });
+            } catch (creditErr) {
+              // Compensate: restore the pre-redemption state so no value is
+              // stranded without a wallet credit, then fail loud.
+              const compensate = fullRedeem
+                ? db.execute(sql`
+                    UPDATE mutual_fund_investments
+                    SET status = 'active', redeemed_at = NULL
+                    WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id} AND status = 'redeemed'
+                  `)
+                : db.execute(sql`
+                    UPDATE mutual_fund_investments
+                    SET units = units + ${input.units},
+                        current_value_kobo = current_value_kobo + ${proceedsKobo}
+                    WHERE id = ${input.investmentId} AND user_id = ${ctx.user.id}
+                  `);
+              await compensate.catch((e: any) =>
+                logger.error(`[mutualFund.redeem] COMPENSATION FAILED for investment ${input.investmentId} (ref ${reference}): ${(e as Error).message}`));
+              throw creditErr;
             }
 
             return { success: true, proceedsKobo };
@@ -1361,20 +1426,27 @@ export const webhookEventRouter = router({
   // Fire webhook for any event type
   dispatch: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
+      // Optional legacy hint — merchant identity is ALWAYS resolved server-side
+      // from the authenticated session; a mismatched value is rejected as a
+      // forged cross-merchant dispatch attempt (F8/A2).
+      merchantId: z.string().optional(),
       eventType: z.string(),
       payload: z.record(z.string(), z.string(), z.string(), z.unknown()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       // VULN-065: Validate webhook payload size (max 64KB)
       validateWebhookPayloadSize(JSON.stringify(input.payload));
+      const merchantId = await resolveCallerMerchantId(ctx.user.openId);
+      if (input.merchantId && input.merchantId !== merchantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot dispatch webhook events for another merchant" });
+      }
       const db = await getDb();
       if (!db) return { dispatched: 0 };
 
-      // Get all webhooks subscribed to this event type
+      // Only endpoints OWNED by the caller's own merchant are ever dispatched.
       const webhooks = await db.execute(sql`
         SELECT id, url, secret FROM webhooks
-        WHERE merchant_id = ${input.merchantId}
+        WHERE merchant_id = ${merchantId}
           AND is_active = true
           AND (event_types IS NULL OR event_types::jsonb ? ${input.eventType})
         LIMIT 20
@@ -1455,9 +1527,14 @@ export const adminCrudRouter = router({
       riskLevel: z.enum(["low", "medium", "high", "critical"]),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // Suspending/activating a merchant is a PLATFORM operation — re-check the
+      // caller's role in the DB (F8-6). A merchant must never suspend or
+      // reactivate another merchant (or itself) via this endpoint.
+      await requirePlatformAdmin(db, ctx.user.openId);
 
       await db
         .update(schema.merchants)

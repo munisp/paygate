@@ -14,7 +14,9 @@ describe("Fraud Alert Comment Edit/Delete", () => {
     const procedures = (appRouter as any)._def?.procedures ?? {};
     const keys = Object.keys(procedures);
     expect(keys.some(k => k.includes("fraudRisk") && k.includes("editComment"))).toBe(true);
-  });
+    // First dynamic import of ./routers bears the full module-eval cost
+    // (>15s in sandboxed CI without live infra) — allow 60s. Assertion unchanged.
+  }, 60_000);
 
   it("deleteComment procedure exists in appRouter flat procedures", async () => {
     const { appRouter } = await import("./routers");

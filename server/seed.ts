@@ -168,7 +168,7 @@ async function main() {
         .insert(schema.merchants)
         .values(m)
         .onConflictDoUpdate({ target: schema.merchants.id, set: { updatedAt: m.updatedAt } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       merchantData.push({ id: m.id, tenantId: tenant.id, currency: tenant.currency, country: tenant.country });
     }
   }
@@ -201,7 +201,7 @@ async function main() {
         .insert(schema.customers)
         .values(c)
         .onConflictDoUpdate({ target: schema.customers.id, set: { updatedAt: c.updatedAt } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       customerData.push({ id: c.id, merchantId: merchant.id });
     }
   }
@@ -235,7 +235,7 @@ async function main() {
       txData.push({ id: t.id, merchantId: t.merchantId, amount: t.amount, currency: t.currency });
       return t;
     });
-    await db.insert(schema.transactions).values(batch).catch(() => {});
+    await db.insert(schema.transactions).values(batch).catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
   }
   console.log(`  ✓ ${txData.length} transactions`);
 
@@ -260,7 +260,7 @@ async function main() {
           createdAt: pastDate(rand(30, 180)),
         })
         .onConflictDoUpdate({ target: schema.apiKeys.id, set: { isActive: true } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       apiKeyCount++;
     }
   }
@@ -284,7 +284,7 @@ async function main() {
         updatedAt: pastDate(rand(1, 30)),
       })
       .onConflictDoUpdate({ target: schema.webhooks.id, set: { updatedAt: new Date() } })
-      .catch(() => {});
+      .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     webhookCount++;
   }
   console.log(`  ✓ ${webhookCount} webhooks`);
@@ -310,7 +310,7 @@ async function main() {
         updatedAt: pastDate(rand(0, 30)),
       })
       .onConflictDoUpdate({ target: schema.disputes.id, set: { updatedAt: new Date() } })
-      .catch(() => {});
+      .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     disputeCount++;
   }
   console.log(`  ✓ ${disputeCount} disputes`);
@@ -338,7 +338,7 @@ async function main() {
           updatedAt: pastDate(rand(0, 30)),
         })
         .onConflictDoUpdate({ target: schema.payouts.id, set: { updatedAt: new Date() } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       payoutCount++;
     }
   }
@@ -367,7 +367,7 @@ async function main() {
           updatedAt: pastDate(rand(1, 30)),
         })
         .onConflictDoUpdate({ target: schema.virtualCards.id, set: { updatedAt: new Date() } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       vcCount++;
     }
   }
@@ -395,7 +395,7 @@ async function main() {
           updatedAt: pastDate(rand(0, 30)),
         })
         .onConflictDoUpdate({ target: schema.fraudAlerts.id, set: { updatedAt: new Date() } })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       fraudCount++;
     }
   }
@@ -421,7 +421,7 @@ async function main() {
         updatedAt: pastDate(rand(0, 30)),
       })
       .onConflictDoUpdate({ target: schema.kycSubmissions.id, set: { updatedAt: new Date() } })
-      .catch(() => {});
+      .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     kycCount++;
   }
   console.log(`  ✓ ${kycCount} KYC submissions`);
@@ -450,7 +450,7 @@ async function main() {
           source: pick(["CBN", "FMDQ", "Bloomberg", "Reuters"]),
           fetchedAt: pastDate(i),
         })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       fxCount++;
     }
   }
@@ -479,7 +479,7 @@ async function main() {
         target: schema.nipBanks.bankCode,
         set: { updatedAt: pastDate(30) },
       })
-      .catch(() => {});
+      .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     nipCount++;
   }
   console.log(`  ✓ ${nipCount} NIP banks`);
@@ -509,7 +509,7 @@ async function main() {
           target: [schema.teamMembers.tenantId, schema.teamMembers.merchantId, schema.teamMembers.email] as any,
           set: { updatedAt: new Date() },
         })
-        .catch(() => {});
+        .catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       teamCount++;
     }
   }
@@ -530,7 +530,7 @@ async function main() {
       tier: pick(["basic", "standard", "premium"]),
       dailyLimit: "500000",
       monthlyLimit: "5000000",
-    }).onConflictDoNothing().catch(() => {});
+    }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     walletCount++;
   }
   console.log(`  ok ${walletCount} wallets`);
@@ -548,7 +548,7 @@ async function main() {
     { key: "wealth_management", name: "Wealth Management", description: "Mutual funds and gold", enabled: false, rolloutPercentage: 10, environment: "production", category: "beta" },
   ];
   for (const ff of featureFlagData) {
-    await db.insert(schema.featureFlags).values(ff).onConflictDoUpdate({ target: schema.featureFlags.key, set: { enabled: ff.enabled, updatedAt: new Date() } }).catch(() => {});
+    await db.insert(schema.featureFlags).values(ff).onConflictDoUpdate({ target: schema.featureFlags.key, set: { enabled: ff.enabled, updatedAt: new Date() } }).catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
   }
   console.log(`  ok ${featureFlagData.length} feature flags`);
 
@@ -569,7 +569,7 @@ async function main() {
       accountName: pick(NIGERIAN_NAMES),
       status: pick(["pending", "processing", "completed", "failed"]) as any,
       createdAt: pastDate(rand(1, 30)),
-    }).onConflictDoNothing().catch(() => {});
+    }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     settlementCount++;
   }
   console.log(`  ok ${settlementCount} settlements`);
@@ -583,7 +583,7 @@ async function main() {
       userId: Number(customer.id) || 1,
       pointsBalance: rand(0, 50000),
       lifetimePoints: rand(1000, 100000),
-    }).onConflictDoNothing().catch(() => {});
+    }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     loyaltyCount++;
   }
   console.log(`  ok ${loyaltyCount} loyalty accounts`);
@@ -596,7 +596,7 @@ async function main() {
     { id: "pos_003", merchantId: merchantData[1]?.id ?? merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-003-2024", model: "pos_lite" as const, label: "Mobile Agent", location: "Abuja Branch", status: "active" as const },
   ];
   for (const pos of posTerminalData) {
-    await db.insert(schema.posTerminals).values(pos).onConflictDoNothing().catch(() => {});
+    await db.insert(schema.posTerminals).values(pos).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
   }
   console.log(`  ok ${posTerminalData.length} POS terminals`);
 
@@ -617,7 +617,7 @@ async function main() {
       metadata: { ip: `192.168.1.${rand(1, 255)}`, browser: "Chrome" },
       ipAddress: `192.168.1.${rand(1, 255)}`,
       createdAt: pastDate(rand(0, 30)),
-    }).onConflictDoNothing().catch(() => {});
+    }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     auditCount++;
   }
   console.log(`  ok ${auditCount} audit events`);
@@ -642,7 +642,7 @@ async function main() {
       status: pick(["delivered", "delivered", "failed", "pending"]) as any,
       attemptCount: rand(1, 3),
       createdAt: pastDate(rand(0, 14)),
-    }).onConflictDoNothing().catch(() => {});
+    }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     webhookDeliveryCount++;
   }
   console.log(`  ok ${webhookDeliveryCount} webhook deliveries`);
@@ -665,7 +665,7 @@ async function main() {
         role: msg.role,
         content: msg.content,
         status: "read",
-      }).onConflictDoNothing().catch(() => {});
+      }).onConflictDoNothing().catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
       supportCount++;
     }
   }
@@ -681,7 +681,7 @@ async function main() {
     { id: "pl_003", tenantId: tenantData[0].id, merchantId: merchantData[0].id, slug: "donation-link", title: "Donation", description: "Accept donations", amount: null, currency: "NGN", isActive: true },
   ];
   for (const pl of paymentLinkData) {
-    await db.insert(schema.paymentLinks).values(pl).onConflictDoUpdate({ target: schema.paymentLinks.id, set: { updatedAt: new Date() } }).catch(() => {});
+    await db.insert(schema.paymentLinks).values(pl).onConflictDoUpdate({ target: schema.paymentLinks.id, set: { updatedAt: new Date() } }).catch((e) => console.warn("[seed] insert failed (continuing):", e instanceof Error ? e.message : e));
     paymentLinksCount++;
   }
   console.log(`  ✓ ${paymentLinksCount} payment links`);

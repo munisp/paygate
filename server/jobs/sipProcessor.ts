@@ -182,7 +182,7 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
     await notifyOwner({
       title: "Gold SIP Run Aborted: No Price Feed",
       content: `${msg}. ${result.processed} plan(s) were NOT executed. Manual intervention required.`,
-    }).catch(() => {});
+    }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
     result.errors.push({ planId: "*", error: msg });
     return result;
   }
@@ -235,7 +235,7 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
             `Purchased ${grams.toFixed(4)} grams of gold for ₦${amountNGN.toLocaleString()} ` +
             `at ₦${goldPrice.toLocaleString()}/g. ` +
             `Total accumulated: ${(plan.totalGramsAccumulated + grams).toFixed(4)}g.`,
-        }).catch(() => {}); // Non-blocking
+        }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) })); // Non-blocking
 
       } catch (err) {
         result.failed++;
@@ -252,13 +252,13 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
               `The gold purchase for SIP plan ${plan.id} SETTLED at the provider, but the ` +
               `post-debit plan update failed: ${errorMsg}. The plan was already claimed ` +
               `(no duplicate debit can occur), but its totals are stale. Reconcile manually.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
         } else {
           // Notify owner of failure
           await notifyOwner({
             title: `Gold SIP Failed: Plan ${plan.id}`,
             content: `Auto-debit failed for SIP plan ${plan.id}: ${errorMsg}. Manual intervention may be required.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
         }
       }
     }

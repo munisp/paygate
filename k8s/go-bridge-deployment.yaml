@@ -17,6 +17,7 @@
 #     --from-literal=NIBSS_INSTITUTION_CODE='...' \
 #     --from-literal=NIBSS_ORIGINATOR_ACCOUNT='...' \
 #     --from-literal=MIDDLEWARE_INTERNAL_KEY='...' \
+#     --from-literal=BRIDGE_INTERNAL_KEY='...' \
 #     --from-literal=PORTAL_TRPC_URL='http://paygate-portal-svc:3000'
 #
 # PORTAL_TRPC_URL is the internal cluster URL of the PayGate portal service.
@@ -125,8 +126,18 @@ spec:
                 secretKeyRef:
                   name: paygate-secrets
                   key: MIDDLEWARE_INTERNAL_KEY
+            # Portal→bridge bearer token; bridge refuses to serve unauthenticated
+            # money endpoints when ENV=production and this is unset.
+            - name: BRIDGE_INTERNAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: BRIDGE_INTERNAL_KEY
+            - name: ENV
+              value: "production"
             # ── Runtime config ────────────────────────────────────────────────
-            - name: PORT
+            # go-bridge reads BRIDGE_PORT (not PORT) — see cmd/bridge/main.go
+            - name: BRIDGE_PORT
               value: "8080"
             - name: LOG_LEVEL
               value: "info"
@@ -141,6 +152,10 @@ spec:
               memory: "512Mi"
           livenessProbe:
             httpGet:
+              # go-bridge registers GET /healthz (cmd/bridge/main.go) as an
+              # always-200 liveness alias. Liveness must use /healthz: /health
+              # is dependency-sensitive (503 on TigerBeetle/Postgres blips) and
+              # would crash-loop otherwise-healthy pods.
               path: /healthz
               port: http
             initialDelaySeconds: 10
@@ -148,7 +163,9 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              # Readiness stays on /health: pods only receive traffic when
+              # dependencies (TigerBeetle/Postgres) are reachable.
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -174,8 +191,9 @@ spec:
   selector:
     app: paygate-go-bridge
   ports:
+    # Clients (portal, mpesa-connector) call http://paygate-go-bridge:8080
     - name: http
-      port: 80
+      port: 8080
       targetPort: http
       protocol: TCP
   type: ClusterIP

@@ -139,6 +139,7 @@ import {
 import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
+import { demoOrFail } from "./_core/demoData";
 import {
   listGeofenceRules, upsertGeofenceRule, deleteGeofenceRule,
   listSubAgents, upsertSubAgent,
@@ -262,6 +263,26 @@ async function resolveUser(openId: string) {
   return user;
 }
 
+// R4 (spec #7/#9): step-up authentication for sensitive changes. When the
+// user has a passwordHash, the caller MUST present the current password and
+// have it verified (bcrypt, same verifyPassword path as auth.login). Users
+// without a password (pure SSO accounts) are not required to present one.
+async function requireCurrentPassword(
+  user: { passwordHash?: string | null },
+  currentPassword: string | undefined,
+  label: string,
+) {
+  if (!user.passwordHash) return;
+  if (!currentPassword) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: `Current password is required to change ${label}` });
+  }
+  const { verifyPassword } = await import('./securityUtils.js');
+  const { valid } = await verifyPassword(currentPassword, user.passwordHash, process.env.JWT_SECRET ?? "");
+  if (!valid) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect current password" });
+  }
+}
+
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
 const authRouter = router({
@@ -330,7 +351,7 @@ const authRouter = router({
           metadata: { email: input.email },
           ipAddress: ctx.req.ip ?? null,
         });
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, user: { id: user.id, email: user.email, name: user.name } };
     }),
 
@@ -344,6 +365,30 @@ const authRouter = router({
       const { COOKIE_NAME } = await import("../shared/const");
       const { getSessionCookieOptions, ID_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } = await import("./_core/cookies");
       const { ENV } = await import("./_core/env");
+
+      // R4 F6-1 (spec #8): revoke the current session token server-side by
+      // inserting its jti into jwt_revocation_list. The token is read from
+      // the session cookie BEFORE it is cleared; the jti claim exists on
+      // tokens issued after the sdk.ts jti work — tokens without a jti skip
+      // revocation (defensive; verifySession rejects listed jtis).
+      try {
+        const sessionToken = ctx.req.cookies?.[COOKIE_NAME] as string | undefined;
+        if (sessionToken) {
+          const parts = sessionToken.split(".");
+          if (parts.length === 3) {
+            const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { jti?: string; exp?: number };
+            if (claims.jti) {
+              const db = await getDb();
+              if (db) {
+                const jtiExpiresAt = claims.exp ? new Date(claims.exp * 1000) : new Date(Date.now() + 365 * 86400000);
+                await db.execute(sql`INSERT INTO jwt_revocation_list (jti, user_id, expires_at, reason) VALUES (${claims.jti}, ${ctx.user.id ?? null}, ${jtiExpiresAt}, ${'logout'}) ON CONFLICT (jti) DO NOTHING`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        logger.error("[auth] logout jti revocation failed (non-fatal):", e);
+      }
 
       // Clear the portal session cookie
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -376,6 +421,9 @@ const authRouter = router({
     .input(z.object({
       name: z.string().min(1).max(255).optional(),
       email: z.string().email().optional(),
+      // R4 (spec #9): changing the account email is credential-gated — when
+      // the user has a passwordHash the current password must be presented.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { getDb, schema } = await import('./db');
@@ -383,11 +431,51 @@ const authRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const user = await resolveUser(ctx.user.openId);
+      if (input.email) {
+        await requireCurrentPassword(user, input.currentPassword, 'account email');
+      }
       const [updated] = await db.update(schema.users)
         .set({ ...(input.name ? { name: input.name } : {}), ...(input.email ? { email: input.email } : {}), updatedAt: new Date() })
         .where(eq(schema.users.id, user.id))
         .returning();
+      if (input.email) {
+        publishAuditEvent({ action: 'auth.email.changed', userId: ctx.user.openId, targetId: String(user.id), metadata: { userId: user.id }, timestamp: new Date().toISOString() })
+          .catch((e) => logger.error('[audit] publishAuditEvent auth.email.changed failed:', e));
+      }
       return updated;
+    }),
+
+  // R4 F6-2 (spec #8): wire sdk.changeUserPassword. Verifies the current
+  // password (bcrypt), writes the new hash, and revokes the CURRENT session
+  // token's jti (decoded from the session cookie, same as logout) so the old
+  // session dies immediately.
+  changePassword: protectedProcedure
+    .input(z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8).max(128),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const { COOKIE_NAME } = await import("../shared/const");
+      const { changeUserPassword, decodeSessionClaims } = await import("./_core/sdk");
+      const sessionToken = ctx.req.cookies?.[COOKIE_NAME] as string | undefined;
+      const claims = sessionToken ? decodeSessionClaims(sessionToken) : null;
+      try {
+        await changeUserPassword({
+          userId: user.id,
+          currentPassword: input.currentPassword,
+          newPassword: input.newPassword,
+          currentJti: claims?.jti ?? null,
+          currentJtiExpiresAt: claims?.exp ? new Date(claims.exp * 1000) : null,
+        });
+      } catch (e) {
+        // changeUserPassword throws Error with user-safe messages — surface as
+        // BAD_REQUEST (wrong current password / SSO-only account), never 500.
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Password change failed" });
+      }
+      publishAuditEvent({ action: 'auth.password.changed', userId: ctx.user.openId, targetId: String(user.id), metadata: { userId: user.id }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent auth.password.changed failed:', e));
+      return { success: true };
     }),
 });
 
@@ -548,6 +636,10 @@ const transactionsRouter = router({
       retryCount: z.number().min(0).optional(),      // incremented on each retry for audit trail
     }))
     .mutation(async ({ ctx, input }) => {
+      // R4 (spec #13): test-only transaction factory — it inserts 'completed'
+      // transactions without any real payment, so it must not run in
+      // production mode. Gated behind PAYGATE_SIMULATION_MODE=true.
+      demoOrFail({ procedure: "transactions.createTest" }, "transactions.createTest");
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       if (merchant.isLive) {
@@ -641,7 +733,7 @@ const transactionsRouter = router({
           alertType: "velocity_breach",
           riskScore: fraudResult.risk_score,
           description: `Fraud scoring blocked transaction: ${fraudResult.signals.join(", ")}.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[fraud] alert persistence failed:", e));
         throw new TRPCError({
           code: "FORBIDDEN",
           message: `Transaction declined by fraud risk engine (score: ${fraudResult?.risk_score ?? "?"}/100). Signals: ${fraudResult?.signals?.join(", ") ?? "unknown"}.`,
@@ -668,7 +760,7 @@ const transactionsRouter = router({
           } else if (reserveResult && !reserveResult.all_reserved) {
             // Partial reservation — release and block transaction
             if (reserveResult.reservation_id) {
-              rustReleaseInventory(reserveResult.reservation_id).catch(() => {});
+              rustReleaseInventory(reserveResult.reservation_id).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
             }
             throw new TRPCError({
               code: "CONFLICT",
@@ -699,9 +791,18 @@ const transactionsRouter = router({
           if (redeemResult?.ok) {
             redeemedPoints = input.redeemPoints;
             pointsKoboValue = redeemResult.kobo_value;
+          } else {
+            // R4 F12: redemption was explicitly requested but refused — do
+            // NOT silently charge the full amount.
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Loyalty redemption was rejected (insufficient points or invalid request) — not charging" });
           }
         } catch (e) {
-          logger.warn("[loyalty] redemption service unavailable (fail-open):", (e as Error).message);
+          if (e instanceof TRPCError) throw e;
+          // R4 F12: fail CLOSED — the caller explicitly asked to redeem
+          // points; charging full price while the redemption service is down
+          // is a silent overcharge.
+          logger.error("[loyalty] redemption service unavailable — refusing to charge (fail closed):", (e as Error).message);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Loyalty redemption unavailable, not charging" });
         }
       }
 
@@ -740,7 +841,7 @@ const transactionsRouter = router({
         } catch (err) {
           // Transaction creation failed — release any held inventory reservation
           if (inventoryReservationId) {
-            rustReleaseInventory(inventoryReservationId).catch(() => {});
+            rustReleaseInventory(inventoryReservationId).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
           }
           throw err;
         }
@@ -754,7 +855,7 @@ const transactionsRouter = router({
             alertType: "velocity_breach",
             riskScore: fraudResult.risk_score,
             description: `High-risk transaction flagged for review. Signals: ${fraudResult.signals.join(", ")}.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[fraud] alert persistence failed:", e));
         }
         // Auto-earn loyalty points after successful transaction.
         // Rate: 1 point per ₦100 (10,000 kobo). Fail-open: never block the transaction.
@@ -775,7 +876,7 @@ const transactionsRouter = router({
                     ...(tx.metadata as object ?? {}),
                     earnedPoints: pointsToEarn,
                   },
-                }).catch(() => {});
+                }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
 
                 // Tier upgrade notification — check if customer crossed a tier boundary
                 // Fail-open: any error is swallowed
@@ -794,9 +895,9 @@ const transactionsRouter = router({
                     notifyOwner({
                       title: `Customer reached ${crossedTier.name} tier`,
                       content: `Customer ${loyaltyCustomerId} has crossed into the ${crossedTier.name} loyalty tier with ${newBalance.toLocaleString()} points (transaction ${tx.id}).`,
-                    }).catch(() => {});
+                    }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
                   }
-                } catch (_) { /* fail-open */ }
+                } catch (_) { /* fail-open — tier notification is best-effort; earn failure itself is logged by the outer .catch */ }
               }
             }).catch(e => logger.warn("[loyalty] earn failed (non-fatal):", e.message));
           }
@@ -1098,7 +1199,7 @@ const payoutsRouter = router({
         amount: input.amount,
         currency: input.currency,
         bankName: input.accountName ?? input.bankCode ?? 'Unknown Bank',
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
 
       // If approval required and bridge is available, start Temporal workflow.
       // The workflow handles TigerBeetle reservation, Kafka, Dapr, Fluvio, Lakehouse.
@@ -1316,7 +1417,7 @@ const payoutsRouter = router({
         payoutId: input.id,
         amount: Number(payout.amount),
         currency: payout.currency ?? 'NGN',
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, via: "db" };
     }),
   reject: auditedProcedure
@@ -1374,11 +1475,20 @@ const payoutsRouter = router({
     .input(z.object({
       payoutApprovalEnabled: z.boolean(),
       payoutApprovalThreshold: z.number().min(100).optional(),
+      // R4 (spec #7): step-up — required when the user has a password set.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, input);
+      await requireCurrentPassword(user, input.currentPassword, 'payout approval settings');
+      const { currentPassword: _pw, ...updates } = input;
+      const result = await updateMerchant(merchant.id, updates);
+      publishAuditEvent({ action: 'payouts.approval_settings.updated', userId: ctx.user.openId, targetId: merchant.id, metadata: { merchantId: merchant.id, payoutApprovalEnabled: input.payoutApprovalEnabled, payoutApprovalThreshold: input.payoutApprovalThreshold ?? null }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent payouts.updateApprovalSettings failed:', e));
+      notifyOwner({ title: 'Payout approval settings updated', content: `Merchant ${merchant.id}: approval ${input.payoutApprovalEnabled ? 'ENABLED' : 'DISABLED'}${input.payoutApprovalThreshold != null ? `, threshold ${input.payoutApprovalThreshold}` : ''} (by ${user.email ?? user.id})` })
+        .catch((e) => logger.error('[notify] notifyOwner payouts.updateApprovalSettings failed:', e));
+      return result;
     }),
 
   batchStatus: protectedProcedure
@@ -1570,6 +1680,22 @@ const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // R4 F6/F7: permissions must come from the known PBAC vocabulary —
+      // the legacy "read"/"write" aliases or "<resource>:<action>" pairs from
+      // PBAC_POLICIES. Arbitrary strings are rejected.
+      if (input.permissions) {
+        const { PBAC_POLICIES } = await import("./pbac");
+        const validPerms = new Set<string>(["read", "write"]);
+        for (const [resource, policy] of Object.entries(PBAC_POLICIES)) {
+          for (const action of policy.actions as readonly string[]) {
+            validPerms.add(`${resource}:${action}`);
+          }
+        }
+        const unknown = input.permissions.filter((p) => !validPerms.has(p));
+        if (unknown.length > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Unknown API key permission(s): ${unknown.join(", ")}. Use "read", "write", or "<resource>:<action>" from the PBAC policy set.` });
+        }
+      }
       const rawKey = `${input.environment === "live" ? "sk_live" : "sk_test"}_${crypto.randomBytes(24).toString("hex")}`;
       const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
       const keyPrefix = rawKey.substring(0, 14);
@@ -1593,7 +1719,7 @@ const apiKeysRouter = router({
         resource: 'api_key',
         resourceId: apiKey.id,
         metadata: { name: input.name, environment: input.environment },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ...apiKey, rawKey };
     }),
 
@@ -1661,7 +1787,7 @@ const webhooksRouter = router({
         resource: 'webhook',
         resourceId: (webhook as any).id,
         metadata: { url: input.url, events: input.events },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return webhook;
     }),
 
@@ -1835,7 +1961,7 @@ const disputesRouter = router({
         resource: 'dispute',
         resourceId: input.id,
         metadata: { responseLength: input.merchantResponse.length },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       // Bridge: submit dispute response via Temporal + Kafka + Permify + Lakehouse
       if (isBridgeAvailable()) {
         submitDisputeViaMiddleware({
@@ -1918,7 +2044,7 @@ const disputesRouter = router({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.escalated', resource: 'dispute', resourceId: input.id,
         metadata: { reason: input.reason },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
   accept: auditedProcedure
@@ -1937,7 +2063,7 @@ const disputesRouter = router({
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.accepted', resource: 'dispute', resourceId: input.id, metadata: {},
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
 
@@ -1965,7 +2091,7 @@ const disputesRouter = router({
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.note_added', resource: 'dispute', resourceId: input.id, metadata: { visibility: input.visibility },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, noteId };
     }),
 
@@ -2263,7 +2389,7 @@ const virtualCardsRouter = router({
         }).returning();
         return Number(creditRows[0].balance);
       });
-      publishAuditEvent({ action: 'virtual_card.topped_up', userId: ctx.user.openId, targetId: card.id, metadata: { merchantId: merchant.id, amount: creditUnits, currency: card.currency, reference: topUpRef }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'virtual_card.topped_up', userId: ctx.user.openId, targetId: card.id, metadata: { merchantId: merchant.id, amount: creditUnits, currency: card.currency, reference: topUpRef }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, newBalance };
     }),
 
@@ -2325,7 +2451,7 @@ const paymentLinksRouter = router({
           creatorId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] createPaymentLink failed (non-fatal):', e));
       }
-      publishAuditEvent({ action: 'payment_link.created', userId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'payment_link.created', userId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return link;
     }),
 
@@ -2442,7 +2568,7 @@ const teamRouter = router({
           inviteUrl,
         });
         return sendEmail({ to: input.email, ...tpl });
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ...member as any, inviteUrl };
     }),
 
@@ -2544,7 +2670,7 @@ const settingsRouter = router({
         resource: 'merchant',
         resourceId: merchant.id,
         metadata: { fields: Object.keys(input) },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return updated;
     }),
 
@@ -2580,11 +2706,22 @@ const settingsRouter = router({
       settlementBankCode: z.string().optional().nullable(),
       settlementAccountNumber: z.string().optional().nullable(),
       settlementAccountName: z.string().optional().nullable(),
+      // R4 (spec #7): step-up — required when the user has a password set.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, input);
+      // Settlement account / schedule changes redirect the merchant's payout
+      // destination — credential step-up is mandatory when a password exists.
+      await requireCurrentPassword(user, input.currentPassword, 'settlement schedule or settlement account');
+      const { currentPassword: _pw, ...updates } = input;
+      const result = await updateMerchant(merchant.id, updates);
+      publishAuditEvent({ action: 'settlement.schedule.updated', userId: ctx.user.openId, targetId: merchant.id, metadata: { merchantId: merchant.id, settlementFrequency: input.settlementFrequency ?? null, accountChanged: !!(input.settlementBankCode || input.settlementAccountNumber || input.settlementAccountName) }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent settings.updateSettlementSchedule failed:', e));
+      notifyOwner({ title: 'Settlement schedule / account updated', content: `Merchant ${merchant.id} settlement configuration was changed (by ${user.email ?? user.id}). If this was not you, contact support immediately.` })
+        .catch((e) => logger.error('[notify] notifyOwner settings.updateSettlementSchedule failed:', e));
+      return result;
     }),
 
   // Update the merchant-level default soundbox language (en | yo | ha | ig)
@@ -2940,10 +3077,17 @@ const merchantAnalyticsRouter = router({
     }),
 });
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
-const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
-const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
+const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
 
 async function bridgeFetch(path: string, method: string, body?: unknown) {
+  // R4 (spec #16): no default internal key — when MIDDLEWARE_INTERNAL_KEY is
+  // unset we must not authenticate with a known-default credential. Fail
+  // closed: log and return null (callers treat null as "bridge unreachable").
+  if (!BRIDGE_KEY) {
+    logger.error("[Bridge] MIDDLEWARE_INTERNAL_KEY is not set — refusing to call middleware bridge (fail closed)");
+    return null;
+  }
   try {
     const res = await fetch(`${BRIDGE_URL}${path}`, {
       method,
@@ -3133,7 +3277,7 @@ const middlewareRouter = router({
       .input(z.object({ clientId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const result = await bridgeFetch(`/v1/auth/keycloak/clients/${input.clientId}/secret`, 'POST', {});
-        publishAuditEvent({ action: 'webhook.secret.rotated', userId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch(() => {});
+        publishAuditEvent({ action: 'webhook.secret.rotated', userId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         if (!result) return { rotated: false, fallback: true, newSecret: null };
         return { rotated: true, newSecret: (result as any).value ?? null };
       }),
@@ -3564,7 +3708,7 @@ const fraudRiskRouter = router({
         await notifyOwner({
           title: `Fraud Alert Escalated`,
           content: `Alert ${input.id} has been escalated to investigating status by ${ctx.user.openId}.`,
-        }).catch(() => {}); // non-blocking
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e)); // non-blocking
       }
       return { success: true };
     }),
@@ -3611,7 +3755,7 @@ const fraudRiskRouter = router({
         await notifyOwner({
           title: `🚨 High-Risk Fraud Alert (score: ${input.riskScore})`,
           content: `New ${input.alertType} fraud alert created with risk score ${input.riskScore}${input.description ? ': ' + input.description : ''}.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
       // Broadcast to SSE fraud alert clients
       try {
@@ -4057,7 +4201,7 @@ const complianceKycRouter = router({
                 title: 'KYC Duplicate Identity Detected',
                 content: `Submission ${input.id} shares a face embedding with ${searchResult.closest_match_id} ` +
                   `(distance: ${searchResult.distance?.toFixed(3)}). Manual review required.`,
-              }).catch(() => {});
+              }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
             }
           } catch (e: any) {
             logger.warn(`[kyc.updateStatus] DeepFace embedding registration failed (non-fatal): ${e.message}`);
@@ -4085,7 +4229,7 @@ const complianceKycRouter = router({
           content: `KYC submission ${input.id} has been ${input.status}${
             input.rejectionReason ? `: ${input.rejectionReason}` : ''
           }.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
       return { success: true };
     }),
@@ -4101,7 +4245,7 @@ const complianceKycRouter = router({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'fraudModel.promoted', resource: 'fraud_model', resourceId: input.modelName,
         metadata: { version: input.version ?? 'latest' },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       await notifyOwner({
         title: `Fraud Model Promoted: ${input.modelName}`,
         content: `Model "${input.modelName}" (v${input.version ?? 'latest'}) promoted to production by ${user.email ?? user.openId}.`,
@@ -4801,7 +4945,7 @@ const bnplRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch(() => {});
+      notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
 
@@ -4810,7 +4954,12 @@ const bnplRouter = router({
       loanId: z.string(),
       amount: z.number().positive(),
       method: z.enum(['card', 'bank_transfer', 'wallet', 'cash']).default('bank_transfer'),
-      reference: z.string().optional(),
+      // R4 F4-11: REQUIRED — this records an externally-received repayment, so
+      // a real payment reference must exist; otherwise the write is unbacked
+      // value fabrication.
+      paymentReference: z.string().min(4).max(128),
+      // R4 F4-11: REQUIRED — replay-safe recording of an external payment.
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -4819,19 +4968,35 @@ const bnplRouter = router({
       const { bnplLoans } = await import('../drizzle/schema');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
-      const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
-      if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
-      const newPaid = Number(loan.paidAmount ?? 0) + input.amount;
-      const remaining = Number(loan.principalAmount) - newPaid;
-      const newStatus = remaining <= 0 ? 'paid' : 'active';
-      const nextPaymentAt = remaining > 0 ? new Date(Date.now() + 30 * 86400000) : null;
-      await db.update(bnplLoans).set({
-        paidAmount: newPaid,
-        status: newStatus,
-        nextPaymentAt: nextPaymentAt ?? undefined,
-        updatedAt: new Date(),
-      }).where(eq(bnplLoans.id, input.loanId));
-      return { success: true, newPaid, remaining: Math.max(0, remaining), status: newStatus };
+      const execute = async () => db.transaction(async (tx) => {
+        // R4 F4-11: read-modify-write moved inside ONE transaction; the
+        // guarded UPDATE (id + merchant + still-repayable status in the WHERE
+        // clause) is the authority, not the earlier read.
+        const [loan] = await tx.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
+        if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
+        if (loan.status === 'paid' || loan.status === 'cancelled') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `Loan is already ${loan.status} — no repayment can be recorded` });
+        }
+        const newPaid = Number(loan.paidAmount ?? 0) + input.amount;
+        const remaining = Number(loan.principalAmount) - newPaid;
+        const newStatus = remaining <= 0 ? 'paid' : 'active';
+        const nextPaymentAt = remaining > 0 ? new Date(Date.now() + 30 * 86400000) : null;
+        const updated = await tx.update(bnplLoans).set({
+          paidAmount: newPaid,
+          status: newStatus,
+          nextPaymentAt: nextPaymentAt ?? undefined,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(bnplLoans.id, input.loanId),
+          eq(bnplLoans.merchantId, merchant.id),
+          sql`${bnplLoans.status} NOT IN ('paid', 'cancelled')`,
+        )).returning({ id: bnplLoans.id });
+        if (!updated[0]) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Loan status changed concurrently — retry the repayment' });
+        }
+        return { success: true, newPaid, remaining: Math.max(0, remaining), status: newStatus, paymentReference: input.paymentReference };
+      });
+      return withIdempotency({ key: input.idempotencyKey, merchantId: merchant.id, operation: 'bnpl.recordRepayment', requestBody: input, execute });
     }),
 
   getLoan: protectedProcedure
@@ -4879,7 +5044,7 @@ const bnplRouter = router({
       notifyOwner({
         title: 'BNPL Loan Restructured',
         content: `Loan ${input.loanId} restructured to ${input.newTenureMonths} months. Reason: ${input.reason}`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, newMonthlyInstalment: monthlyInstalment, newMaturityDate, remaining };
     }),
 });
@@ -4978,7 +5143,7 @@ const mobileMoneyReconRouter = router({
         resource: 'mobile_money_recon',
         resourceId: merchant.id,
         metadata: { ids: input.ids, reconciled },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, reconciled, total: input.ids.length };
     }),
 });
@@ -5163,7 +5328,13 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const rates = await getLatestFxRates(input.fromCurrency);
       const targetRate = rates.find(r => r.targetCurrency === input.toCurrency);
-      const rate = targetRate ? parseFloat(targetRate.rate) : 1;
+      // R4 F13 (spec #20): fail loud when no stored rate exists for the pair —
+      // a silent 1:1 fallback with a real 0.8% fee is a fabricated conversion
+      // (mirrors the crossBorder.getQuote polarity).
+      if (!targetRate) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `FX rate not available for ${input.fromCurrency}/${input.toCurrency}` });
+      }
+      const rate = parseFloat(targetRate.rate);
       const convertedAmount = input.amount * rate;
       const fee = input.amount * 0.008;
       const conversionId = nanoid('fxconv_');
@@ -5188,7 +5359,7 @@ const fxRouter = router({
         resource: 'fx_conversion',
         resourceId: conversionId,
         metadata: { fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, conversionId, fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee };
     }),
   savePreferences: protectedProcedure
@@ -5326,7 +5497,9 @@ const walletRouter = router({
       amount: z.number().positive(),
       currency: z.string().default("NGN"),
       note: z.string().optional(),
-      idempotencyKey: z.string().min(8).optional(),
+      // R4 (spec #6): REQUIRED — a wallet transfer without an idempotency key
+      // cannot be made retry-safe; the raw-execute bypass is removed.
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const { getOrCreateWallet, getWalletByUserId, getWalletTransactionByReference } = await import("./db");
@@ -5335,10 +5508,9 @@ const walletRouter = router({
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const execute = async () => {
         const amount = input.amount.toFixed(2);
-        // Idempotent reference: retries with the same idempotency key reuse it.
-        const ref = input.idempotencyKey
-          ? `P2P-${input.idempotencyKey}`
-          : `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        // Idempotent reference: the idempotency key is REQUIRED (see input
+        // schema), so retries with the same key reuse the same reference.
+        const ref = `P2P-${input.idempotencyKey}`;
         // wallet_transactions is UNIQUE (tenant_id, reference) — the two
         // double-entry legs therefore get per-leg references derived from the
         // shared group reference. Replay lookups key off the debit leg.
@@ -5436,25 +5608,40 @@ const walletRouter = router({
           return { success: true, reference: ref, transaction: (result as any).replay, idempotentReplay: true };
         }
 
-        // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse
+        // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse.
+        // S15b: the PG money legs are already committed above — the bridge
+        // replication MUST NOT be fire-and-forget. Await it; on failure log a
+        // loud RECONCILIATION REQUIRED signal with full context so ops can
+        // reconcile TigerBeetle against Postgres (never silently swallowed).
         if (isBridgeAvailable()) {
-          p2pTransferViaMiddleware({
-            transferId: ref,
-            senderWalletId: String(senderWallet.id),
-            receiverWalletId: input.recipientId,
-            senderUserId: ctx.user.openId,
-            receiverUserId: input.recipientId,
-            amount: Number(input.amount),
-            currency: input.currency,
-            narration: input.note ?? '',
-          }).catch(e => logger.error('[bridge] p2pTransfer failed (non-fatal):', e));
+          try {
+            await p2pTransferViaMiddleware({
+              transferId: ref,
+              senderWalletId: String(senderWallet.id),
+              receiverWalletId: input.recipientId,
+              senderUserId: ctx.user.openId,
+              receiverUserId: input.recipientId,
+              amount: Number(input.amount),
+              currency: input.currency,
+              narration: input.note ?? '',
+            });
+          } catch (e) {
+            logger.error('[bridge] RECONCILIATION REQUIRED: PG p2p transfer committed but TigerBeetle replication failed', {
+              reference: ref,
+              transferId: ref,
+              senderWalletId: String(senderWallet.id),
+              receiverWalletId: input.recipientId,
+              senderUserId: ctx.user.openId,
+              amount: Number(input.amount),
+              currency: input.currency,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
         return { success: true, reference: ref, transaction: result, idempotentReplay: false };
       };
-      if (input.idempotencyKey) {
-        return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
-      }
-      return execute();
+      // R4 (spec #6): unconditional idempotency wrap — no raw-execute bypass.
+      return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
     }),
   topUp: protectedProcedure
     .input(z.object({
@@ -5481,6 +5668,7 @@ const walletRouter = router({
       // ── Verify the PSP reference BEFORE crediting anything ──────────────
       let verifiedAmountMinor: number;
       let verifiedCurrency: string;
+      let verifiedMetadata: Record<string, string> = {};
       try {
         if (input.paymentReference.startsWith("pi_")) {
           const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
@@ -5489,6 +5677,7 @@ const walletRouter = router({
           }
           verifiedAmountMinor = pi.amount;
           verifiedCurrency = pi.currency;
+          verifiedMetadata = (pi.metadata ?? {}) as Record<string, string>;
         } else if (input.paymentReference.startsWith("cs_")) {
           const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
           if (session.payment_status !== "paid") {
@@ -5496,6 +5685,7 @@ const walletRouter = router({
           }
           verifiedAmountMinor = session.amount_total ?? 0;
           verifiedCurrency = session.currency ?? "";
+          verifiedMetadata = (session.metadata ?? {}) as Record<string, string>;
         } else {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -5517,6 +5707,22 @@ const walletRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${expectedMinor} ${input.currency.toUpperCase()})`,
+        });
+      }
+
+      // S15b: the verified payment must be BOUND to this caller via Stripe
+      // metadata (user_id or merchant_id). Without binding, one succeeded
+      // PaymentIntent could be presented by anyone to credit many wallets.
+      const boundUserId = String(verifiedMetadata.user_id ?? "");
+      let callerBound = boundUserId !== "" && boundUserId === String(ctx.user.id);
+      if (!callerBound && verifiedMetadata.merchant_id) {
+        const callerMerchant = await getMerchantByOwnerId(ctx.user.id).catch(() => null);
+        callerBound = Boolean(callerMerchant) && String(verifiedMetadata.merchant_id) === String(callerMerchant!.id);
+      }
+      if (!callerBound) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Payment reference is not bound to your account — create the payment through your own top-up session",
         });
       }
 
@@ -5570,16 +5776,31 @@ const walletRouter = router({
         return { success: true, reference: ref, newBalance: null, transaction: (result as any).replay, idempotentReplay: true };
       }
 
-      // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse
+      // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse.
+      // S15b: PG credit is already committed — await the bridge replication;
+      // on failure log a loud RECONCILIATION REQUIRED signal with full
+      // context (never silently swallowed).
       if (isBridgeAvailable()) {
-        creditWalletViaMiddleware({
-          walletId: String(wallet.id),
-          userId: ctx.user.openId,
-          amount: Number(input.amount),
-          currency: input.currency,
-          reference: ref,
-          description: `Top-up via ${input.channel}`,
-        }).catch(e => logger.error('[bridge] creditWallet failed (non-fatal):', e));
+        try {
+          await creditWalletViaMiddleware({
+            walletId: String(wallet.id),
+            userId: ctx.user.openId,
+            amount: Number(input.amount),
+            currency: input.currency,
+            reference: ref,
+            description: `Top-up via ${input.channel}`,
+          });
+        } catch (e) {
+          logger.error('[bridge] RECONCILIATION REQUIRED: PG wallet top-up committed but TigerBeetle replication failed', {
+            reference: ref,
+            walletId: String(wallet.id),
+            userId: ctx.user.openId,
+            amount: Number(input.amount),
+            currency: input.currency,
+            channel: input.channel,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
       const credited = result as { newBalance: string; ledgerRow: unknown };
       return { success: true, reference: ref, newBalance: credited.newBalance, transaction: credited.ledgerRow, idempotentReplay: false };
@@ -5740,6 +5961,19 @@ const crossBorderRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
 
+      // R4 F13: quoteId was decorative. Locally issued quotes have the form
+      // QT-<epoch_ms>-<hex> and are valid for 5 minutes (see getQuote). There
+      // is no persistent quote store, so any other id is unverifiable — a
+      // provided quote that is malformed or expired is REJECTED rather than
+      // silently ignored.
+      if (input.quoteId) {
+        const qm = /^QT-(\d{10,})-[0-9a-f]{8}$/.exec(input.quoteId);
+        const issuedAtMs = qm ? Number(qm[1]) : NaN;
+        if (!qm || !Number.isFinite(issuedAtMs) || Date.now() - issuedAtMs > 5 * 60 * 1000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid or expired FX quote — request a fresh quote via crossBorder.getQuote" });
+        }
+      }
+
       // P0-7b: the entire initiation is wrapped in atomic check-then-execute
       // idempotency — the key row is claimed (INSERT ... ON CONFLICT DO NOTHING)
       // BEFORE any transfer record is created, so a replay or concurrent
@@ -5752,17 +5986,19 @@ const crossBorderRouter = router({
       const rates = await getLatestFxRates("USD");
       const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
       const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
-      let exchangeRate = "1.0";
-      let targetAmount = input.amount;
-      let fee = "0";
-      if (srcRate && tgtRate) {
-        const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
-        if (computed) {
-          exchangeRate = computed.exchangeRate;
-          fee = computed.fee;
-          targetAmount = computed.targetAmount;
-        }
+      // R4 F13 (spec #20): fail loud when stored rates are missing —
+      // persisting a 1.0 rate / zero fee would fabricate the transfer record
+      // (mirrors the getQuote polarity above).
+      if (!srcRate || !tgtRate) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "FX rate not available for this corridor" });
       }
+      const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
+      if (!computed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid FX rate for this corridor" });
+      }
+      const exchangeRate = computed.exchangeRate;
+      const fee = computed.fee;
+      const targetAmount = computed.targetAmount;
 
       // Persist transfer record immediately
       const transfer = await createCrossBorderTransfer({
@@ -5801,6 +6037,11 @@ const crossBorderRouter = router({
       // If bridge accepted the transfer, update status to submitted
       if ((bridgeResult as any)?.status) {
         await updateCrossBorderTransferStatusByTransferId(transferId, (bridgeResult as any).status as string);
+      } else if (bridgeResult == null) {
+        // R4 F13 (spec #3/#4): the bridge is unreachable — do NOT report the
+        // transfer as "initiated". Mark it failed and fail loud; no funds move.
+        await updateCrossBorderTransferStatusByTransferId(transferId, "failed");
+        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Cross-border rail unavailable: middleware bridge unreachable — transfer marked failed, nothing was initiated" });
       }
 
       // Notify owner with transfer receipt
@@ -5816,7 +6057,7 @@ const crossBorderRouter = router({
           `Rail: ${input.rail}`,
           `Bridge Status: ${(bridgeResult as any)?.status ?? "pending"}`,
         ].join("\n"),
-      }).catch(() => {}); // fire-and-forget
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e)); // fire-and-forget
 
       const result = {
         success: true,
@@ -6407,17 +6648,26 @@ const settlementsRouter = router({
       return settlement;
     }),
 
-  create: protectedProcedure
+  create: pbacProcedure('trigger_settlement')
     .input(z.object({
       amount: z.number().min(100),
       currency: z.string().length(3).default("NGN"),
       bankCode: z.string().optional(),
       accountNumber: z.string().optional(),
       accountName: z.string().optional(),
+      // R4 F8/F3-14: overriding the configured settlement destination is a
+      // high-risk change — requires credential step-up (same as item 11b).
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // R4 F8/F3-14: a destination override (bank/account other than the
+      // merchant's configured settlement account) must not be accepted
+      // without step-up authentication.
+      if (input.bankCode || input.accountNumber || input.accountName) {
+        await requireCurrentPassword(user, input.currentPassword, 'settlement destination override');
+      }
       const tenantId = merchant.tenantId ?? "ten_default";
       // Determine SLA deadline from tenant config (default 2 hours = CBN NIP requirement)
       const slaHours = 2;
@@ -6464,7 +6714,7 @@ const settlementsRouter = router({
           logger.error("[bridge] triggerSettlement failed (non-fatal):", err);
         }
       }
-      publishAuditEvent({ action: 'settlement.created', userId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'settlement.created', userId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return settlement;
     }),
 
@@ -6492,7 +6742,7 @@ const settlementsRouter = router({
   }),
 
   // Retry a failed or sla_breached settlement by re-triggering the middleware bridge
-  retry: protectedProcedure
+  retry: pbacProcedure('trigger_settlement')
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -7246,20 +7496,24 @@ const posRouter = router({
       // Create a main transaction record
       const txId = nanoid('txn_');
       const feeKobo = Math.round(input.amountKobo * 0.015);
+      // R4 F11#12: there is NO acquirer integration — a masked PAN alone is
+      // not an authorization. Recording 'completed' card revenue with a
+      // fabricated completedAt was a lie. The honest record is 'pending'
+      // until a real acquirer confirmation arrives (none exists today).
       await createTransaction({
         id: txId, merchantId: merchant.id, tenantId: merchant.tenantId ?? 'ten_default',
         reference: `POS-${input.terminalId}-${Date.now()}`,
-        amount: input.amountKobo, currency: 'NGN', status: 'completed',
+        amount: input.amountKobo, currency: 'NGN', status: 'pending',
         channel: input.channel as any, feeAmount: feeKobo,
-        netAmount: input.amountKobo - feeKobo, completedAt: new Date(),
-        description: `POS payment via ${terminals[0].label ?? input.terminalId}`,
+        netAmount: input.amountKobo - feeKobo,
+        description: `POS payment via ${terminals[0].label ?? input.terminalId} (authorization pending — no acquirer confirmation)`,
       });
       // Record POS transaction
       await db.insert(posTransactions).values({
         id: posId, terminalId: input.terminalId, merchantId: merchant.id,
         transactionId: txId, amountKobo: input.amountKobo, currency: 'NGN',
         channel: input.channel, maskedPan: input.maskedPan ?? null,
-        nipSessionId: input.nipSessionId ?? null, status: 'completed',
+        nipSessionId: input.nipSessionId ?? null, status: 'pending',
         receiptData: { txId, amount: input.amountKobo, channel: input.channel, timestamp: new Date().toISOString() },
       });
       // Update terminal totals
@@ -7268,7 +7522,15 @@ const posRouter = router({
         totalVolumeKobo: sql`total_volume_kobo + ${input.amountKobo}`,
         updatedAt: new Date(),
       }).where(eq(posTerminals.id, input.terminalId));
-      return { success: true, posTransactionId: posId, transactionId: txId, receiptUrl: `/api/pos/receipt/${posId}` };
+      return {
+        success: true,
+        posTransactionId: posId,
+        transactionId: txId,
+        receiptUrl: `/api/pos/receipt/${posId}`,
+        status: 'pending' as const,
+        authorizationRequired: true,
+        message: 'Payment recorded as pending — no acquirer authorization has been received; funds are not settled.',
+      };
     }),
 
   stats: protectedProcedure
@@ -7476,17 +7738,30 @@ const posRouter = router({
       return listPtspBatches(merchant.id, input.limit);
     }),
 
-  // Called by Go NIBSS webhook when a batch is confirmed / failed
-  confirmBatch: protectedProcedure
+  // Called by Go NIBSS webhook when a batch is confirmed / failed.
+  // R4 F11#17: this mutates settlement batches unconditionally, so it must
+  // NEVER be callable by a merchant session — it is an internal callback for
+  // the Go bridge, which authenticates with X-Internal-Key. Verified with a
+  // constant-time comparison against MIDDLEWARE_INTERNAL_KEY; FAILS CLOSED
+  // when the key is not configured (pattern: crossBorder.updateStatus).
+  confirmBatch: publicProcedure
     .input(z.object({
       batchId:        z.string(),
       nibssReference: z.string(),
       status:         z.enum(['confirmed', 'failed', 'partial']),
       confirmedAt:    z.string(),
+      internalKey:    z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const user = await resolveUser(ctx.user.openId);
-      await requireMerchant(user.id);
+      const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+      const headerKey = ctx.req?.headers?.["x-internal-key"];
+      const presented = (Array.isArray(headerKey) ? headerKey[0] : headerKey) ?? input.internalKey ?? "";
+      const keysMatch = expectedKey.length > 0 &&
+        presented.length === expectedKey.length &&
+        crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expectedKey));
+      if (!keysMatch) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
+      }
       const { confirmPtspBatch } = await import('./db');
       await confirmPtspBatch(input.batchId, input.nibssReference, input.status, input.confirmedAt);
       await notifyOwner({
@@ -7745,11 +8020,29 @@ const agentBankingRouter = router({
   disburseCommissions: protectedProcedure.mutation(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
-    const result = await disburseAgentCommissions(merchant.id);
-    if (result.disbursed > 0) {
-      await notifyOwner({ title: "Commission Disbursement", content: `Disbursed to ${result.disbursed} sub-agents` }).catch(() => {});
+    // R4 F13 (money-correctness): disburseAgentCommissions throws
+    // NOT_IMPLEMENTED instead of silently zeroing accrued commission counters
+    // without crediting any wallet. Surface that honestly — do NOT reintroduce
+    // the silent zeroing path.
+    try {
+      await disburseAgentCommissions(merchant.id);
+      // Unreachable while the payout rail is unwired; kept for the future
+      // guarded-credit implementation.
+      return { disbursed: 0, totalDisbursedKobo: 0, count: 0, status: "ok" as const };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith("NOT_IMPLEMENTED")) {
+        return {
+          disbursed: 0,
+          totalDisbursedKobo: 0,
+          count: 0,
+          status: "not_implemented" as const,
+          message:
+            "Agent commission payout rail is not integrated — accrued commission counters were left intact and nothing was paid out.",
+        };
+      }
+      throw err;
     }
-    return result;
   }),
   kioskHealth: protectedProcedure.query(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
@@ -8036,7 +8329,7 @@ const restaurantRouter = router({
     notifyOwner({
       title: `New Online Order — ${input.customerName}`,
       content: `${input.items.length} item(s), total ₦${(totalKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}. Phone: ${input.customerPhone}${input.deliveryAddress ? `. Deliver to: ${input.deliveryAddress}` : ''}.`,
-    }).catch(() => {});
+    }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
     return { orderId, totalKobo };
   }),
 });
@@ -8086,9 +8379,11 @@ const kdsRouter = router({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Internal-Key': process.env.MIDDLEWARE_INTERNAL_KEY ?? '' },
           body: JSON.stringify({ merchantId: merchant.id, message: msg, language: lang }),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
-    } catch (_) {}
+    } catch (_) {
+      logger.error("[routers] soundbox announce failed:", _ instanceof Error ? _.message : _);
+    }
     return { ok: true };
   }),
 });
@@ -8526,7 +8821,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: id,
         metadata: { name: input.name, paymentTerms: input.paymentTerms },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { id, ok: true };
     }),
 
@@ -8570,7 +8865,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: input.id,
         metadata: { changes: Object.keys(input).filter(k => k !== 'id') },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 
@@ -8594,7 +8889,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: input.id,
         metadata: {},
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 
@@ -8701,7 +8996,7 @@ const purchaseOrdersLocalRouter = router({
       await notifyOwner({
         title: `Purchase Order Created: ${input.itemName}`,
         content: `A new PO for ${input.quantity} ${input.unit}(s) of ${input.itemName} was created.${input.vendorName ? ` Vendor: ${input.vendorName}.` : ''} Total: ₦${(totalCostKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { id, ok: true };
     }),
 
@@ -8771,12 +9066,12 @@ const purchaseOrdersLocalRouter = router({
           notifyOwner({
             title: `PO Approved: ${po.item_name}`,
             content: `Purchase order for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr} has been approved. Estimated cost: ${totalNGN}. The vendor can now be contacted to fulfil the order.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         } else if (input.status === 'received') {
           notifyOwner({
             title: `PO Received: ${po.item_name}`,
             content: `Delivery confirmed for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr}. Total cost: ${totalNGN}. Inventory should be updated accordingly.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         }
       }
       // Audit log
@@ -8788,7 +9083,7 @@ const purchaseOrdersLocalRouter = router({
         resource: 'purchase_order',
         resourceId: input.id,
         metadata: { status: input.status },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 });
@@ -9158,6 +9453,16 @@ const consumerWalletRouter = router({
       // ── Verify the PSP reference BEFORE crediting anything ──────────────
       let verifiedAmountMinor: number;
       let verifiedCurrency: string;
+      let verifiedMetadata: Record<string, string> = {};
+      // R4 S16 (live double-credit fix): the ledger dedupe reference is derived
+      // EXACTLY as the Stripe webhook derives it (`stripe:pi_<payment_intent>`
+      // when a payment intent is known, else `stripe:cs_<session_id>`) so the
+      // webhook auto-credit and this manual claim share ONE dedupe namespace —
+      // a claim after a webhook credit (or vice versa) is an idempotent replay,
+      // never a second credit. The unique index
+      // consumer_wallet_txns_wallet_reference_unique(wallet_id, reference)
+      // makes any residual race roll back instead of double-crediting.
+      let canonicalReference: string;
       try {
         if (input.paymentReference.startsWith('pi_')) {
           const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
@@ -9166,6 +9471,8 @@ const consumerWalletRouter = router({
           }
           verifiedAmountMinor = pi.amount;
           verifiedCurrency = pi.currency;
+          verifiedMetadata = (pi.metadata ?? {}) as Record<string, string>;
+          canonicalReference = `stripe:pi_${typeof pi.id === 'string' && pi.id ? pi.id : input.paymentReference}`;
         } else if (input.paymentReference.startsWith('cs_')) {
           const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
           if (session.payment_status !== 'paid') {
@@ -9173,6 +9480,10 @@ const consumerWalletRouter = router({
           }
           verifiedAmountMinor = session.amount_total ?? 0;
           verifiedCurrency = session.currency ?? '';
+          verifiedMetadata = (session.metadata ?? {}) as Record<string, string>;
+          const sessionPi = session.payment_intent;
+          const sessionPiId = typeof sessionPi === 'string' ? sessionPi : (sessionPi as { id?: string } | null)?.id;
+          canonicalReference = sessionPiId ? `stripe:pi_${sessionPiId}` : `stripe:cs_${input.paymentReference}`;
         } else {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -9188,19 +9499,59 @@ const consumerWalletRouter = router({
         });
       }
 
-      // Exact amount/currency match — amountKobo is already the minor unit,
-      // same unit Stripe reports in PaymentIntent.amount.
-      if (verifiedAmountMinor !== input.amountKobo || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+      // R4 S16 (cross-flow reuse): only payments stamped by
+      // consumerStripeTopUp.createCheckout are consumer wallet top-ups.
+      // Subscription checkouts (wave34Router) also carry metadata.user_id —
+      // without this marker check they could be claimed as wallet top-ups.
+      if (verifiedMetadata.type !== 'consumer_wallet_topup') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Payment reference is not a consumer wallet top-up — create the payment through consumerStripeTopUp.createCheckout',
+        });
+      }
+
+      // Exact amount/currency match. R4 S16 (NGN rail): sessions created by
+      // consumerStripeTopUp charge a USD-CONVERTED amount (Stripe cannot
+      // charge NGN) and stamp the wallet-truth NGN kobo amount as
+      // metadata.ngn_amount_kobo — when present, match the claim against THAT
+      // (input currency stays NGN; the USD charge is only the rail detail).
+      // Otherwise keep the strict exact minor-unit + currency match against
+      // the Stripe charge itself (amountKobo is already the minor unit, the
+      // same unit Stripe reports in PaymentIntent.amount).
+      const ngnKoboMeta = parseInt(String(verifiedMetadata.ngn_amount_kobo ?? ''), 10);
+      const hasNgnKobo = Number.isInteger(ngnKoboMeta) && ngnKoboMeta > 0;
+      if (hasNgnKobo) {
+        if (input.amountKobo !== ngnKoboMeta || input.currency.toUpperCase() !== 'NGN') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Verified top-up (${ngnKoboMeta} NGN kobo) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
+          });
+        }
+      } else if (verifiedAmountMinor !== input.amountKobo || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
         });
       }
 
+      // S15b: the verified payment must be BOUND to this caller via Stripe
+      // metadata (user_id). Without binding, one succeeded PaymentIntent could
+      // be presented by anyone to credit many wallets.
+      const boundUserId = String(verifiedMetadata.user_id ?? '');
+      if (boundUserId === '' || boundUserId !== String(user.id)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Payment reference is not bound to your account — create the payment through your own top-up session',
+        });
+      }
+
       // P0-6: atomic credit — blind increment (no read-modify-write) + ledger
       // row in one transaction. Exactly-once on the PSP reference: durable
       // ledger pre-check + an atomic idempotency claim for concurrent races.
-      const txRef = `TOPUP-${input.paymentReference}`;
+      // R4 S16: txRef is the CANONICAL webhook reference (`stripe:pi_<id>` /
+      // `stripe:cs_<id>`), NOT `TOPUP-<ref>` — the webhook auto-credit and this
+      // claim now collide on the same ledger key, so the second path replays.
+      const txRef = canonicalReference;
       const existing = await db.select().from(consumerWalletTxns)
         .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
         .limit(1);
@@ -9208,6 +9559,17 @@ const consumerWalletRouter = router({
         return { success: true, newBalanceKobo: existing[0].balanceAfterKobo, reference: txRef, idempotentReplay: true };
       }
       const execute = async () => db.transaction(async (tx) => {
+      // Defense-in-depth (R4 S16): re-check the dedupe key INSIDE the
+      // crediting transaction — a webhook auto-credit landing between the
+      // pre-check above and this transaction must replay, not double-credit.
+      // Any residual simultaneous-insert race is rolled back by the unique
+      // index consumer_wallet_txns_wallet_reference_unique(wallet_id, reference).
+      const dup = await tx.select().from(consumerWalletTxns)
+        .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
+        .limit(1);
+      if (dup.length > 0) {
+        return dup[0].balanceAfterKobo;
+      }
       // Get or create wallet
       let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
@@ -9334,6 +9696,10 @@ const p2pRouter = router({
       narration: z.string().max(100).optional(),
       currency: z.string().length(3).default('NGN'),
       saveBeneficiary: z.boolean().default(false),
+      // R4 (spec #7): REQUIRED step-up — the consumer transaction PIN is
+      // verified (bcrypt + 5-attempt/15-min lockout, wave68 pattern) before
+      // any debit happens.
+      pin: z.string().min(4).max(6),
       // REQUIRED — a money movement without an idempotency key cannot be made
       // retry-safe; the raw-execute bypass is removed (unconditional wrap below).
       idempotencyKey: z.string().min(8).max(64),
@@ -9342,8 +9708,28 @@ const p2pRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
-      const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries } = await import('../drizzle/schema');
+      const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries, consumerPins } = await import('../drizzle/schema');
       const { eq, and, gte } = await import('drizzle-orm');
+      // ── Step 0: PIN step-up (R4 spec #7) — verified BEFORE any debit and
+      // outside the idempotency wrapper so a wrong-PIN failure is never
+      // cached as the stored response for the key. bcrypt compare with
+      // 5-attempt / 15-minute lockout (wave68 verifyPin pattern).
+      const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+      if (!pinRecord) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Please set your transaction PIN first' });
+      if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'PIN locked. Try again later.' });
+      }
+      const bcrypt = await import('bcryptjs');
+      const pinOk = await bcrypt.compare(input.pin, pinRecord.pinHash);
+      if (!pinOk) {
+        const fails = (pinRecord.failedAttempts ?? 0) + 1;
+        const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+        await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect PIN' });
+      }
+      if ((pinRecord.failedAttempts ?? 0) > 0 || pinRecord.lockedUntil) {
+        await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
+      }
       // Idempotency guard — prevents double-debit on network retries. The key is
       // REQUIRED (see input schema) and every execution goes through
       // withIdempotency — there is no raw-execute bypass.
@@ -10084,12 +10470,31 @@ const settlementSLARouter = router({
   acknowledge: protectedProcedure
     .input(z.object({ settlementId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // R4 F4-5: was an unscoped, unguarded status write on ANY settlement.
+      // Now the caller's merchant is resolved server-side, the update is
+      // scoped to that merchant, and only in-flight settlements
+      // (pending/processing/sla_breached) can be acknowledged-failed — a
+      // guarded status flip with a row-count check.
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
       const { getDb } = await import("./db");
       const { settlements } = await import("../drizzle/schema");
-      const { eq: eqFn } = await import("drizzle-orm");
+      const { and: andFn, eq: eqFn, inArray: inArrayFn } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      await db.update(settlements).set({ status: "failed", updatedAt: new Date() } as any).where(eqFn(settlements.id, input.settlementId));
+      const updated = await db.update(settlements)
+        .set({ status: "failed", updatedAt: new Date() } as any)
+        .where(andFn(
+          eqFn(settlements.id, input.settlementId),
+          eqFn(settlements.merchantId, merchant.id),
+          inArrayFn(settlements.status, ["pending", "processing", "sla_breached"] as any),
+        ))
+        .returning({ id: settlements.id });
+      if (!updated[0]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Settlement not found or not in an acknowledgeable state" });
+      }
+      publishAuditEvent({ action: 'settlement.acknowledged_failed', userId: ctx.user.openId, targetId: input.settlementId, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent settlement.acknowledged_failed failed:', e));
       return { success: true };
     }),
 });
@@ -10109,7 +10514,7 @@ const onboardingGateRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await updateMerchant(merchant.id, { onboardingStep: 5 });
-      notifyOwner({ title: `Merchant Went Live — ${merchant.businessName ?? merchant.id}`, content: `Merchant ${merchant.id} has completed onboarding and is now live.` }).catch(() => {});
+      notifyOwner({ title: `Merchant Went Live — ${merchant.businessName ?? merchant.id}`, content: `Merchant ${merchant.id} has completed onboarding and is now live.` }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, message: "Your account is now live! Welcome to PayGate." };
     }),
 });

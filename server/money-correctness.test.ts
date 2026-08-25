@@ -150,8 +150,13 @@ describe("withIdempotency — atomic claim / replay (P2-6)", () => {
       requestBody: { a: 1 }, execute,
     };
     await expect(withIdempotency(opts)).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const replay = await withIdempotency(opts);
-    expect(replay).toEqual({ error: "insufficient funds" });
+    // Contract change (R4 F5, spec #11): a stored FAILED response must be
+    // RE-THROWN on replay — never returned as a success payload. The replay
+    // surfaces the same tRPC code + message without re-executing.
+    await expect(withIdempotency(opts)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "insufficient funds",
+    });
     expect(calls).toBe(1);
   });
 

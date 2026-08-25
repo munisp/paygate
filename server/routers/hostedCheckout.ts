@@ -11,7 +11,8 @@ import { eq, and, ne, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
-import { hostedPaymentSessions, checkoutThemes, paymentLinks } from "../../drizzle/schema";
+import { hostedPaymentSessions, checkoutThemes, paymentLinks, merchantSolanaWallets, fxRates } from "../../drizzle/schema";
+import { logger } from "../logger";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -473,24 +474,60 @@ export const hostedCheckoutRouter = router({
         sessionData.ussdBankCode = ussd.bankCode;
       }
 
-      // ── BNPL: Calculate instalment plan ──────────────────────────────────
+      // ── BNPL: not integrated — fail loud, never fabricate an approval URL ──
       if (input.paymentMethod === "bnpl") {
-        const count = input.bnplInstallmentCount ?? 3;
-        const installmentKobo = Math.ceil(input.amountKobo / count);
-        sessionData.bnplProvider = input.bnplProvider ?? "carbon";
-        sessionData.bnplInstallmentKobo = installmentKobo;
-        sessionData.bnplInstallmentCount = count;
-        sessionData.bnplPlanId = `bnpl_${reference}`;
-        // In production: call Carbon/FairMoney BNPL API here for approval URL
-        sessionData.bnplApprovalUrl = `https://app.${input.bnplProvider ?? "carbon"}.ng/checkout?ref=${reference}`;
+        // R4 F13 (spec #13/#20): there is NO Carbon/FairMoney BNPL approval
+        // integration. The previous code fabricated a `https://app.<provider>.ng`
+        // approval URL the customer could never complete. Fail honestly instead.
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "BNPL checkout is unavailable: no BNPL provider approval API is integrated. Choose another payment method.",
+        });
       }
 
-      // ── USDC: Generate wallet address ─────────────────────────────────────
+      // ── USDC: merchant's registered deposit address + stored FX rate ──────
       if (input.paymentMethod === "usdc") {
-        // In production: call Circle/Coinbase API to generate a deposit address
-        sessionData.usdcWalletAddress = `0x${nanoid(40).toLowerCase()}`;
-        sessionData.usdcAmountUsdc = input.amountKobo / 100 / 1500; // approx NGN/USD rate
-        sessionData.usdcNetwork = "ethereum";
+        // R4 F1/F13 (spec #13/#20): the deposit address MUST be the merchant's
+        // registered wallet (a fabricated 0x... address would lose customer
+        // funds), and the USDC amount MUST come from a stored FX rate (no
+        // hardcoded /1500). Fail loud when either is missing.
+        const [depositWallet] = await db.select().from(merchantSolanaWallets)
+          .where(and(
+            eq(merchantSolanaWallets.merchantId, merchantId),
+            eq(merchantSolanaWallets.isActive, true),
+          ))
+          .orderBy(desc(merchantSolanaWallets.createdAt))
+          .limit(1);
+        if (!depositWallet) {
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "USDC checkout is unavailable: this merchant has no registered active USDC deposit wallet. Register one before enabling USDC.",
+          });
+        }
+        const baseCurrency = (input.currency ?? "NGN").toUpperCase();
+        let usdcAmountUsdc: number;
+        if (baseCurrency === "USD") {
+          usdcAmountUsdc = input.amountKobo / 100;
+        } else {
+          const [fx] = await db.select().from(fxRates)
+            .where(and(
+              eq(fxRates.baseCurrency, baseCurrency),
+              eq(fxRates.targetCurrency, "USD"),
+            ))
+            .orderBy(desc(fxRates.fetchedAt))
+            .limit(1);
+          const rate = fx ? Number(fx.rate) : NaN;
+          if (!Number.isFinite(rate) || rate <= 0) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `USDC checkout is unavailable: no stored FX rate for ${baseCurrency}->USD (fx_rates)`,
+            });
+          }
+          usdcAmountUsdc = (input.amountKobo / 100) / rate;
+        }
+        sessionData.usdcWalletAddress = depositWallet.walletAddress;
+        sessionData.usdcAmountUsdc = usdcAmountUsdc;
+        sessionData.usdcNetwork = "solana";
       }
 
       const [session] = await db.insert(hostedPaymentSessions).values(sessionData as any).returning();
@@ -638,8 +675,9 @@ export const hostedCheckoutRouter = router({
           description: session.description ?? undefined,
         }).then(() => {
           db.update(hostedPaymentSessions).set({ receiptEmailSentAt: new Date() })
-            .where(eq(hostedPaymentSessions.id, session.id)).catch(() => {});
-        }).catch(() => {});
+            .where(eq(hostedPaymentSessions.id, session.id))
+            .catch((e) => logger.error("[hostedCheckout] receiptEmailSentAt persistence failed", { sessionId: session.id, error: e instanceof Error ? e.message : String(e) }));
+        }).catch((e) => logger.error("[hostedCheckout] receipt email send failed", { sessionId: session.id, error: e instanceof Error ? e.message : String(e) }));
       }
 
       return { success: true, session: { ...session, status: "completed", paidAt: now } };
@@ -712,7 +750,7 @@ export const hostedCheckoutRouter = router({
               currency: session.currency,
               reference: session.reference,
               merchantName: session.merchantId,
-            }).catch(() => {});
+            }).catch((e) => logger.error("[hostedCheckout] NIP receipt email send failed", { sessionId: session.id, error: e instanceof Error ? e.message : String(e) }));
           }
         }
       } else {

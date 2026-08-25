@@ -4,7 +4,9 @@ import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
-import type { User } from "../../drizzle/schema";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { jwtRevocationList, users, type User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
 import type {
@@ -185,6 +187,10 @@ class SDKServer {
     const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
+    // R4 F6-1 (spec #8): every session token carries a unique jti claim so a
+    // specific token can be revoked server-side (logout / password change)
+    // via jwt_revocation_list.
+    const jti = randomUUID();
 
     return new SignJWT({
       openId: payload.openId,
@@ -192,6 +198,7 @@ class SDKServer {
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setJti(jti)
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }
@@ -218,6 +225,25 @@ class SDKServer {
       ) {
         console.warn("[Auth] Session payload missing required fields");
         return null;
+      }
+
+      // R4 F6-1 (spec #8): reject tokens whose jti has been revoked (logout /
+      // password change). Failure policy on DB error is deliberately
+      // log-and-ALLOW: hard-failing here would let a transient DB outage DoS
+      // every authenticated request. The error log line is the alert.
+      const jti = (payload as Record<string, unknown>).jti;
+      if (isNonEmptyString(jti)) {
+        try {
+          if (await isJtiRevoked(jti)) {
+            console.warn("[Auth] Rejected revoked session token (jti denylist)");
+            return null;
+          }
+        } catch (revocationError) {
+          console.error(
+            "[Auth] ALERT: jwt_revocation_list check failed; allowing token to avoid login DoS:",
+            revocationError
+          );
+        }
       }
 
       return {
@@ -345,6 +371,103 @@ function buildCronUser(
     taskUid: userInfo.taskUid ?? undefined,
     isCron: true,
   } as AuthenticatedUser;
+}
+
+/**
+ * R4 F6-1 (spec #8): returns true when the given session jti appears in
+ * jwt_revocation_list. Throws on DB error — the caller decides the failure
+ * policy (verifySession logs + allows to avoid a login DoS).
+ */
+export async function isJtiRevoked(jti: string): Promise<boolean> {
+  const database = await db.getDb();
+  const rows = await database
+    .select({ id: jwtRevocationList.id })
+    .from(jwtRevocationList)
+    .where(eq(jwtRevocationList.jti, jti))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * R4 F6-2 (spec #8): revoke a session token by inserting its jti into
+ * jwt_revocation_list. Idempotent via the unique jti constraint. `expiresAt`
+ * should be the token's own exp so the row can be purged once the token
+ * would be invalid anyway.
+ */
+export async function revokeSessionJti(
+  jti: string,
+  userId: number | null,
+  expiresAt: Date,
+  reason: string
+): Promise<void> {
+  const database = await db.getDb();
+  await database
+    .insert(jwtRevocationList)
+    .values({ jti, userId, expiresAt, reason })
+    .onConflictDoNothing({ target: jwtRevocationList.jti });
+}
+
+/** R4 F6-2 (spec #8): decode a session JWT payload WITHOUT verifying it (claims already trusted only after verifySession; use for reading jti/exp of the caller's own token). */
+export function decodeSessionClaims(
+  token: string
+): { jti?: string; exp?: number } | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      jti?: string;
+      exp?: number;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * R4 F6-2 (spec #8): change a user's password. Verifies the current password
+ * (bcrypt, legacy SHA-256 accepted via securityUtils.verifyPassword), writes a
+ * new bcrypt hash and revokes the current session token's jti so the old
+ * session dies immediately. Throws Error with a user-safe message on failure.
+ * Wired by the auth.changePassword endpoint (auth router lives in routers.ts).
+ */
+export async function changeUserPassword(params: {
+  userId: number;
+  currentPassword: string;
+  newPassword: string;
+  currentJti?: string | null;
+  currentJtiExpiresAt?: Date | null;
+}): Promise<void> {
+  const database = await db.getDb();
+  const rows = await database
+    .select()
+    .from(users)
+    .where(eq(users.id, params.userId))
+    .limit(1);
+  const user = rows[0];
+  if (!user) throw new Error("User not found");
+  if (!user.passwordHash) {
+    throw new Error("This account has no password set (SSO-only account)");
+  }
+  const { verifyPassword, hashPassword } = await import("../securityUtils.js");
+  const { valid } = await verifyPassword(
+    params.currentPassword,
+    user.passwordHash,
+    process.env.JWT_SECRET ?? ""
+  );
+  if (!valid) throw new Error("Current password is incorrect");
+  const newHash = await hashPassword(params.newPassword);
+  await database
+    .update(users)
+    .set({ passwordHash: newHash })
+    .where(eq(users.id, params.userId));
+  if (params.currentJti) {
+    await revokeSessionJti(
+      params.currentJti,
+      params.userId,
+      params.currentJtiExpiresAt ?? new Date(Date.now() + ONE_YEAR_MS),
+      "password_change"
+    );
+  }
 }
 
 export const sdk = new SDKServer();

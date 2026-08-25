@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -566,7 +567,7 @@ func main() {
 				return
 			}
 			key := req.Header.Get("X-Internal-Key")
-			if key != cfg.InternalKey {
+			if subtle.ConstantTimeCompare([]byte(key), []byte(cfg.InternalKey)) != 1 {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}

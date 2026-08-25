@@ -14,6 +14,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
+import { demoOrFail } from "./_core/demoData";
+import { logger } from "./logger";
 import { storagePut } from "./storage";
 import { sql, eq, desc, and, gte, sum, count } from "drizzle-orm";
 import crypto from "crypto";
@@ -148,42 +150,20 @@ export const portfolioRebalancingRouter = router({
       })).min(1).max(3),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
-      const userId = ctx.user.id;
-      const orderId = nanoid("reb_");
-      const createdOrders = [];
-
-      for (const order of input.orders) {
-        const id = nanoid("reb_ord_");
-        await db.insert(schema.portfolioRebalancingOrders).values({
-          id,
-          userId,
-          assetType: order.assetType,
-          direction: order.direction,
-          amountKobo: order.amountKobo,
-          targetAllocationPct: order.targetAllocationPct,
-          currentAllocationPct: order.currentAllocationPct,
-          status: "processing",
-        });
-
-        // Execute rebalancing order — marks as completed for record-keeping.
-        // Asset provider APIs (goldtech, mutual fund NAV engine, PenCom) are
-        // invoked asynchronously via the middleware bridge when configured.
-        await db.update(schema.portfolioRebalancingOrders)
-          .set({ status: "completed", executedAt: new Date() })
-          .where(eq(schema.portfolioRebalancingOrders.id, id));
-
-        createdOrders.push({ id, ...order, status: "completed" });
-      }
-
-      return {
-        batchId: orderId,
-        ordersExecuted: createdOrders.length,
-        orders: createdOrders,
-        message: `Successfully executed ${createdOrders.length} rebalancing order(s). Portfolio will reflect changes within 24 hours.`,
-      };
+      // No execution rail is integrated anywhere in this codebase (no goldtech /
+      // mutual-fund NAV engine / PenCom order routing exists), so marking orders
+      // 'completed' and claiming "Portfolio will reflect changes within 24 hours"
+      // fabricates execution (F1-15, spec #13). Fail honestly; a clearly-labelled
+      // demo payload is returned only when PAYGATE_SIMULATION_MODE=true.
+      return demoOrFail(
+        {
+          batchId: nanoid("reb_"),
+          ordersExecuted: 0,
+          orders: input.orders.map((order) => ({ ...order, status: "simulated" })),
+          message: "SIMULATION ONLY: portfolio rebalancing execution rail is not integrated — no orders were routed and no portfolio changes will occur.",
+        },
+        "portfolioRebalancing.executeRebalance (no execution rail integrated)",
+      );
     }),
 
   /**
@@ -456,17 +436,17 @@ export const adminSlaMonitorRouter = router({
           COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
           COUNT(*) FILTER (WHERE status = 'processing') AS processing_count,
           COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
-          COUNT(*) FILTER (WHERE sla_breached = true) AS breached_count,
-          COUNT(*) FILTER (WHERE sla_breached = true AND sla_alert_sent = false) AS unalerted_count,
+          COUNT(*) FILTER (WHERE sla_breached_at IS NOT NULL) AS breached_count,
+          COUNT(*) FILTER (WHERE sla_breached_at IS NOT NULL AND sla_alert_sent_at IS NULL) AS unalerted_count,
           AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/3600) FILTER (WHERE status = 'completed') AS avg_settlement_hours,
           MAX(EXTRACT(EPOCH FROM (NOW() - created_at))/3600) FILTER (WHERE status = 'pending') AS oldest_pending_hours
         FROM settlements
       `);
 
       const breachedSettlements = await db.execute(sql`
-        SELECT id, merchant_id, amount, currency, status, created_at, sla_deadline, sla_breached
+        SELECT id, merchant_id, amount, currency, status, created_at, sla_deadline_at, sla_breached_at
         FROM settlements
-        WHERE sla_breached = true
+        WHERE sla_breached_at IS NOT NULL
         ORDER BY created_at DESC
         LIMIT 20
       `);
@@ -493,8 +473,8 @@ export const adminSlaMonitorRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const result = await db.execute(sql`
         UPDATE settlements
-        SET sla_alert_sent = true, updated_at = NOW()
-        WHERE sla_breached = true AND sla_alert_sent = false
+        SET sla_alert_sent_at = NOW(), updated_at = NOW()
+        WHERE sla_breached_at IS NOT NULL AND sla_alert_sent_at IS NULL
         RETURNING id, merchant_id, amount, currency
       `);
       const rows = (result as any).rows ?? result;
@@ -503,7 +483,7 @@ export const adminSlaMonitorRouter = router({
       await notifyOwner({
         title: `SLA Breach Alerts Sent`,
         content: `${count} settlement SLA breach alert(s) sent to compliance team by admin.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave88] SLA breach alert owner notification failed", { error: e instanceof Error ? e.message : String(e) }));
       return { success: true, alertsSent: count };
     }),
   /**
@@ -522,7 +502,7 @@ export const adminSlaMonitorRouter = router({
       await notifyOwner({
         title: 'Manual Settlement Run Triggered',
         content: `Manual settlement run triggered${input.merchantId ? ` for merchant ${input.merchantId}` : ' for all merchants'} by admin.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave88] manual settlement owner notification failed", { error: e instanceof Error ? e.message : String(e) }));
       return { success: true, runId: (resp as any)?.runId ?? `manual_${Date.now()}`, fallback: !resp };
     }),
 });

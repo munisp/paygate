@@ -111,6 +111,39 @@ async function resolveMerchantId(openId: string): Promise<string> {
   return (await resolveMerchant(openId)).id;
 }
 
+// ─── transfer status transition guard ──────────────────────────────────────────
+// Money-movement lifecycle: pending → processing → completed|failed|reversed.
+// completed / failed / reversed are TERMINAL — never re-enterable (previously
+// an admin could freely flip completed↔reversed, rewriting settlement history).
+const TRANSFER_TRANSITIONS: Record<string, readonly string[]> = {
+  pending: ["processing", "failed"],
+  processing: ["completed", "failed", "reversed"],
+};
+
+async function guardedTransferStatusUpdate(
+  db: any,
+  table: any,
+  idColumn: any,
+  id: string,
+  nextStatus: string,
+  extraSet: Record<string, unknown>,
+) {
+  const [current] = await db.select().from(table).where(eq(idColumn, id)).limit(1);
+  if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+  const from = (current as any).status as string;
+  if (!(TRANSFER_TRANSITIONS[from] ?? []).includes(nextStatus)) {
+    throw new TRPCError({ code: "CONFLICT", message: `Illegal status transition '${from}' → '${nextStatus}' (terminal states are not re-enterable)` });
+  }
+  // Guarded flip: re-check the pre-transition status in the UPDATE's WHERE so
+  // a concurrent transition cannot slip through between read and write.
+  const [row] = await db.update(table)
+    .set({ ...extraSet, status: nextStatus, updatedAt: new Date() })
+    .where(and(eq(idColumn, id), eq((table as any).status, from)))
+    .returning();
+  if (!row) throw new TRPCError({ code: "CONFLICT", message: "Status changed concurrently — retry" });
+  return row;
+}
+
 // ─── wallet transactions ───────────────────────────────────────────────────────
 export const walletRouter = router({
   list: protectedProcedure
@@ -192,10 +225,9 @@ export const crossBorderRouter = router({
     await requireAdmin(ctx);
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    const [row] = await db.update(crossBorderTransfers)
-      .set({ status: input.status, failureReason: input.failureReason, updatedAt: new Date() } as any)
-      .where(eq(crossBorderTransfers.id, input.id as any)).returning();
-    return row;
+    return guardedTransferStatusUpdate(db, crossBorderTransfers, crossBorderTransfers.id, input.id, input.status, {
+      failureReason: input.failureReason,
+    });
   }),
 });
 
@@ -495,15 +527,30 @@ export const merchantLoansRouter = router({
     const [instalment] = await db.select().from(loanInstalments)
       .where(and(eq((loanInstalments as any).id, input.instalmentId), eq((loanInstalments as any).loanId, input.loanId), eq((loanInstalments as any).merchantId, merchantId)));
     if (!instalment) throw new TRPCError({ code: "NOT_FOUND", message: "Loan instalment not found" });
-    const [row] = await db.insert(loanRepayments).values({
-      loanId: input.loanId,
-      merchantId,
-      amountKobo: input.amountKobo,
-      transferId: input.paymentReference,
-      createdAt: new Date(),
-    } as any).returning();
-    await db.update(loanInstalments).set({ status: "paid", paidAt: new Date() } as any).where(eq((loanInstalments as any).id, input.instalmentId));
-    return row;
+    // Insert + paid-flip in ONE transaction: the repayment record and the
+    // instalment status change either both land or neither does.
+    return db.transaction(async (tx) => {
+      const [row] = await tx.insert(loanRepayments).values({
+        loanId: input.loanId,
+        merchantId,
+        amountKobo: input.amountKobo,
+        transferId: input.paymentReference,
+        createdAt: new Date(),
+      } as any).returning();
+      // Guarded flip: only an outstanding instalment (scheduled/pending) can
+      // become paid — a paid/cancelled instalment can never be re-paid, and
+      // the guard is enforced atomically in the UPDATE's WHERE clause.
+      const flipped = await tx.update(loanInstalments).set({ status: "paid", paidAt: new Date() } as any)
+        .where(and(
+          eq((loanInstalments as any).id, input.instalmentId),
+          eq((loanInstalments as any).merchantId, merchantId),
+          inArray((loanInstalments as any).status, ["scheduled", "pending"]),
+        )).returning();
+      if (!flipped.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Instalment is not payable (already paid or not scheduled)" });
+      }
+      return row;
+    });
   }) as any,
   applyLoan: protectedProcedure.input(z.object({
     requestedAmountKobo: z.number().int().positive(),
@@ -832,29 +879,33 @@ export const cashbackRouter = router({
       eq((cashbackTransactions as any).type, "redemption"),
     ));
     if (existing) return existing;
-    // Atomic guarded debit: the balance check and the decrement are a single
-    // UPDATE, so concurrent redemptions cannot overdraw (no check-then-act).
-    const [debited] = await db.update(cashbackBalances).set({
-      cashbackBalanceKobo: sql`${(cashbackBalances as any).cashbackBalanceKobo} - ${input.amountKobo}`,
-      totalRedeemedKobo: sql`${(cashbackBalances as any).totalRedeemedKobo} + ${input.amountKobo}`,
-      updatedAt: new Date(),
-    } as any).where(and(
-      eq((cashbackBalances as any).merchantId, merchantId),
-      gte((cashbackBalances as any).cashbackBalanceKobo, input.amountKobo),
-    )).returning();
-    if (!debited) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient cashback balance" });
-    }
-    const [tx] = await db.insert(cashbackTransactions).values({
-      merchantId,
-      type: "redemption",
-      amountKobo: input.amountKobo,
-      description: `Cashback redemption via ${input.redemptionType}`,
-      relatedTransactionId: input.idempotencyKey,
-      status: "completed",
-      createdAt: new Date(),
-    } as any).returning();
-    return tx;
+    // Debit + ledger insert in ONE transaction: a failed insert must roll
+    // back the balance debit (the pre-check above stays as defense-in-depth).
+    return db.transaction(async (tx) => {
+      // Atomic guarded debit: the balance check and the decrement are a single
+      // UPDATE, so concurrent redemptions cannot overdraw (no check-then-act).
+      const [debited] = await tx.update(cashbackBalances).set({
+        cashbackBalanceKobo: sql`${(cashbackBalances as any).cashbackBalanceKobo} - ${input.amountKobo}`,
+        totalRedeemedKobo: sql`${(cashbackBalances as any).totalRedeemedKobo} + ${input.amountKobo}`,
+        updatedAt: new Date(),
+      } as any).where(and(
+        eq((cashbackBalances as any).merchantId, merchantId),
+        gte((cashbackBalances as any).cashbackBalanceKobo, input.amountKobo),
+      )).returning();
+      if (!debited) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient cashback balance" });
+      }
+      const [row] = await tx.insert(cashbackTransactions).values({
+        merchantId,
+        type: "redemption",
+        amountKobo: input.amountKobo,
+        description: `Cashback redemption via ${input.redemptionType}`,
+        relatedTransactionId: input.idempotencyKey,
+        status: "completed",
+        createdAt: new Date(),
+      } as any).returning();
+      return row;
+    });
   }) as any,
 });
 
@@ -1292,9 +1343,8 @@ export const intlRemittanceRouter = router({
     await requireAdmin(ctx);
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    const { id, ...updates } = input;
-    const [row] = await db.update(intlRemittanceTransfers).set({ ...updates, updatedAt: new Date() } as any).where(eq((intlRemittanceTransfers as any).id, id)).returning();
-    return row;
+    const { id, status, ...updates } = input;
+    return guardedTransferStatusUpdate(db, intlRemittanceTransfers, (intlRemittanceTransfers as any).id, id, status, updates);
   }),
 });
 

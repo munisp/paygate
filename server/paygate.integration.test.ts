@@ -246,6 +246,25 @@ describe("transactions.list", () => {
 });
 
 describe("transactions.createTest", () => {
+  // Contract change (R4, spec #13): createTest inserts 'completed'
+  // transactions without any real payment, so it is now gated behind
+  // PAYGATE_SIMULATION_MODE=true (demoOrFail — fail loud in production
+  // instead of fabricating demo data). Enable simulation mode for these
+  // tests; a dedicated test below pins the production fail-loud contract.
+  beforeEach(() => { vi.stubEnv("PAYGATE_SIMULATION_MODE", "true"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("fails loud (SERVICE_UNAVAILABLE) in production mode — no fabricated demo data", async () => {
+    vi.stubEnv("PAYGATE_SIMULATION_MODE", "false");
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.transactions.createTest({ amount: 10000, currency: "NGN", channel: "card" })
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/PAYGATE_SIMULATION_MODE is not enabled/),
+    });
+  });
+
   it("creates a test transaction with correct fee calculation", async () => {
     const caller = appRouter.createCaller(makeCtx());
     const result = await caller.transactions.createTest({

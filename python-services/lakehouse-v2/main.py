@@ -32,8 +32,8 @@ Environment variables:
   DUCKDB_THREADS        — DuckDB thread count (default: 4)
   S3_ENDPOINT           — S3/MinIO endpoint (default: http://minio:9000)
   S3_BUCKET             — S3 bucket for lakehouse data (default: paygate-lakehouse)
-  AWS_ACCESS_KEY_ID     — S3 access key (default: minioadmin)
-  AWS_SECRET_ACCESS_KEY — S3 secret key (default: minioadmin)
+  MINIO_ACCESS_KEY      — S3 access key (required; AWS_ACCESS_KEY_ID accepted as fallback)
+  MINIO_SECRET_KEY      — S3 secret key (required; AWS_SECRET_ACCESS_KEY accepted as fallback)
   AWS_REGION            — S3 region (default: us-east-1)
   ICEBERG_REST_URL      — Iceberg REST catalog URL (optional)
   KAFKA_BROKERS         — Kafka bootstrap servers (optional)
@@ -66,14 +66,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger("lakehouse-v2")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name, fallback_env=None):
+    """Fail closed: no hardcoded default credentials (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default (e.g. minioadmin/minioadmin).
+    """
+    value = os.getenv(var_name, "")
+    if not value and fallback_env:
+        value = os.getenv(fallback_env, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to real credentials", var_name, var_name)
+    return value
+
 # ─── Config ───────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 DUCKDB_MEMORY_LIMIT = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
 DUCKDB_THREADS = int(os.getenv("DUCKDB_THREADS", "4"))
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
 S3_BUCKET = os.getenv("S3_BUCKET", "paygate-lakehouse")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+AWS_ACCESS_KEY_ID = _require_secret_env("MINIO_ACCESS_KEY", fallback_env="AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = _require_secret_env("MINIO_SECRET_KEY", fallback_env="AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 ICEBERG_REST_URL = os.getenv("ICEBERG_REST_URL", "")
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")

@@ -46,7 +46,7 @@ pub struct FrameResult {
 }
 
 pub async fn analyse_batch(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(req): Json<BatchSignalRequest>,
 ) -> impl IntoResponse {
     use crate::{classify_spoof, decode_image, fft_realness, lbp_realness};
@@ -68,10 +68,8 @@ pub async fn analyse_batch(
             .into_response();
     }
 
-    // Verify internal API key
-    // (key is validated by the authMiddleware in the Go bridge before reaching here,
-    //  but we keep a local check for defence-in-depth)
-    let _ = &state.internal_key;
+    // Auth is enforced by the require_internal_key middleware in main.rs
+    // (constant-time X-Internal-Key check) before any handler runs.
 
     let mut frame_results: Vec<FrameResult> = Vec::with_capacity(req.frames.len());
     let mut real_votes = 0usize;

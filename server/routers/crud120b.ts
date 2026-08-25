@@ -37,9 +37,11 @@ import {
   users,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../logger";
+import { sendEmail } from "../emailService";
+import { blockPrivateWebhookUrl } from "../securityUtils";
 
 const paginationInput = z.object({
   page: z.number().int().min(1).default(1),
@@ -168,9 +170,13 @@ export const staffRouter = router({
       .offset(offset).limit(limit);
     return { members: rows, total: rows.length };
   }),
-  getMember: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  getMember: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(staffMembers).where(eq(staffMembers.id, input.id)).limit(1);
+    // Merchant scope (same convention as listMembers): the row contains payroll
+    // bank details (bankCode/accountNumber) and must not be readable cross-tenant.
+    const rows = await db.select().from(staffMembers)
+      .where(and(eq(staffMembers.id, input.id), eq(staffMembers.merchantId, ctx.user.tenantId ?? "")))
+      .limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -201,15 +207,25 @@ export const staffRouter = router({
     hourlyRateKobo: z.number().int().min(0).optional(),
     bankCode: z.string().optional(),
     accountNumber: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(staffMembers).set(rest).where(eq(staffMembers.id, id));
+    // Merchant scope (same convention as createMember/listShifts): payroll
+    // fields (bankCode/accountNumber) must not be writable cross-tenant.
+    // Checked RETURNING: NOT_FOUND when the id is missing or out of scope.
+    const [updated] = await db.update(staffMembers).set(rest)
+      .where(and(eq(staffMembers.id, id), eq(staffMembers.merchantId, ctx.user.tenantId ?? "")))
+      .returning({ id: staffMembers.id });
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
     return { success: true };
   }),
-  deleteMember: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  deleteMember: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(staffMembers).set({ active: false }).where(eq(staffMembers.id, input.id));
+    // Merchant scope + checked RETURNING (same convention as clockIn above).
+    const [updated] = await db.update(staffMembers).set({ active: false })
+      .where(and(eq(staffMembers.id, input.id), eq(staffMembers.merchantId, ctx.user.tenantId ?? "")))
+      .returning({ id: staffMembers.id });
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
     return { success: true };
   }),
   listShifts: protectedProcedure.input(paginationInput.extend({
@@ -241,16 +257,25 @@ export const staffRouter = router({
     }).returning();
     return row;
   }),
-  clockIn: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
+  clockIn: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(staffShifts).set({ clockIn: new Date() })
-      .where(eq(staffShifts.id, input.shiftId));
+    // R4: previously unscoped by shift id — any authenticated user could clock
+    // in ANY shift (cross-merchant). staff_members has no user binding column,
+    // so the honest minimum is merchant scope (same convention as listShifts):
+    // a caller may only clock shifts belonging to their own merchant, enforced
+    // atomically in the UPDATE with a checked RETURNING.
+    const [updated] = await db.update(staffShifts).set({ clockIn: new Date() })
+      .where(and(eq(staffShifts.id, input.shiftId), eq(staffShifts.merchantId, ctx.user.tenantId ?? "")))
+      .returning({ id: staffShifts.id });
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Shift not found" });
     return { success: true };
   }),
-  clockOut: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
+  clockOut: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(staffShifts).set({ clockOut: new Date() })
-      .where(eq(staffShifts.id, input.shiftId));
+    const [updated] = await db.update(staffShifts).set({ clockOut: new Date() })
+      .where(and(eq(staffShifts.id, input.shiftId), eq(staffShifts.merchantId, ctx.user.tenantId ?? "")))
+      .returning({ id: staffShifts.id });
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Shift not found" });
     return { success: true };
   }),
 });
@@ -263,14 +288,18 @@ export const stripeSubscriptionsRouter = router({
   })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
+    // Owning-user scope: never leak other users' subscriptions.
     const rows = await db.select().from(stripeSubscriptions)
+      .where(eq(stripeSubscriptions.userId, String(ctx.user.id)))
       .orderBy(desc(stripeSubscriptions.createdAt))
       .offset(offset).limit(limit);
     return { subscriptions: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(stripeSubscriptions).where(eq(stripeSubscriptions.id, input.id)).limit(1);
+    // Owning-user scope: a subscription is private billing data.
+    const rows = await db.select().from(stripeSubscriptions)
+      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.userId, String(ctx.user.id)))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -288,6 +317,8 @@ export const stripeSubscriptionsRouter = router({
   }),
   stats: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
+    // Platform-wide subscription metrics — platform-admin only.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const [stats] = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`count(*) filter (where status = 'active')`,
@@ -452,9 +483,10 @@ export const taxFilingRouter = router({
       .offset(offset).limit(limit);
     return { records: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(taxFilingRecords).where(eq(taxFilingRecords.id, input.id)).limit(1);
+    const rows = await db.select().from(taxFilingRecords)
+      .where(and(eq(taxFilingRecords.id, input.id), eq(taxFilingRecords.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -479,25 +511,49 @@ export const taxFilingRouter = router({
   }),
   file: protectedProcedure.input(z.object({
     id: z.string(),
-    receiptNumber: z.string().optional(),
-  })).mutation(async ({ input }) => {
+    // The tax authority's filing receipt is mandatory — a filing must never be
+    // self-stamped with no evidence of regulatory submission.
+    receiptNumber: z.string().min(4).max(128),
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(taxFilingRecords).set({
+    // Regulatory attestation — platform-admin only (no merchant self-stamping).
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Guarded flip: only a 'draft' filing can be filed; filed/paid are terminal.
+    const [updated] = await db.update(taxFilingRecords).set({
       status: "filed",
       filedAt: new Date(),
-      receiptNumber: input.receiptNumber ?? null,
-    }).where(eq(taxFilingRecords.id, input.id));
+      receiptNumber: input.receiptNumber,
+      updatedAt: new Date(),
+    }).where(and(eq(taxFilingRecords.id, input.id), eq(taxFilingRecords.status, "draft"))).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(taxFilingRecords).where(eq(taxFilingRecords.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Tax filing not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Filing is '${existing.status}', only 'draft' filings can be filed` });
+    }
+    publishAuditEventLoud({ action: 'tax_filing.filed', userId: String(ctx.user.id), targetId: input.id, metadata: { receiptNumber: input.receiptNumber }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   markPaid: protectedProcedure.input(z.object({
     id: z.string(),
-    receiptNumber: z.string().optional(),
-  })).mutation(async ({ input }) => {
+    // Evidence of the tax payment is mandatory — a filing must never be
+    // marked paid with no payment attestation.
+    paymentReference: z.string().min(8).max(128),
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(taxFilingRecords).set({
+    // Regulatory attestation — platform-admin only (no merchant self-stamping).
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Guarded flip: only a 'filed' filing can be paid; paid is terminal.
+    const [updated] = await db.update(taxFilingRecords).set({
       status: "paid",
-      receiptNumber: input.receiptNumber ?? null,
-    }).where(eq(taxFilingRecords.id, input.id));
+      receiptNumber: input.paymentReference,
+      updatedAt: new Date(),
+    }).where(and(eq(taxFilingRecords.id, input.id), eq(taxFilingRecords.status, "filed"))).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(taxFilingRecords).where(eq(taxFilingRecords.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Tax filing not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Filing is '${existing.status}', only 'filed' filings can be marked paid` });
+    }
+    publishAuditEventLoud({ action: 'tax_filing.paid', userId: String(ctx.user.id), targetId: input.id, metadata: { paymentReference: input.paymentReference }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -509,16 +565,20 @@ export const tenantMgmtRouter = router({
     status: z.string().optional(),
     plan: z.string().optional(),
     search: z.string().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): tenant inventory is platform-global.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenants)
       .orderBy(desc(tenants.createdAt))
       .offset(offset).limit(limit);
     return { tenants: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): tenant records are platform-global.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const rows = await db.select().from(tenants).where(eq(tenants.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -533,8 +593,10 @@ export const tenantMgmtRouter = router({
     country: z.string().length(2).default("NG"),
     currency: z.string().length(3).default("NGN"),
     timezone: z.string().default("Africa/Lagos"),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): tenant provisioning is platform-global.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const [row] = await db.insert(tenants).values({
       ...input,
       status: "pending",
@@ -572,8 +634,11 @@ export const tenantMgmtRouter = router({
     publishAuditEventLoud({ action: 'tenant.suspended', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
+  getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): another tenant's fee/limit config is
+    // not readable by regular users.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const rows = await db.select().from(tenantConfig)
       .where(eq(tenantConfig.tenantId, input.tenantId)).limit(1);
     return rows[0] ?? null;
@@ -587,8 +652,11 @@ export const tenantMgmtRouter = router({
     bnplFeesBps: z.number().int().min(0).optional(),
     settlementDelayHours: z.number().int().min(0).optional(),
     kycLevel: z.number().int().min(0).max(3).optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): this rewrites ANY tenant's fees/KYC
+    // limits by raw tenantId — a regular user must never do this.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { tenantId, ...rest } = input;
     const existing = await db.select().from(tenantConfig)
       .where(eq(tenantConfig.tenantId, tenantId)).limit(1);
@@ -602,8 +670,11 @@ export const tenantMgmtRouter = router({
   listCorridors: protectedProcedure.input(paginationInput.extend({
     tenantId: z.string().optional(),
     status: z.string().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): corridor config is per-tenant and
+    // platform-administered.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantCorridors)
       .offset(offset).limit(limit);
@@ -619,8 +690,10 @@ export const tenantMgmtRouter = router({
     fxMarkupBps: z.number().int().min(0).default(100),
     minAmountKobo: z.number().int().positive().optional(),
     maxAmountKobo: z.number().int().positive().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): this sets fees/limits for ANY tenant.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const [row] = await db.insert(tenantCorridors).values({
       tenantId: input.tenantId,
       sourceCurrency: input.sourceCurrency,
@@ -638,8 +711,11 @@ export const tenantMgmtRouter = router({
     corridorId: z.string().optional(),
     from: z.number().optional(),
     to: z.number().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): cross-tenant corridor volumes are
+    // platform-sensitive.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantCorridorDailyStats)
       .orderBy(desc(tenantCorridorDailyStats.date))
@@ -648,8 +724,11 @@ export const tenantMgmtRouter = router({
   }),
   listFeeOverrides: protectedProcedure.input(paginationInput.extend({
     tenantId: z.string().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): fee overrides are per-tenant and
+    // platform-administered.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantFeeOverrides)
       .offset(offset).limit(limit);
@@ -661,8 +740,10 @@ export const tenantMgmtRouter = router({
     overrideBps: z.number().int().min(0),
     reason: z.string().optional(),
     expiresAt: z.number().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): this rewrites ANY tenant's fees.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const [row] = await db.insert(tenantFeeOverrides).values({
       tenantId: input.tenantId,
       transactionType: input.feeType,
@@ -680,8 +761,10 @@ export const tenantMgmtRouter = router({
       .where(eq(tenantPlanLimits.plan, tenantRows[0].plan)).limit(1);
     return rows[0] ?? null;
   }),
-  getSsoConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
+  getSsoConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): SSO config includes client secrets.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const rows = await db.select().from(tenantSsoConfigs)
       .where(eq(tenantSsoConfigs.tenantId, input.tenantId)).limit(1);
     return rows[0] ?? null;
@@ -696,8 +779,12 @@ export const tenantMgmtRouter = router({
     clientSecret: z.string().optional(),
     discoveryUrl: z.string().url().optional(),
     enabled: z.boolean().default(false),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): this rewrites ANY tenant's SSO
+    // config (IdP URL, certificate, client secret) by raw tenantId — a
+    // cross-tenant account-takeover primitive if left open.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { tenantId, ...rest } = input;
     const existing = await db.select().from(tenantSsoConfigs)
       .where(eq(tenantSsoConfigs.tenantId, tenantId)).limit(1);
@@ -711,8 +798,11 @@ export const tenantMgmtRouter = router({
   getUsageMetrics: protectedProcedure.input(z.object({
     tenantId: z.string(),
     period: z.string().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): per-tenant usage metrics are
+    // platform-sensitive.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const rows = await db.select().from(tenantUsageMetrics)
       .where(eq(tenantUsageMetrics.tenantId, input.tenantId))
       .orderBy(desc(tenantUsageMetrics.createdAt))
@@ -722,8 +812,10 @@ export const tenantMgmtRouter = router({
   listBillingInvoices: protectedProcedure.input(paginationInput.extend({
     tenantId: z.string().optional(),
     status: z.string().optional(),
-  })).query(async ({ input }) => {
+  })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Platform-admin gate (DB-checked): tenant billing is platform-sensitive.
+    await requirePlatformAdmin(db, ctx.user.openId);
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantBillingInvoices)
       .orderBy(desc(tenantBillingInvoices.createdAt))
@@ -747,9 +839,15 @@ export const transactionReceiptsRouter = router({
       .offset(offset).limit(limit);
     return { receipts: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(transactionReceipts).where(eq(transactionReceipts.id, input.id)).limit(1);
+    // Owner scope: the receipt's merchant, or the user the receipt was issued
+    // to (merchant_id is nullable on legacy rows).
+    const rows = await db.select().from(transactionReceipts)
+      .where(and(
+        eq(transactionReceipts.id, input.id),
+        or(eq(transactionReceipts.merchantId, ctx.user.tenantId ?? ""), eq(transactionReceipts.userId, ctx.user.id)),
+      )).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -770,8 +868,26 @@ export const transactionReceiptsRouter = router({
     }).returning();
     return row;
   }),
-  resend: protectedProcedure.input(z.object({ id: z.string(), emailAddress: z.string().email().optional() })).mutation(async ({ input }) => {
+  resend: protectedProcedure.input(z.object({ id: z.string(), emailAddress: z.string().email().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Merchant scope: only the owning merchant may resend its receipt.
+    const [receipt] = await db.select().from(transactionReceipts)
+      .where(and(eq(transactionReceipts.id, input.id), eq(transactionReceipts.merchantId, ctx.user.tenantId ?? ""))).limit(1);
+    if (!receipt) throw new TRPCError({ code: "NOT_FOUND", message: "Receipt not found" });
+    const recipient = input.emailAddress ?? receipt.emailAddress;
+    if (!recipient) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "No recipient on the receipt — provide emailAddress" });
+    }
+    // Actually send the email BEFORE stamping emailSentAt; a failed send fails
+    // loud instead of recording a delivery that never happened.
+    const sent = await sendEmail({
+      to: recipient,
+      subject: `Your PayGate receipt ${receipt.receiptNumber}`,
+      html: `<p>Your receipt <strong>${receipt.receiptNumber}</strong> for transaction ${receipt.transactionId} is available${receipt.pdfUrl ? ` at <a href="${receipt.pdfUrl}">${receipt.pdfUrl}</a>` : ""}.</p>`,
+    });
+    if (!sent) {
+      throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Email delivery failed — receipt was NOT marked as sent" });
+    }
     await db.update(transactionReceipts).set({
       emailSentAt: new Date(),
       ...(input.emailAddress ? { emailAddress: input.emailAddress } : {}),
@@ -892,9 +1008,11 @@ export const insuranceClaimsRouter = router({
       .offset(offset).limit(limit);
     return { claims: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(userInsuranceClaims).where(eq(userInsuranceClaims.id, input.id)).limit(1);
+    // Owning-user scope: a claim is private data.
+    const rows = await db.select().from(userInsuranceClaims)
+      .where(and(eq(userInsuranceClaims.id, input.id), eq(userInsuranceClaims.userId, ctx.user.id))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -924,31 +1042,73 @@ export const insuranceClaimsRouter = router({
     id: z.string(),
     approvedAmountKobo: z.number().int().positive(),
     notes: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(userInsuranceClaims).set({
+    // Claim approval is an insurer decision — platform-admin only (previously
+    // any user could approve their own claim and set the payout amount).
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Guarded flip: submitted/under_review → approved; approved/paid/rejected
+    // are not re-enterable.
+    const [updated] = await db.update(userInsuranceClaims).set({
       status: "approved",
       claimAmountKobo: input.approvedAmountKobo,
-    }).where(eq(userInsuranceClaims.id, input.id));
+    }).where(and(
+      eq(userInsuranceClaims.id, input.id),
+      inArray(userInsuranceClaims.status, ["submitted", "under_review"]),
+    )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(userInsuranceClaims).where(eq(userInsuranceClaims.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Claim is '${existing.status}', only submitted/under_review claims can be approved` });
+    }
+    publishAuditEventLoud({ action: 'insurance_claim.approved', userId: String(ctx.user.id), targetId: input.id, metadata: { approvedAmountKobo: input.approvedAmountKobo }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   reject: protectedProcedure.input(z.object({
     id: z.string(),
     reason: z.string().max(5000),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(userInsuranceClaims).set({
+    // Claim rejection is an insurer decision — platform-admin only.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Guarded flip: submitted/under_review → rejected; a paid claim is settled
+    // and must not be retroactively rejected.
+    const [updated] = await db.update(userInsuranceClaims).set({
       status: "rejected",
-    }).where(eq(userInsuranceClaims.id, input.id));
+    }).where(and(
+      eq(userInsuranceClaims.id, input.id),
+      inArray(userInsuranceClaims.status, ["submitted", "under_review"]),
+    )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(userInsuranceClaims).where(eq(userInsuranceClaims.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Claim is '${existing.status}', only submitted/under_review claims can be rejected` });
+    }
+    publishAuditEventLoud({ action: 'insurance_claim.rejected', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   pay: protectedProcedure.input(z.object({
     id: z.string(),
-    paymentReference: z.string().optional(),
-  })).mutation(async ({ input }) => {
+    // A payout attestation is mandatory — a claim must never be flipped to
+    // 'paid' with no evidence money was disbursed.
+    paymentReference: z.string().min(8).max(128),
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(userInsuranceClaims).set({ status: "paid" })
-      .where(eq(userInsuranceClaims.id, input.id));
+    // Claims payout is a disbursement decision — platform-admin only.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Guarded flip: submitted/under_review/approved → paid; paid/rejected are
+    // terminal and can never be re-entered.
+    const [updated] = await db.update(userInsuranceClaims).set({ status: "paid" })
+      .where(and(
+        eq(userInsuranceClaims.id, input.id),
+        inArray(userInsuranceClaims.status, ["submitted", "under_review", "approved"]),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(userInsuranceClaims).where(eq(userInsuranceClaims.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Claim is '${existing.status}', only submitted/under_review/approved claims can be paid` });
+    }
+    publishAuditEventLoud({ action: 'insurance_claim.paid', userId: String(ctx.user.id), targetId: input.id, metadata: { paymentReference: input.paymentReference }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -975,6 +1135,11 @@ export const webhookSimulatorRouter = router({
     targetUrl: z.string().url(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // SSRF + abuse gate: this endpoint fetches an ARBITRARY URL and reads the
+    // response body back, so it is platform-admin only, and private/loopback/
+    // metadata targets are blocked before any fetch happens.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    await blockPrivateWebhookUrl(input.targetUrl);
     const startTime = Date.now();
     let responseStatus = 0;
     let responseBody = "";
@@ -1013,7 +1178,12 @@ export const webhookSimulatorRouter = router({
   }),
   retry: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(webhookSimulatorLogs).where(eq(webhookSimulatorLogs.id, input.id)).limit(1);
+    // Same SSRF posture as simulate: admin-only and own-merchant logs; the
+    // stored target URL is re-validated below before any fetch (it may
+    // predate the private-range guard).
+    await requirePlatformAdmin(db, ctx.user.openId);
+    const rows = await db.select().from(webhookSimulatorLogs)
+      .where(and(eq(webhookSimulatorLogs.id, input.id), eq(webhookSimulatorLogs.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     const log = rows[0];
     const startTime = Date.now();
@@ -1021,6 +1191,7 @@ export const webhookSimulatorRouter = router({
     let responseBody = "";
     let status = "pending";
     const targetUrl = (log as any).targetUrl ?? "";
+    await blockPrivateWebhookUrl(targetUrl);
     try {
       const response = await fetch(targetUrl, {
         method: "POST",

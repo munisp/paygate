@@ -177,8 +177,15 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
     const authHeader = req.headers.authorization ?? "";
     const apiKey = process.env.BUILT_IN_FORGE_API_KEY ?? "";
     const internalKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
-    const isCron = authHeader === `Bearer ${apiKey}` || authHeader === `Bearer ${internalKey}` || req.headers["x-cron-secret"] === apiKey;
+    // R4 F12: fail CLOSED — each comparison is gated on the key being
+    // non-empty, so an unset env var can never be matched by an empty/forged
+    // header (securityAuditJob.ts pattern).
+    const isCron =
+      (apiKey !== "" && authHeader === `Bearer ${apiKey}`) ||
+      (internalKey !== "" && authHeader === `Bearer ${internalKey}`) ||
+      (apiKey !== "" && req.headers["x-cron-secret"] === apiKey);
     if (!isCron) {
+      logger.warn("[complianceScorecardJob] rejected unauthenticated invocation (cron keys unset or mismatch)");
       return res.status(403).json({ error: "cron-only endpoint" });
     }
 
@@ -193,9 +200,11 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
         sql`SELECT id FROM merchants WHERE status = 'active' OR status IS NULL LIMIT 500`
       );
       merchantIds = (merchants as unknown as Array<{ id: string }>)?.map((r) => r.id) ?? [];
-    } catch {
-      // If merchants table query fails, use a default set
-      merchantIds = ["default"];
+    } catch (merchantsErr: any) {
+      // R4 F12: fail CLOSED — scoring a fabricated "default" merchant would
+      // produce phantom compliance records. Log and skip the run instead.
+      logger.error(`[complianceScorecardJob] merchants query failed — skipping run: ${merchantsErr?.message ?? merchantsErr}`);
+      return res.status(503).json({ error: "Merchant list unavailable — scorecard run skipped" });
     }
 
     if (merchantIds.length === 0) {

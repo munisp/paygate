@@ -35,6 +35,37 @@ async function resolveMerchantForUser(openId: string) {
 }
 
 /**
+ * Merchant-side order status transition map (F4/A7). Forward-only fulfilment
+ * flow pending → confirmed → processing → shipped → delivered; cancelled is
+ * only reachable before shipment; delivered/cancelled are terminal; refunded
+ * is terminal and is only ever written by the platform refund flow — never by
+ * these merchant endpoints.
+ */
+const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["processing", "cancelled"],
+  processing: ["shipped", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+  refunded: [],
+};
+
+function isOrderTransitionAllowed(from: string, to: string): boolean {
+  if (from === to) return true; // idempotent no-op rewrite
+  return (ORDER_TRANSITIONS[from] ?? []).includes(to);
+}
+
+function assertOrderTransition(from: string, to: string): void {
+  if (!isOrderTransitionAllowed(from, to)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Invalid order status transition: '${from}' → '${to}'`,
+    });
+  }
+}
+
+/**
  * Verify a Stripe PaymentIntent server-side (status === 'succeeded' and amount
  * matches the session). Any verification failure blocks the money path.
  */
@@ -816,6 +847,8 @@ const ordersRouter = router({
       const [order] = await db.select().from(orders)
         .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)));
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // Transition guard: e.g. delivered → cancelled is impossible (F4/A7).
+      assertOrderTransition(order.status, input.status);
 
       const updates: Partial<typeof orders.$inferInsert> = {
         status: input.status,
@@ -838,9 +871,28 @@ const ordersRouter = router({
       }
       if (input.notes) updates.notes = input.notes;
 
+      // S15b (TOCTOU): the transition guard above is a SELECT+app-check — a
+      // concurrent status change between SELECT and UPDATE could ride an
+      // illegal transition. Move the guard INTO the UPDATE WHERE: the status
+      // predicate admits only states that may legally transition to
+      // input.status (plus input.status itself for idempotent rewrites).
+      const allowedFrom = Object.keys(ORDER_TRANSITIONS)
+        .filter((from) => isOrderTransitionAllowed(from, input.status)) as Array<
+          "pending" | "processing" | "cancelled" | "confirmed" | "delivered" | "shipped" | "refunded"
+        >;
       const [updated] = await db.update(orders).set(updates)
-        .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)))
+        .where(and(
+          eq(orders.id, input.id),
+          eq(orders.merchantId, merchant.id),
+          inArray(orders.status, allowedFrom),
+        ))
         .returning();
+      if (!updated) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Order status changed concurrently — '${input.status}' transition no longer valid from current state`,
+        });
+      }
 
       // Record fulfilment event
       await db.insert(fulfilmentEvents).values({
@@ -876,9 +928,9 @@ const ordersRouter = router({
       const [order] = await db.select().from(orders)
         .where(and(eq(orders.id, input.id), eq(orders.merchantId, merchant.id)));
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
-      if (["shipped", "delivered"].includes(order.status)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot cancel a shipped or delivered order" });
-      }
+      // Cancel is only allowed from pending/confirmed/processing (F4/A7) —
+      // shipped/delivered/cancelled/refunded orders cannot be cancelled.
+      assertOrderTransition(order.status, "cancelled");
 
       const [updated] = await db.update(orders).set({
         status: "cancelled",
@@ -917,15 +969,20 @@ const ordersRouter = router({
       // ids belonging to other merchants are silently excluded.
       const scopedWhere = and(inArray(orders.id, input.ids), eq(orders.merchantId, merchant.id));
 
-      await db.update(orders).set({ status: input.status, updatedAt: new Date() })
-        .where(scopedWhere);
-
-      // Bulk fulfilment events
-      const orderRows = await db.select({ id: orders.id, merchantId: orders.merchantId })
+      // Transition guard (F4/A7): only orders whose CURRENT status may legally
+      // move to the target are updated — terminal states (delivered/cancelled/
+      // refunded) are never re-entered, even via bulk operations.
+      const currentRows = await db.select({ id: orders.id, status: orders.status, merchantId: orders.merchantId })
         .from(orders).where(scopedWhere);
+      const eligible = currentRows.filter(o => isOrderTransitionAllowed(o.status, input.status));
+      const eligibleIds = eligible.map(o => o.id);
 
-      if (orderRows.length > 0) {
-        await db.insert(fulfilmentEvents).values(orderRows.map(o => ({
+      if (eligibleIds.length > 0) {
+        await db.update(orders).set({ status: input.status, updatedAt: new Date() })
+          .where(and(inArray(orders.id, eligibleIds), eq(orders.merchantId, merchant.id)));
+
+        // Bulk fulfilment events (only for orders actually transitioned)
+        await db.insert(fulfilmentEvents).values(eligible.map(o => ({
           orderId: o.id,
           merchantId: o.merchantId,
           eventType: input.status,
@@ -937,7 +994,7 @@ const ordersRouter = router({
         })));
       }
 
-      return { updated: orderRows.length };
+      return { updated: eligibleIds.length, skipped: currentRows.length - eligibleIds.length };
     }),
 });
 

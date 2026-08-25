@@ -9,8 +9,38 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
-import { getDb, execRaw } from "./db";
+import { getDb, execRaw, getUserByOpenId, getMerchantByOwnerId } from "./db";
 import crypto from "crypto";
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Tenant SSO config, webhook signing secrets and tenant API keys are
+// platform-level administration: the caller's session role is NOT trusted —
+// the role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+// ─── Merchant scope resolver (getUserByOpenId → getMerchantByOwnerId) ───────
+// BNPL repayment writes are merchant-side operations: the caller must be an
+// onboarded merchant. Fail closed otherwise.
+async function requireMerchantScope(ctx: any): Promise<string> {
+  const user = await getUserByOpenId(ctx?.user?.openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  }
+  return merchant.id;
+}
 
 // ─── Tenant Billing & Usage Metering ────────────────────────────────────────
 
@@ -349,7 +379,9 @@ const tenantSsoRouter = router({
       scopes: z.string().default("openid email profile"),
       isEnabled: z.boolean().default(false),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Repointing a tenant's SSO to a different IdP is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `INSERT INTO tenant_sso_configs (tenant_id, provider, client_id, client_secret, discovery_url, redirect_uri, scopes, is_enabled)
@@ -364,7 +396,9 @@ const tenantSsoRouter = router({
 
   toggleSso: protectedProcedure
     .input(z.object({ tenantId: z.string(), enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Enabling/disabling a tenant's SSO is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `UPDATE tenant_sso_configs SET is_enabled = $1, updated_at = NOW() WHERE tenant_id = $2`, [input.enabled, input.tenantId]);
@@ -390,7 +424,9 @@ const webhookSigningRouter = router({
       endpointUrl: z.string().url(),
       algorithm: z.enum(["hmac-sha256", "hmac-sha512"]).default("hmac-sha256"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Minting per-tenant webhook signing secrets is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const secret = `whsec_${crypto.randomBytes(32).toString("hex")}`;
@@ -402,7 +438,9 @@ const webhookSigningRouter = router({
 
   rotate: protectedProcedure
     .input(z.object({ tenantId: z.string(), endpointUrl: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Rotating per-tenant webhook signing secrets is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const newSecret = `whsec_${crypto.randomBytes(32).toString("hex")}`;
@@ -446,7 +484,9 @@ const PERMISSIONS = {
 const tenantApiKeyRouter = router({
   list: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Listing another tenant's API keys is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const rows = await execRaw(db, `SELECT id, tenant_id, name, key_prefix, permissions, is_active, last_used_at, expires_at, created_at
@@ -466,7 +506,9 @@ const tenantApiKeyRouter = router({
       permissions: z.number().int().min(0).max(255).default(1),
       expiresInDays: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Minting tenant API keys (incl. the ADMIN permission bit) is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const rawKey = crypto.randomBytes(32).toString("hex");
@@ -482,7 +524,9 @@ const tenantApiKeyRouter = router({
 
   revoke: protectedProcedure
     .input(z.object({ keyId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Revoking tenant API keys is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `UPDATE tenant_api_keys SET is_active = FALSE WHERE id = $1`, [input.keyId]);
@@ -548,18 +592,28 @@ const bnplRepaymentRouter = router({
     .input(z.object({
       scheduleId: z.number(),
       amountPaid: z.number().positive(),
-      paymentRef: z.string().optional(),
+      // Required evidence of an external payment — repayments may never be
+      // marked paid without a traceable payment reference.
+      paymentRef: z.string().min(3),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `UPDATE bnpl_repayment_schedules SET
+      // Merchant-scoped: only an onboarded merchant may record repayments.
+      await requireMerchantScope(ctx);
+      // Status guard: only scheduled/pending/overdue instalments may flip to
+      // paid. Atomic via RETURNING — empty result means guard rejected it.
+      const updated = await execRaw(db, `UPDATE bnpl_repayment_schedules SET
            status = 'paid',
            amount_paid = $1,
            paid_at = NOW(),
            payment_reference = $2,
            updated_at = NOW()
-         WHERE id = $3`, [input.amountPaid, input.paymentRef ?? null, input.scheduleId]);
+         WHERE id = $3 AND status IN ('scheduled', 'pending', 'overdue')
+         RETURNING id`, [input.amountPaid, input.paymentRef, input.scheduleId]);
+      if (!updated.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Instalment not found or not in a payable state" });
+      }
       return { recorded: true };
     }),
 
@@ -821,12 +875,24 @@ const jwtRevocationRouter = router({
       expiresAt: z.string(),
       reason: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // R4 (write-side DoS): arbitrary userId/jti revocation let any caller
+      // mass-revoke sessions. A caller may revoke only a jti bound to their
+      // own user; revoking for another user requires platform admin
+      // (DB re-check of users.role, same pattern as requirePlatformAdmin).
+      const callerRows = await execRaw(db, `SELECT id, role FROM users WHERE open_id = $1 LIMIT 1`, [ctx.user.openId]);
+      const caller = callerRows[0] as any;
+      if (!caller) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+      const isAdmin = caller.role === "admin";
+      const targetUserId = input.userId ?? caller.id;
+      if (!isAdmin && targetUserId !== caller.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot revoke sessions for another user" });
+      }
       await execRaw(db, `INSERT INTO jwt_revocation_list (jti, user_id, expires_at, reason)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (jti) DO NOTHING`, [input.jti, input.userId ?? null, input.expiresAt, input.reason ?? "manual_revocation"]);
+         ON CONFLICT (jti) DO NOTHING`, [input.jti, targetUserId, input.expiresAt, input.reason ?? "manual_revocation"]);
       return { revoked: true };
     }),
 
@@ -848,7 +914,10 @@ const jwtRevocationRouter = router({
 
   revokeAllForUser: protectedProcedure
     .input(z.object({ userId: z.number(), reason: z.string().default("security_event") }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // R4 (write-side DoS): revoking ALL sessions for an arbitrary userId is
+      // a platform-admin operation. DB re-check of users.role.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       // Mark all active sessions for user as revoked by inserting a wildcard entry
@@ -1079,7 +1148,10 @@ const securityHardeningRouter = router({
 
   rotateHmacKey: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Rotates ALL webhook signing secrets for an arbitrary tenantId —
+      // platform-admin only (DB re-check of users.role).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const newKey = crypto.randomBytes(32).toString("hex");

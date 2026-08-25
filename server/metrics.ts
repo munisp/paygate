@@ -149,4 +149,4 @@ export function decActiveConnections(type: "sse" | "ws") {
 }
 
 // Initialise on module load
-getPromClient().catch(() => {});
+getPromClient().catch((e) => console.warn("[metrics] prom-client initialisation failed:", e instanceof Error ? e.message : e));

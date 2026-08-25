@@ -40,10 +40,7 @@ logger = logging.getLogger("ueba-retrain")
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "/tmp/paygate-models"))
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/paygate",
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 
 router = APIRouter()
 

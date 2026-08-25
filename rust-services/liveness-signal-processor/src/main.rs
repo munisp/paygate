@@ -17,9 +17,10 @@ mod extensions;
 /// rustfft, and Rayon data-parallelism — all without a GIL or GC pause.
 
 use axum::{
-    extract::State,
+    extract::{Request, State},
     http::StatusCode,
-    response::IntoResponse,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
@@ -30,7 +31,7 @@ use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::Instant};
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -54,6 +55,61 @@ pub struct AppState {
     pub node_callback_url: String,
     pub http_client: reqwest::Client,
     pub metrics: Arc<AppMetrics>,
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+/// Constant-time string comparison — no early exit on length or content mismatch.
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        let x = if i < a.len() { a[i] } else { 0 };
+        let y = if i < b.len() { b[i] } else { 0 };
+        diff |= (x ^ y) as usize;
+    }
+    diff == 0
+}
+
+/// Resolve INTERNAL_API_KEY — fail closed (mirrors go-services/cips-gateway).
+/// Production (ENV=production|prod): refuse to boot when unset/empty.
+/// Dev: generate a per-boot random key and log it.
+fn resolve_internal_key() -> String {
+    match std::env::var("INTERNAL_API_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => {
+            let env = std::env::var("ENV").unwrap_or_default().to_lowercase();
+            if env == "production" || env == "prod" {
+                error!("FATAL: INTERNAL_API_KEY must be set when ENV=production — refusing to start");
+                std::process::exit(1);
+            }
+            let key = format!("dev-{}", Uuid::new_v4().simple());
+            info!("INTERNAL_API_KEY unset — generated per-boot dev key (dev mode only): {}", key);
+            key
+        }
+    }
+}
+
+/// Axum middleware: require the X-Internal-Key header to match the configured
+/// key using a constant-time comparison. Applied to every route except /health.
+async fn require_internal_key(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let presented = req
+        .headers()
+        .get("x-internal-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if presented.is_empty() || !constant_time_eq(presented, &state.internal_key) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -483,7 +539,7 @@ async fn main() -> anyhow::Result<()> {
         .json()
         .init();
 
-    let internal_key = std::env::var("INTERNAL_API_KEY").unwrap_or_else(|_| "dev-internal-key".into());
+    let internal_key = resolve_internal_key();
     let node_callback_url = std::env::var("NODE_CALLBACK_URL")
         .unwrap_or_else(|_| "http://localhost:3000/api/internal/liveness/result".into());
     let port: u16 = std::env::var("PORT")
@@ -500,17 +556,41 @@ async fn main() -> anyhow::Result<()> {
         metrics: Arc::new(AppMetrics::default()),
     });
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // CORS: internal service — allow only explicitly configured origins
+    // (ALLOWED_ORIGINS, comma-separated). No permissive `Any`.
+    let cors = {
+        let origins: Vec<axum::http::HeaderValue> = std::env::var("ALLOWED_ORIGINS")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|o| o.trim().parse().ok())
+            .collect();
+        let layer = CorsLayer::new()
+            .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::HeaderName::from_static("x-internal-key"),
+            ]);
+        if origins.is_empty() {
+            layer
+        } else {
+            layer.allow_origin(origins)
+        }
+    };
 
-    let app = Router::new()
+    // All routes except /health require the internal API key.
+    let protected = Router::new()
         .route("/analyse", post(analyse_signal))
         .route("/analyse/batch", post(extensions::analyse_batch))
         .route("/calibrate", post(extensions::calibrate))
         .route("/metrics", axum::routing::get(extensions::metrics_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_internal_key,
+        ));
+
+    let app = Router::new()
         .route("/health", axum::routing::get(health))
+        .merge(protected)
         .layer(cors)
         .with_state(state);
 

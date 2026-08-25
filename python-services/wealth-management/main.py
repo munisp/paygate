@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wealth-management")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9035"))
 app = FastAPI(title="PayGate Wealth Management Service", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -95,11 +95,14 @@ async def set_risk_profile(req: RiskProfileRequest):
     profile = RISK_PROFILES[req.risk_category]
     profile_id = str(uuid.uuid4()); now = datetime.now(timezone.utc)
     pool = await get_pool()
-    if pool:
-        try:
-            async with pool.acquire() as c:
-                await c.execute("INSERT INTO wealth_risk_profiles (id,customer_id,risk_score,risk_category,investment_horizon_years,equity_pct,bonds_pct,money_market_pct,expected_return,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (customer_id) DO UPDATE SET risk_score=$3,risk_category=$4,investment_horizon_years=$5,equity_pct=$6,bonds_pct=$7,money_market_pct=$8,expected_return=$9,updated_at=$10",profile_id,req.customer_id,req.risk_score,req.risk_category,req.investment_horizon_years,profile["equity"],profile["bonds"],profile["money_market"],profile["expected_return"],now)
-        except Exception as e: logger.warning(f"DB: {e}")
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Wealth store unavailable — risk profile was NOT saved")
+    try:
+        async with pool.acquire() as c:
+            await c.execute("INSERT INTO wealth_risk_profiles (id,customer_id,risk_score,risk_category,investment_horizon_years,equity_pct,bonds_pct,money_market_pct,expected_return,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (customer_id) DO UPDATE SET risk_score=$3,risk_category=$4,investment_horizon_years=$5,equity_pct=$6,bonds_pct=$7,money_market_pct=$8,expected_return=$9,updated_at=$10",profile_id,req.customer_id,req.risk_score,req.risk_category,req.investment_horizon_years,profile["equity"],profile["bonds"],profile["money_market"],profile["expected_return"],now)
+    except Exception as e:
+        logger.error(f"DB upsert failed: {e}")
+        raise HTTPException(status_code=503, detail="Risk profile persist failed — nothing was saved") from e
     return {"profile_id":profile_id,"customer_id":req.customer_id,"risk_score":req.risk_score,"risk_category":req.risk_category,"allocation":profile,"expected_annual_return":profile["expected_return"],"set_at":now.isoformat()}
 
 @app.get("/wealth/risk-profile")

@@ -24,9 +24,13 @@ import {
   multiCurrencyLedgerAccounts, multiCurrencyLedgerEntries,
   realtimeNotificationPreferences, realtimeNotificationHistory,
   qrPayments,
+  merchants, wallets, walletTransactions, merchantSolanaWallets,
 } from "../drizzle/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, sql, inArray } from "drizzle-orm";
 import { debitWalletViaMiddleware, creditWalletViaMiddleware, getCryptoRampQuoteViaMiddleware } from "./middlewareBridge";
+import { withIdempotency } from "./idempotency";
+import { demoOrFail } from "./_core/demoData";
+import { logger } from "./logger";
 
 /**
  * Live crypto→fiat rate from the ramp provider bridge. FAILS LOUD when the
@@ -149,13 +153,55 @@ const agentBankingV4Router = router({
     const agents = await db.select().from(agentBankingV4Agents).where(eq(agentBankingV4Agents.merchantId, ctx.user.id.toString()));
     return { total: agents.length, active: agents.filter(a => a.status === "active").length, totalFloat: agents.reduce((s, a) => s + a.floatBalance, 0), totalVolume: agents.reduce((s, a) => s + a.totalVolume, 0) };
   }),
-  topUpFloat: protectedProcedure.input(z.object({ agentId: z.string(), amount: z.number().min(1) })).mutation(async ({ input, ctx }) => {
+  topUpFloat: protectedProcedure.input(z.object({ agentId: z.string(), amount: z.number().min(1), idempotencyKey: z.string().min(8) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    const [agent] = await db.select().from(agentBankingV4Agents).where(and(eq(agentBankingV4Agents.id, input.agentId), eq(agentBankingV4Agents.merchantId, ctx.user.id.toString())));
-    if (!agent) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
-    await db.update(agentBankingV4Agents).set({ floatBalance: agent.floatBalance + input.amount, updatedAt: new Date() }).where(eq(agentBankingV4Agents.id, input.agentId));
-    return { success: true, newBalance: agent.floatBalance + input.amount };
+    const merchantId = ctx.user.id.toString();
+    return withIdempotency({
+      key: input.idempotencyKey,
+      merchantId,
+      operation: "agentBankingV4.topUpFloat",
+      requestBody: input,
+      execute: async () => {
+        // Unbacked float increments are forbidden (spec #3): the float top-up is
+        // funded by a guarded atomic debit from the merchant's own active NGN
+        // wallet + an atomic floatBalance increment + a ledger row, all in ONE
+        // transaction. Missing/underfunded wallet -> nothing changes.
+        return db.transaction(async (tx) => {
+          const [agent] = await tx.select().from(agentBankingV4Agents).where(and(eq(agentBankingV4Agents.id, input.agentId), eq(agentBankingV4Agents.merchantId, merchantId)));
+          if (!agent) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
+          const [debitedWallet] = await tx.update(wallets)
+            .set({ balance: sql`(${wallets.balance}::numeric - ${input.amount})::text`, updatedAt: new Date() })
+            .where(and(
+              eq(wallets.userId, merchantId),
+              eq(wallets.currency, "NGN"),
+              eq(wallets.status, "active"),
+              sql`${wallets.balance}::numeric >= ${input.amount}`,
+            ))
+            .returning();
+          if (!debitedWallet) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient wallet balance (or no active NGN wallet) — float top-up aborted, nothing was recorded" });
+          }
+          const [updatedAgent] = await tx.update(agentBankingV4Agents)
+            .set({ floatBalance: sql`${agentBankingV4Agents.floatBalance} + ${input.amount}`, updatedAt: new Date() })
+            .where(eq(agentBankingV4Agents.id, input.agentId))
+            .returning();
+          await tx.insert(walletTransactions).values({
+            tenantId: debitedWallet.tenantId,
+            walletId: debitedWallet.id,
+            type: "debit",
+            amount: input.amount.toString(),
+            currency: "NGN",
+            balanceBefore: (parseFloat(debitedWallet.balance) + input.amount).toString(),
+            balanceAfter: debitedWallet.balance,
+            description: `Agent float top-up for ${agent.agentCode}`,
+            reference: `agent_float_topup_${input.idempotencyKey}`,
+            channel: "agent_float",
+            status: "completed",
+          });
+          return { success: true, newBalance: updatedAgent.floatBalance };
+        });
+      },
+    });
   }),
 });
 
@@ -204,55 +250,121 @@ const escrowV2Router = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(escrowContractsV2).where(where);
     return { contracts, total: Number(count) };
   }),
-  createContract: protectedProcedure.input(z.object({ title: z.string().min(1).max(500), description: z.string().optional(), amount: z.number().min(1), currency: z.string().default("NGN"), buyerId: z.string().optional(), sellerId: z.string().optional(), releaseConditions: z.string().optional(), expiryDays: z.number().default(30) })).mutation(async ({ input, ctx }) => {
+  createContract: protectedProcedure.input(z.object({ title: z.string().min(1).max(500), description: z.string().optional(), amount: z.number().min(1), currency: z.string().default("NGN"), buyerId: z.string().optional(), sellerId: z.string().optional(), releaseConditions: z.string().optional(), expiryDays: z.number().default(30), idempotencyKey: z.string().min(8) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const [contract] = await db.insert(escrowContractsV2).values({ merchantId: ctx.user.id.toString().toString(), title: input.title, description: input.description, amount: input.amount, currency: input.currency, buyerId: input.buyerId, sellerId: input.sellerId, releaseConditions: input.releaseConditions, status: "pending", expiresAt: new Date(Date.now() + input.expiryDays * 24 * 60 * 60 * 1000) }).returning();
-    
-    // TigerBeetle wiring (reserve funds)
-    debitWalletViaMiddleware({
-      walletId: `wallet_${ctx.user.id}`,
-      userId: ctx.user.id.toString(),
-      amount: input.amount,
-      currency: input.currency,
-      reference: `escrow_fund_${contract.id}`,
-      description: `Escrow funding for ${input.title}`,
-    }).catch((e: any) => console.error("[TigerBeetle] Escrow fund failed:", e));
-    
-    return { contract };
+    // S15b: REQUIRED idempotency key — a client retry of this mutation debits
+    // the buyer's wallet via the middleware rail; without a durable idem key a
+    // retry double-debits. Same pattern as agentBankingV4.topUpFloat above.
+    return withIdempotency({
+      key: input.idempotencyKey,
+      merchantId: ctx.user.id.toString(),
+      operation: "escrowV2.createContract",
+      requestBody: input,
+      execute: async () => {
+    // Seller is never blindly client-supplied: verify the seller merchant exists.
+    if (input.sellerId) {
+      const [seller] = await db.select({ id: merchants.id }).from(merchants).where(eq(merchants.id, input.sellerId)).limit(1);
+      if (!seller) throw new TRPCError({ code: "BAD_REQUEST", message: "sellerId does not reference an existing merchant" });
+    }
+    const contractId = crypto.randomUUID();
+    // AWAIT the funding debit BEFORE any contract row exists — fire-and-forget
+    // debits leave unfunded 'pending' contracts behind (spec #4). Debit failure
+    // => fail loud, no contract.
+    try {
+      await debitWalletViaMiddleware({
+        walletId: `wallet_${ctx.user.id}`,
+        userId: ctx.user.id.toString(),
+        amount: input.amount,
+        currency: input.currency,
+        reference: `escrow_fund_${contractId}`,
+        description: `Escrow funding for ${input.title}`,
+      });
+    } catch (e: any) {
+      logger.error("[EscrowV2] Funding debit failed — no contract created", { error: e?.message ?? String(e) });
+      throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Escrow funding debit failed — no contract was created: ${e?.message ?? "wallet rail unavailable"}` });
+    }
+    // Funds are reserved — the contract is born 'funded' (never unfunded 'pending').
+    try {
+      const [contract] = await db.insert(escrowContractsV2).values({ id: contractId, merchantId: ctx.user.id.toString(), title: input.title, description: input.description, amount: input.amount, currency: input.currency, buyerId: input.buyerId, sellerId: input.sellerId, releaseConditions: input.releaseConditions, status: "funded", expiresAt: new Date(Date.now() + input.expiryDays * 24 * 60 * 60 * 1000) }).returning();
+      return { contract };
+    } catch (insertErr: any) {
+      // Compensation: the debit succeeded but the contract row could not be
+      // recorded — credit the funds back to the buyer.
+      try {
+        await creditWalletViaMiddleware({
+          walletId: `wallet_${ctx.user.id}`,
+          userId: ctx.user.id.toString(),
+          amount: input.amount,
+          currency: input.currency,
+          reference: `escrow_fund_reversal_${contractId}`,
+          description: `Escrow funding reversal (contract insert failed) for ${input.title}`,
+        });
+      } catch (creditErr: any) {
+        logger.error("[EscrowV2] CRITICAL: funding reversal failed after contract insert failure — manual reconciliation required", { contractId, error: creditErr?.message ?? String(creditErr) });
+      }
+      throw insertErr;
+    }
+      },
+    });
   }),
   releaseContract: protectedProcedure.input(z.object({ contractId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    await db.update(escrowContractsV2).set({ status: "released", releasedAt: new Date(), updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
-    
-    // Get contract details for TigerBeetle wiring
-    const contracts = await db.select().from(escrowContractsV2).where(eq(escrowContractsV2.id, input.contractId));
-    const contract = contracts[0];
-    if (contract && contract.sellerId) {
-      creditWalletViaMiddleware({
+    const merchantId = ctx.user.id.toString();
+    // Guarded status flip: exactly one caller moves funded -> released. Repeat
+    // calls after release get CONFLICT instead of re-crediting the seller.
+    const contract = await db.transaction(async (tx) => {
+      const [flipped] = await tx.update(escrowContractsV2)
+        .set({ status: "released", releasedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, merchantId), eq(escrowContractsV2.status, "funded")))
+        .returning();
+      if (flipped) return flipped;
+      const [existing] = await tx.select().from(escrowContractsV2).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, merchantId)));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contract not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Contract is '${existing.status}' — only a funded contract can be released (repeat calls never re-credit)` });
+    });
+    if (!contract.sellerId) {
+      // No disbursement target — refuse to strand the funds; flip back.
+      await db.update(escrowContractsV2).set({ status: "funded", releasedAt: null, updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, contract.id), eq(escrowContractsV2.status, "released")));
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Contract has no seller — funds cannot be disbursed; release aborted (contract returned to 'funded')" });
+    }
+    // AWAIT the seller credit; on failure compensate by flipping the contract
+    // back to 'funded' so a later retry can succeed exactly once.
+    try {
+      await creditWalletViaMiddleware({
         walletId: `wallet_${contract.sellerId}`,
         userId: contract.sellerId,
         amount: contract.amount,
         currency: contract.currency,
         reference: `escrow_release_${contract.id}`,
         description: `Escrow release for ${contract.title}`,
-      }).catch((e: any) => console.error("[TigerBeetle] Escrow release failed:", e));
+      });
+    } catch (e: any) {
+      await db.update(escrowContractsV2).set({ status: "funded", releasedAt: null, updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, contract.id), eq(escrowContractsV2.status, "released")));
+      logger.error("[EscrowV2] Release credit failed — contract flipped back to 'funded'", { contractId: contract.id, error: e?.message ?? String(e) });
+      throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Seller credit failed — release aborted and contract returned to 'funded': ${e?.message ?? "wallet rail unavailable"}` });
     }
-    
     return { success: true };
   }),
   disputeContract: protectedProcedure.input(z.object({ contractId: z.string(), reason: z.string().max(5000) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    await db.update(escrowContractsV2).set({ status: "disputed", disputeReason: input.reason, updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
+    // Guarded flip: only a funded contract can be disputed — a released
+    // contract stays released (no re-opening after payout).
+    const [flipped] = await db.update(escrowContractsV2).set({ status: "disputed", disputeReason: input.reason, updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString()), eq(escrowContractsV2.status, "funded"))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(escrowContractsV2).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contract not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Contract is '${existing.status}' — only a funded contract can be disputed` });
+    }
     return { success: true };
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { total: 0, active: 0, released: 0, disputed: 0, totalValue: 0 };
     if (!db) throw new Error('Database unavailable');
     const contracts = await db.select().from(escrowContractsV2).where(eq(escrowContractsV2.merchantId, ctx.user.id.toString()));
-    return { total: contracts.length, active: contracts.filter(c => c.status === "pending" || c.status === "active").length, released: contracts.filter(c => c.status === "released").length, disputed: contracts.filter(c => c.status === "disputed").length, totalValue: contracts.reduce((s, c) => s + c.amount, 0) };
+    return { total: contracts.length, active: contracts.filter(c => c.status === "pending" || c.status === "active" || c.status === "funded").length, released: contracts.filter(c => c.status === "released").length, disputed: contracts.filter(c => c.status === "disputed").length, totalValue: contracts.reduce((s, c) => s + c.amount, 0) };
   }),
 });
 
@@ -277,8 +389,18 @@ const marketplacePayRouter = router({
   }),
   updateOrderStatus: protectedProcedure.input(z.object({ orderId: z.string(), status: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    await db.update(marketplaceOrders).set({ status: input.status, updatedAt: new Date() }).where(and(eq(marketplaceOrders.id, input.orderId), eq(marketplaceOrders.merchantId, ctx.user.id.toString())));
+    // 'paid'/'completed' are money claims (they drive revenue stats) and no
+    // payment-verification rail is integrated here — they must not be
+    // self-declared (spec #3). Merchants may only cancel their own pending orders.
+    if (input.status !== "cancelled") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Cannot set order status to '${input.status}' — payment verification is not integrated on this rail; only 'cancelled' is allowed` });
+    }
+    const [flipped] = await db.update(marketplaceOrders).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(marketplaceOrders.id, input.orderId), eq(marketplaceOrders.merchantId, ctx.user.id.toString()), eq(marketplaceOrders.status, "pending"))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(marketplaceOrders).where(and(eq(marketplaceOrders.id, input.orderId), eq(marketplaceOrders.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Order is '${existing.status}' — only a pending order can be cancelled` });
+    }
     return { success: true };
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
@@ -320,25 +442,46 @@ const loyaltyV3Router = router({
   }),
   awardPoints: protectedProcedure.input(z.object({ customerId: z.string(), customerEmail: z.string(), points: z.number().min(1) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    const [program] = await db.select().from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, ctx.user.id.toString()));
-    if (!program) throw new TRPCError({ code: "NOT_FOUND", message: "No loyalty program found" });
-    const [existing] = await db.select().from(loyaltyV3Members).where(and(eq(loyaltyV3Members.merchantId, ctx.user.id.toString()), eq(loyaltyV3Members.customerId, input.customerId)));
-    if (existing) {
-      await db.update(loyaltyV3Members).set({ pointsBalance: existing.pointsBalance + input.points, lifetimePoints: existing.lifetimePoints + input.points }).where(eq(loyaltyV3Members.id, existing.id));
-    } else {
-      await db.insert(loyaltyV3Members).values({ programId: program.id, merchantId: ctx.user.id.toString().toString(), customerId: input.customerId, customerEmail: input.customerEmail, pointsBalance: input.points, lifetimePoints: input.points, tier: "bronze" });
-    }
-    return { success: true };
+    const merchantId = ctx.user.id.toString();
+    // Points issuance is merchant-scoped: merchant staff award points only for
+    // their OWN program (merchantId is ctx-derived, never client input).
+    return db.transaction(async (tx) => {
+      const [program] = await tx.select().from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, merchantId));
+      if (!program) throw new TRPCError({ code: "NOT_FOUND", message: "No loyalty program found" });
+      // Atomic increment — no read-modify-write race across concurrent awards.
+      const [updated] = await tx.update(loyaltyV3Members)
+        .set({ pointsBalance: sql`${loyaltyV3Members.pointsBalance} + ${input.points}`, lifetimePoints: sql`${loyaltyV3Members.lifetimePoints} + ${input.points}` })
+        .where(and(eq(loyaltyV3Members.merchantId, merchantId), eq(loyaltyV3Members.customerId, input.customerId)))
+        .returning();
+      if (!updated) {
+        await tx.insert(loyaltyV3Members).values({ programId: program.id, merchantId, customerId: input.customerId, customerEmail: input.customerEmail, pointsBalance: input.points, lifetimePoints: input.points, tier: "bronze" });
+      }
+      return { success: true };
+    });
   }),
-  redeemPoints: protectedProcedure.input(z.object({ memberId: z.string(), points: z.number().min(1) })).mutation(async ({ input, ctx }) => {
+  redeemPoints: protectedProcedure.input(z.object({ memberId: z.string(), points: z.number().min(1), idempotencyKey: z.string().min(8) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    const [member] = await db.select().from(loyaltyV3Members).where(and(eq(loyaltyV3Members.id, input.memberId), eq(loyaltyV3Members.merchantId, ctx.user.id.toString())));
-    if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Member not found" });
-    if (member.pointsBalance < input.points) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points" });
-    await db.update(loyaltyV3Members).set({ pointsBalance: member.pointsBalance - input.points }).where(eq(loyaltyV3Members.id, input.memberId));
-    return { success: true, remainingPoints: member.pointsBalance - input.points };
+    const merchantId = ctx.user.id.toString();
+    return withIdempotency({
+      key: input.idempotencyKey,
+      merchantId,
+      operation: "loyaltyV3.redeemPoints",
+      requestBody: input,
+      execute: async () => db.transaction(async (tx) => {
+        // Guarded atomic decrement (points_balance >= X) — balance can never go
+        // negative and concurrent/duplicate redeems cannot double-spend.
+        const [updated] = await tx.update(loyaltyV3Members)
+          .set({ pointsBalance: sql`${loyaltyV3Members.pointsBalance} - ${input.points}` })
+          .where(and(eq(loyaltyV3Members.id, input.memberId), eq(loyaltyV3Members.merchantId, merchantId), gte(loyaltyV3Members.pointsBalance, input.points)))
+          .returning();
+        if (!updated) {
+          const [member] = await tx.select().from(loyaltyV3Members).where(and(eq(loyaltyV3Members.id, input.memberId), eq(loyaltyV3Members.merchantId, merchantId)));
+          if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Member not found" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points" });
+        }
+        return { success: true, remainingPoints: updated.pointsBalance };
+      }),
+    });
   }),
 });
 
@@ -353,14 +496,38 @@ const cryptoOfframpV2Router = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(cryptoOfframpV2Transactions).where(where);
     return { transactions: txs, total: Number(count) };
   }),
-  initiateOfframp: protectedProcedure.input(z.object({ cryptoAsset: z.string().default("USDT"), cryptoAmount: z.string(), fiatCurrency: z.string().default("NGN"), bankCode: z.string(), accountNumber: z.string(), walletAddress: z.string() })).mutation(async ({ input, ctx }) => {
+  initiateOfframp: protectedProcedure.input(z.object({ cryptoAsset: z.string().default("USDT"), cryptoAmount: z.string(), fiatCurrency: z.string().default("NGN"), bankCode: z.string(), accountNumber: z.string(), walletAddress: z.string(), idempotencyKey: z.string().min(8) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
+    const merchantId = ctx.user.id.toString();
+    const cryptoAmount = Number(input.cryptoAmount);
+    if (!Number.isFinite(cryptoAmount) || cryptoAmount <= 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "cryptoAmount must be a positive number" });
+    }
     // Live rate from the ramp provider — never a hardcoded rate.
     const rate = await getLiveCryptoFiatRate(input.cryptoAsset, input.fiatCurrency);
-    const fiatAmount = Math.round(parseFloat(input.cryptoAmount) * rate);
-    const [tx] = await db.insert(cryptoOfframpV2Transactions).values({ merchantId: ctx.user.id.toString().toString(), cryptoAsset: input.cryptoAsset, cryptoAmount: input.cryptoAmount, fiatCurrency: input.fiatCurrency, fiatAmount, exchangeRate: rate.toString(), bankCode: input.bankCode, accountNumber: input.accountNumber, walletAddress: input.walletAddress, status: "pending" }).returning();
-    return { transaction: tx };
+    const fiatAmount = Math.round(cryptoAmount * rate);
+    return withIdempotency({
+      key: input.idempotencyKey,
+      merchantId,
+      operation: "cryptoOfframpV2.initiateOfframp",
+      requestBody: input,
+      execute: async () => {
+        // A pending off-ramp is a fiat payout OBLIGATION — it must be backed by
+        // a hold on the merchant's crypto balance, taken atomically with the
+        // record insert (guarded debit: balance can never go negative).
+        return db.transaction(async (tx) => {
+          const [held] = await tx.update(usdcV2Wallets)
+            .set({ balanceUsdc: sql`(${usdcV2Wallets.balanceUsdc}::numeric - ${cryptoAmount})::text` })
+            .where(and(eq(usdcV2Wallets.merchantId, merchantId), sql`${usdcV2Wallets.balanceUsdc}::numeric >= ${cryptoAmount}`))
+            .returning();
+          if (!held) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Insufficient ${input.cryptoAsset} balance (or no wallet) — off-ramp aborted, nothing was recorded` });
+          }
+          const [row] = await tx.insert(cryptoOfframpV2Transactions).values({ merchantId, cryptoAsset: input.cryptoAsset, cryptoAmount: input.cryptoAmount, fiatCurrency: input.fiatCurrency, fiatAmount, exchangeRate: rate.toString(), bankCode: input.bankCode, accountNumber: input.accountNumber, walletAddress: input.walletAddress, status: "pending" }).returning();
+          return { transaction: row };
+        });
+      },
+    });
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { total: 0, completed: 0, pending: 0, totalFiatOut: 0 };
@@ -383,9 +550,25 @@ const cryptoOfframpV2Router = router({
   }),
   cancelTransaction: protectedProcedure.input(z.object({ txId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    await db.update(cryptoOfframpV2Transactions).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(cryptoOfframpV2Transactions.id, input.txId), eq(cryptoOfframpV2Transactions.merchantId, ctx.user.id.toString())));
-    return { success: true };
+    const merchantId = ctx.user.id.toString();
+    // Guarded cancel: only a still-pending initiation can be cancelled, and the
+    // hold taken at initiation is refunded in the SAME transaction.
+    return db.transaction(async (tx) => {
+      const [cancelled] = await tx.update(cryptoOfframpV2Transactions)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(and(eq(cryptoOfframpV2Transactions.id, input.txId), eq(cryptoOfframpV2Transactions.merchantId, merchantId), eq(cryptoOfframpV2Transactions.status, "pending")))
+        .returning();
+      if (!cancelled) {
+        const [existing] = await tx.select().from(cryptoOfframpV2Transactions).where(and(eq(cryptoOfframpV2Transactions.id, input.txId), eq(cryptoOfframpV2Transactions.merchantId, merchantId)));
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found" });
+        throw new TRPCError({ code: "CONFLICT", message: `Transaction is '${existing.status}' — only a pending off-ramp can be cancelled` });
+      }
+      // Refund the initiation hold.
+      await tx.update(usdcV2Wallets)
+        .set({ balanceUsdc: sql`(${usdcV2Wallets.balanceUsdc}::numeric + ${Number(cancelled.cryptoAmount)})::text` })
+        .where(eq(usdcV2Wallets.merchantId, merchantId));
+      return { success: true };
+    });
   }),
 });
 
@@ -542,7 +725,13 @@ const invoiceFinancingV2Router = router({
   cancelApplication: protectedProcedure.input(z.object({ appId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    await db.update(invoiceFinancingV2Applications).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(invoiceFinancingV2Applications.id, input.appId), eq(invoiceFinancingV2Applications.merchantId, ctx.user.id.toString())));
+    // Guarded cancel: a disbursed/repaid application can never be cancelled.
+    const [flipped] = await db.update(invoiceFinancingV2Applications).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(invoiceFinancingV2Applications.id, input.appId), eq(invoiceFinancingV2Applications.merchantId, ctx.user.id.toString()), inArray(invoiceFinancingV2Applications.status, ["pending", "approved"]))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(invoiceFinancingV2Applications).where(and(eq(invoiceFinancingV2Applications.id, input.appId), eq(invoiceFinancingV2Applications.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Application not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Application is '${existing.status}' — only pending/approved applications can be cancelled` });
+    }
     return { success: true };
   }),
   getEligibility: protectedProcedure.query(async () => {
@@ -576,9 +765,17 @@ const payrollV3Router = router({
   }),
   processRun: protectedProcedure.input(z.object({ runId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    await db.update(payrollV3Runs).set({ status: "processed", processedAt: new Date() }).where(and(eq(payrollV3Runs.id, input.runId), eq(payrollV3Runs.merchantId, ctx.user.id.toString())));
-    return { success: true };
+    // No payroll disbursement rail is integrated — stamping 'processed' without
+    // moving real salaries is a fabricated money write (spec #13). Simulation
+    // only: demoOrFail throws SERVICE_UNAVAILABLE in production.
+    demoOrFail({ runId: input.runId }, "payrollV3.processRun (payroll disbursement rail not integrated)");
+    const [flipped] = await db.update(payrollV3Runs).set({ status: "processed", processedAt: new Date() }).where(and(eq(payrollV3Runs.id, input.runId), eq(payrollV3Runs.merchantId, ctx.user.id.toString()), eq(payrollV3Runs.status, "draft"))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(payrollV3Runs).where(and(eq(payrollV3Runs.id, input.runId), eq(payrollV3Runs.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Payroll run not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Payroll run is '${existing.status}' — only a draft run can be processed` });
+    }
+    return { success: true, simulation: true };
   }),
   listEmployees: protectedProcedure.input(z.object({ page: z.number().default(1) })).query(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) return { employees: [], total: 0 };
@@ -618,10 +815,18 @@ const taxFilingRouter = router({
   }),
   submitFiling: protectedProcedure.input(z.object({ filingId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    const receiptNumber = `TXR-${Date.now().toString(36).toUpperCase()}`;
-    await db.update(taxFilingRecords).set({ status: "filed", filedAt: new Date(), receiptNumber, updatedAt: new Date() }).where(and(eq(taxFilingRecords.id, input.filingId), eq(taxFilingRecords.merchantId, ctx.user.id.toString())));
-    return { success: true, receiptNumber };
+    // No tax-authority filing rail is integrated — stamping 'filed' with a
+    // made-up receipt number is a fabricated compliance claim (spec #3:
+    // tax-filed is an unbacked value write). Simulation only.
+    demoOrFail({ filingId: input.filingId }, "taxFiling.submitFiling (tax authority filing rail not integrated)");
+    const receiptNumber = `SIM-TXR-${Date.now().toString(36).toUpperCase()}`;
+    const [flipped] = await db.update(taxFilingRecords).set({ status: "filed", filedAt: new Date(), receiptNumber, updatedAt: new Date() }).where(and(eq(taxFilingRecords.id, input.filingId), eq(taxFilingRecords.merchantId, ctx.user.id.toString()), eq(taxFilingRecords.status, "draft"))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(taxFilingRecords).where(and(eq(taxFilingRecords.id, input.filingId), eq(taxFilingRecords.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Filing not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Filing is '${existing.status}' — only a draft filing can be submitted` });
+    }
+    return { success: true, receiptNumber, simulation: true };
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { total: 0, draft: 0, filed: 0, overdue: 0, totalTaxPaid: 0 };
@@ -657,9 +862,16 @@ const regulatoryReportingRouter = router({
   }),
   submitReport: protectedProcedure.input(z.object({ reportId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    await db.update(regulatoryReports).set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() }).where(and(eq(regulatoryReports.id, input.reportId), eq(regulatoryReports.merchantId, ctx.user.id.toString())));
-    return { success: true };
+    // No regulator submission rail is integrated — stamping 'submitted' without
+    // a real submission is a fabricated compliance claim. Simulation only.
+    demoOrFail({ reportId: input.reportId }, "regulatoryReporting.submitReport (regulator submission rail not integrated)");
+    const [flipped] = await db.update(regulatoryReports).set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() }).where(and(eq(regulatoryReports.id, input.reportId), eq(regulatoryReports.merchantId, ctx.user.id.toString()), eq(regulatoryReports.status, "pending"))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(regulatoryReports).where(and(eq(regulatoryReports.id, input.reportId), eq(regulatoryReports.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Report is '${existing.status}' — only a pending report can be submitted` });
+    }
+    return { success: true, simulation: true };
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { total: 0, pending: 0, submitted: 0, acknowledged: 0 };
@@ -677,12 +889,21 @@ const usdcV2Router = router({
   getWallet: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const [wallet] = await db.select().from(usdcV2Wallets).where(eq(usdcV2Wallets.merchantId, ctx.user.id.toString()));
-    if (!wallet) {
-      const [newWallet] = await db.insert(usdcV2Wallets).values({ merchantId: ctx.user.id.toString().toString(), walletAddress: `0x${Buffer.from(ctx.user.id.toString()).toString("hex").slice(0, 40)}`, network: "polygon", balanceUsdc: "0", balanceNgn: 0, status: "active" }).returning();
-      return { wallet: newWallet };
+    const merchantId = ctx.user.id.toString();
+    const [wallet] = await db.select().from(usdcV2Wallets).where(eq(usdcV2Wallets.merchantId, merchantId));
+    if (wallet) return { wallet };
+    // NEVER fabricate a deposit address — a made-up address burns real deposits.
+    // Only a real merchant-registered address (merchant_solana_wallets, keyed by
+    // user openId as written by usdc.registerWallet) may back a new wallet row;
+    // otherwise fail honestly.
+    // (usdc.registerWallet deactivates any previous wallet, so at most one is active)
+    const registeredRows = await db.select().from(merchantSolanaWallets).where(and(eq(merchantSolanaWallets.merchantId, ctx.user.openId), eq(merchantSolanaWallets.isActive, true)));
+    const registered = registeredRows[0];
+    if (!registered) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No USDC deposit address on file — register a Solana wallet address first (usdc.registerWallet). No address was fabricated." });
     }
-    return { wallet };
+    const [newWallet] = await db.insert(usdcV2Wallets).values({ merchantId, walletAddress: registered.walletAddress, network: `solana-${registered.network}`, balanceUsdc: "0", balanceNgn: 0, status: "active" }).returning();
+    return { wallet: newWallet };
   }),
   listTransactions: protectedProcedure.input(z.object({ page: z.number().default(1) })).query(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) return { transactions: [], total: 0 };
@@ -869,8 +1090,15 @@ const temporalWorkflowMgmtRouter = router({
     const db = await getDb(); if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
     if (!db) throw new Error('Database unavailable');
     const { payouts } = await import('../drizzle/schema');
-    const { eq: eqOp, and: andOp } = await import('drizzle-orm');
-    await db.update(payouts).set({ status: 'failed' as any, updatedAt: new Date() }).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString())));
+    const { eq: eqOp, and: andOp, inArray: inArrayOp } = await import('drizzle-orm');
+    // Guarded cancel: only a not-yet-executed workflow can be cancelled — a
+    // completed/processing/failed payout can never be flipped by a cancel.
+    const [flipped] = await db.update(payouts).set({ status: 'cancelled' as any, updatedAt: new Date() }).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString()), inArrayOp(payouts.status, ['pending', 'pending_approval'] as any))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(payouts).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workflow not found' });
+      throw new TRPCError({ code: 'CONFLICT', message: `Workflow is '${existing.status}' — only pending workflows can be cancelled` });
+    }
     return { success: true, workflowId: input.workflowId, status: 'cancelled' };
   }),
   getMetrics: protectedProcedure.input(z.object({ period: z.string().default('7d') })).query(async ({ ctx }) => {
@@ -883,25 +1111,39 @@ const temporalWorkflowMgmtRouter = router({
     const completed = rows.filter(p => p.status === 'completed').length;
     const failed = rows.filter(p => p.status === 'failed').length;
     const running = rows.filter(p => p.status === 'pending' || p.status === 'processing').length;
-    return { totalWorkflows: total, completed, failed, running, avgDuration: 450, successRate: total > 0 ? Math.round((completed / total) * 100 * 10) / 10 : 0 };
+    // Measured only: average duration of completed workflows in seconds; null
+    // (unavailable) when nothing has completed — never a hardcoded figure.
+    const durations = rows.filter(p => p.status === 'completed').map(p => (new Date(p.updatedAt).getTime() - new Date(p.createdAt).getTime()) / 1000);
+    const avgDuration = durations.length > 0 ? Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length) : null;
+    return { totalWorkflows: total, completed, failed, running, avgDuration, successRate: total > 0 ? Math.round((completed / total) * 100 * 10) / 10 : 0 };
   }),
   retryWorkflow: protectedProcedure.input(z.object({ workflowId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
     if (!db) throw new Error('Database unavailable');
     const { payouts } = await import('../drizzle/schema');
     const { eq: eqOp, and: andOp } = await import('drizzle-orm');
-    await db.update(payouts).set({ status: 'pending' as any, updatedAt: new Date() }).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString())));
+    // Guarded retry: ONLY a failed workflow can be retried — a completed or
+    // processing payout can never be flipped back to pending (double execution).
+    const [flipped] = await db.update(payouts).set({ status: 'pending' as any, updatedAt: new Date() }).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString()), eqOp(payouts.status, 'failed' as any))).returning();
+    if (!flipped) {
+      const [existing] = await db.select().from(payouts).where(andOp(eqOp(payouts.id, input.workflowId), eqOp(payouts.merchantId, ctx.user.id.toString())));
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workflow not found' });
+      throw new TRPCError({ code: 'CONFLICT', message: `Workflow is '${existing.status}' — only failed workflows can be retried` });
+    }
     return { success: true, newWorkflowId: input.workflowId, originalWorkflowId: input.workflowId };
   }),
 });
 
 // ─── 18. gRPC Health Check ───────────────────────────────────────────────────
 // Performs real HTTP health checks against configured microservice endpoints
+// Only services that actually exist in the deployment, at their real ports
+// (go-bridge:8080, fraud-scoring:8083, push-service:8096). The phantom
+// "SettlementService"/"settlement-svc:50054" entry was removed — no such
+// service is deployed.
 const GRPC_SERVICES = [
-  { name: 'PaymentService', url: process.env.MIDDLEWARE_BRIDGE_URL ?? 'http://localhost:8080', proto: 'payment.proto', host: 'payment-svc:50051' },
-  { name: 'FraudService', url: process.env.FRAUD_SCORING_URL ?? 'http://localhost:8081', proto: 'fraud.proto', host: 'fraud-svc:50052' },
-  { name: 'NotificationService', url: process.env.PUSH_SERVICE_URL ?? 'http://localhost:8082', proto: 'notification.proto', host: 'notification-svc:50053' },
-  { name: 'SettlementService', url: process.env.NIBSS_GATEWAY_URL ?? 'http://localhost:8083', proto: 'settlement.proto', host: 'settlement-svc:50054' },
+  { name: 'PaymentService', url: process.env.MIDDLEWARE_BRIDGE_URL ?? 'http://localhost:8080', proto: 'payment.proto', host: 'go-bridge:8080' },
+  { name: 'FraudService', url: process.env.FRAUD_SCORING_URL ?? 'http://localhost:8083', proto: 'fraud.proto', host: 'fraud-scoring:8083' },
+  { name: 'NotificationService', url: process.env.PUSH_SERVICE_URL ?? 'http://localhost:8096', proto: 'notification.proto', host: 'push-service:8096' },
 ];
 async function checkServiceHealth(url: string): Promise<{ status: string; latencyMs: number }> {
   const start = Date.now();
@@ -930,7 +1172,22 @@ const grpcHealthCheckRouter = router({
     const svc = GRPC_SERVICES.find(s => s.name === input.serviceName);
     if (!svc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Service not found' });
     const health = await checkServiceHealth(svc.url);
-    return { serviceName: input.serviceName, uptime: health.status === 'healthy' ? 99.95 : 85.0, requestsPerSecond: 0, p50Latency: health.latencyMs, p95Latency: health.latencyMs * 3, p99Latency: health.latencyMs * 6, errorRate: health.status === 'healthy' ? 0.05 : 15.0 };
+    // Only MEASURED data is reported. No metrics store exists for uptime,
+    // latency percentiles or error rates — those are reported as unavailable
+    // (null), never fabricated (previously: uptime 99.95/85.0, p95=3x, p99=6x,
+    // errorRate 0.05/15.0).
+    return {
+      serviceName: input.serviceName,
+      status: health.status,
+      measuredLatencyMs: health.latencyMs,
+      uptime: null as number | null,
+      requestsPerSecond: null as number | null,
+      p50Latency: null as number | null,
+      p95Latency: null as number | null,
+      p99Latency: null as number | null,
+      errorRate: null as number | null,
+      note: 'No persistent metrics store is configured; only the live-probe status/latency above is measured. Uptime, percentile and error-rate metrics are unavailable and never simulated.',
+    };
   }),
   getGrpcConfig: protectedProcedure.query(async () => {
     return { services: GRPC_SERVICES.map(s => ({ name: s.name, proto: s.proto, host: s.host })) };

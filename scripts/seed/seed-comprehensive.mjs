@@ -36,6 +36,12 @@
 import pg from './node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
 const { Client } = pg;
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 // NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DATABASE_URL = process.env.PG_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
 const uid = () => crypto.randomUUID();
@@ -99,7 +105,7 @@ async function seed(conn, table, rows, conflictCol = "id") {
 
 async function main() {
   console.log("🔌  Connecting to database…");
-  const conn = new Client({ connectionString: DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('sslmode=require') ? { rejectUnauthorized: false } : false });
+  const conn = new Client({ connectionString: DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('sslmode=require') ? SEED_SSL : false });
   await conn.connect();
   console.log("✅  Connected\n");
 

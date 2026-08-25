@@ -21,6 +21,7 @@ import {
   agentBankingV4Agents,
   agentNetwork,
   auditEvents,
+  bnplLoans,
   bnplRepaymentSchedules,
   carbonCreditTransactionsV2,
   complianceReports,
@@ -117,7 +118,7 @@ import {
   users,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
-import { eq, desc, and, or, gte, lte, like, sql, isNull } from "drizzle-orm";
+import { eq, desc, and, or, gte, lte, like, sql, isNull, inArray } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../logger";
@@ -251,10 +252,13 @@ const agentBankingV4Router = router({
     agentName: z.string().optional(),
     phone: z.string().optional(),
     address: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(agentBankingV4Agents).set(rest).where(eq(agentBankingV4Agents.id, id));
+    const [updated] = await db.update(agentBankingV4Agents).set(rest)
+      .where(and(eq(agentBankingV4Agents.id, id), eq(agentBankingV4Agents.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
     return { success: true };
   }),
   listNetworks: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -334,11 +338,29 @@ const bnplRepaymentRouter = router({
   markPaid: protectedProcedure.input(z.object({
     id: z.string(),
     paidAt: z.number().optional(),
-  })).mutation(async ({ input }) => {
+    // Attestation of an external repayment is mandatory — an instalment must
+    // never be flipped to 'paid' with no evidence of money received.
+    paymentReference: z.string().min(8).max(128),
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(bnplRepaymentSchedules)
-      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
-      .where(eq(bnplRepaymentSchedules.id, input.id));
+    const tenantId = ctx.user.tenantId ?? "";
+    // Merchant scope: the schedule's parent BNPL loan must belong to the
+    // caller's tenant (bnpl_repayment_schedules carries no merchant column).
+    const [schedule] = await db.select().from(bnplRepaymentSchedules)
+      .where(eq(bnplRepaymentSchedules.id, input.id)).limit(1);
+    if (!schedule) throw new TRPCError({ code: "NOT_FOUND", message: "Repayment schedule not found" });
+    const [loan] = await db.select().from(bnplLoans)
+      .where(and(eq(bnplLoans.id, schedule.bnplLoanId), eq(bnplLoans.tenantId, tenantId))).limit(1);
+    if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Repayment schedule not found" });
+    // Guarded flip: only an outstanding instalment (pending/overdue/failed)
+    // can become paid — paid/waived are terminal.
+    const [updated] = await db.update(bnplRepaymentSchedules)
+      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date(), paymentReference: input.paymentReference, updatedAt: new Date() })
+      .where(and(
+        eq(bnplRepaymentSchedules.id, input.id),
+        inArray(bnplRepaymentSchedules.status, ["pending", "overdue", "failed"]),
+      )).returning();
+    if (!updated) throw new TRPCError({ code: "CONFLICT", message: `Instalment is '${schedule.status}', only pending/overdue/failed instalments can be marked paid` });
     return { success: true };
   }),
 });
@@ -538,10 +560,12 @@ const consumerFinanceRouter = router({
     }).returning();
     return row;
   }),
-  cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(consumerRecurringPayments).set({ isActive: false })
-      .where(eq(consumerRecurringPayments.id, input.id));
+    const [updated] = await db.update(consumerRecurringPayments).set({ isActive: false })
+      .where(and(eq(consumerRecurringPayments.id, input.id), eq(consumerRecurringPayments.userId, ctx.user.id)))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Recurring payment not found" });
     return { success: true };
   }),
   listContacts: protectedProcedure.input(paginationInput.extend({
@@ -745,7 +769,18 @@ const emiLoansRouter = router({
   })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
+    // R4: unscoped cross-merchant/cross-user read. emi_loans has no
+    // merchant/tenant column — the only ownership binding is user_id.
+    // Non-admin callers may list only their own loans; platform admins
+    // (DB re-check of users.role) may list across users.
+    const [caller] = await db.select({ role: users.role }).from(users)
+      .where(eq(users.openId, ctx.user.openId)).limit(1);
+    const isAdmin = caller?.role === "admin";
+    const conditions = [];
+    if (!isAdmin) conditions.push(eq(emiLoans.userId, ctx.user.id));
+    if (input.status) conditions.push(eq(emiLoans.status, input.status));
     const rows = await db.select().from(emiLoans)
+      .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(emiLoans.createdAt))
       .offset(offset).limit(limit);
     return { loans: rows, total: rows.length };
@@ -872,9 +907,15 @@ const escrowRouter = router({
       .offset(offset).limit(limit);
     return { contracts: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(escrowContracts).where(eq(escrowContracts.escrowId, input.id)).limit(1);
+    // Party-ownership: only the buyer or seller merchant may read the contract.
+    const tenantId = ctx.user.tenantId ?? "";
+    const rows = await db.select().from(escrowContracts)
+      .where(and(
+        eq(escrowContracts.escrowId, input.id),
+        or(eq(escrowContracts.buyerMerchantId, tenantId), eq(escrowContracts.sellerMerchantId, tenantId)),
+      )).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -951,13 +992,16 @@ const escrowRouter = router({
     const db = (await getDb())!;
     const tenantId = ctx.user.tenantId ?? "";
     // Only a party to the contract may dispute it.
+    // Status guard: only a FUNDED escrow can be disputed — released/refunded
+    // is terminal, and an unfunded escrow has nothing at stake.
     const [updated] = await db.update(escrowContracts).set({ status: "disputed" })
       .where(and(
         eq(escrowContracts.escrowId, input.id),
+        eq(escrowContracts.status, "funded"),
         or(eq(escrowContracts.buyerMerchantId, tenantId), eq(escrowContracts.sellerMerchantId, tenantId)),
       ))
       .returning();
-    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found (or caller is not a party to it)" });
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Funded escrow not found (or caller is not a party to it)" });
     return { success: true };
   }),
   listV2: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -1388,9 +1432,10 @@ const invoicesRouter = router({
       .offset(offset).limit(limit);
     return { invoices: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+    const rows = await db.select().from(invoices)
+      .where(and(eq(invoices.invoiceId, input.id), eq(invoices.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -1429,26 +1474,71 @@ const invoicesRouter = router({
     }).returning();
     return row;
   }),
-  send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "sent", updatedAt: new Date() })
-      .where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own DRAFT invoice can be
+    // sent — enforced atomically in the UPDATE's WHERE clause.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "sent", updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "draft"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'draft' invoices can be sent` });
+    }
     return { success: true };
   }),
-  markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ input }) => {
+  markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
-      .where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own SENT invoice can be
+    // marked paid; 'paid' is terminal and can never be re-entered.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "sent"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'sent' invoices can be marked paid` });
+    }
     return { success: true };
   }),
-  void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "void" }).where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own SENT invoice can be
+    // voided; a paid invoice is settled history and must not be voided.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "void", updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "sent"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'sent' invoices can be voided` });
+    }
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.delete(invoices).where(eq(invoices.invoiceId, input.id));
+    // Ownership + guard: only the caller's own invoice, and only while it
+    // carries no financial history (draft/void) — sent/paid invoices are
+    // financial records and must not be deleted.
+    const deleted = await db.delete(invoices).where(and(
+      eq(invoices.invoiceId, input.id),
+      eq(invoices.merchantId, ctx.user.tenantId ?? ""),
+      inArray(invoices.status, ["draft", "void"]),
+    )).returning();
+    if (!deleted.length) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found (or not in a deletable state)" });
     return { success: true };
   }),
 });
@@ -1553,16 +1643,30 @@ const loyaltyProgramsRouter = router({
     txType: z.enum(["earn", "bonus", "adjustment"]),
     referenceId: z.string().optional(),
     description: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const [row] = await db.insert(loyaltyTransactions).values({
-      accountId: input.accountId,
-      type: input.txType,
-      points: input.points,
-      orderId: input.referenceId,
-      note: input.description,
-    }).returning();
-    return row;
+    // Points are redeemable value: the target account must belong to the
+    // caller's merchant, and the ledger entry + balance credit land in ONE
+    // transaction (previously anyone could mint points into ANY account).
+    const merchantId = ctx.user.tenantId ?? "";
+    return db.transaction(async (tx) => {
+      const [account] = await tx.select().from(loyaltyAccounts)
+        .where(and(eq(loyaltyAccounts.id, input.accountId), eq(loyaltyAccounts.merchantId, merchantId))).limit(1);
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Loyalty account not found" });
+      const [row] = await tx.insert(loyaltyTransactions).values({
+        accountId: input.accountId,
+        type: input.txType,
+        points: input.points,
+        orderId: input.referenceId,
+        note: input.description,
+      }).returning();
+      await tx.update(loyaltyAccounts).set({
+        pointsBalance: sql`${loyaltyAccounts.pointsBalance} + ${input.points}`,
+        lifetimePoints: sql`${loyaltyAccounts.lifetimePoints} + ${input.points}`,
+        updatedAt: new Date(),
+      }).where(eq(loyaltyAccounts.id, input.accountId));
+      return row;
+    });
   }),
   listV3Programs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -1600,9 +1704,10 @@ const marketplaceRouter = router({
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(marketplaceOrders).where(eq(marketplaceOrders.id, input.id)).limit(1);
+    const rows = await db.select().from(marketplaceOrders)
+      .where(and(eq(marketplaceOrders.id, input.id), eq(marketplaceOrders.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -1634,13 +1739,40 @@ const marketplaceRouter = router({
     id: z.string(),
     status: z.enum(["pending", "confirmed", "shipped", "delivered", "cancelled", "refunded"]),
     trackingNumber: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const { id, trackingNumber, ...rest } = input;
-    await db.update(marketplaceOrders).set({
-      ...rest,
+    const merchantId = ctx.user.tenantId ?? "";
+    // 'refunded' moves money back to the buyer — platform-admin only; a
+    // merchant must never self-issue a refund marker.
+    if (input.status === "refunded") {
+      await requirePlatformAdmin(db, ctx.user.openId);
+    }
+    // Legal fulfilment transitions; delivered/cancelled/refunded are terminal
+    // (cancelled only pre-shipment; refunded only via the admin path above).
+    const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
+      pending: ["confirmed", "cancelled"],
+      confirmed: ["shipped", "cancelled", "refunded"],
+      shipped: ["delivered", "refunded"],
+      delivered: ["refunded"],
+      cancelled: ["refunded"],
+    };
+    const [order] = await db.select().from(marketplaceOrders)
+      .where(and(eq(marketplaceOrders.id, input.id), eq(marketplaceOrders.merchantId, merchantId))).limit(1);
+    if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+    if (!(ORDER_TRANSITIONS[order.status] ?? []).includes(input.status)) {
+      throw new TRPCError({ code: "CONFLICT", message: `Illegal order transition '${order.status}' → '${input.status}'` });
+    }
+    // NOTE: marketplace_orders has no tracking_number column — the tracking
+    // number is accepted for forward-compat but not persisted here.
+    const [updated] = await db.update(marketplaceOrders).set({
+      status: input.status,
       updatedAt: new Date(),
-    }).where(eq(marketplaceOrders.id, id));
+    }).where(and(
+      eq(marketplaceOrders.id, input.id),
+      eq(marketplaceOrders.merchantId, merchantId),
+      eq(marketplaceOrders.status, order.status),
+    )).returning();
+    if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Order status changed concurrently — retry" });
     return { success: true };
   }),
 });
@@ -1748,9 +1880,25 @@ const moneyRequestsRouter = router({
     publishAuditEventLoud({ action: 'money_request.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true, status: "pending_verification" };
   }),
-  decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
+  decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "cancelled" }).where(eq(moneyRequests.id, input.id));
+    // Ownership: only the requester or the designated payer may cancel, and
+    // only while still 'pending' — a paid/expired request must not be
+    // rewritten. Enforced atomically in the UPDATE's WHERE clause.
+    const [updated] = await db.update(moneyRequests).set({ status: "cancelled" })
+      .where(and(
+        eq(moneyRequests.id, input.id),
+        eq(moneyRequests.status, "pending"),
+        or(eq(moneyRequests.requesterId, ctx.user.id), eq(moneyRequests.payerUserId, ctx.user.id)),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(moneyRequests).where(eq(moneyRequests.id, input.id)).limit(1);
+      if (!existing || (existing.requesterId !== ctx.user.id && existing.payerUserId !== ctx.user.id)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Money request not found" });
+      }
+      throw new TRPCError({ code: "CONFLICT", message: `Money request is '${existing.status}', only 'pending' requests can be cancelled` });
+    }
+    publishAuditEventLoud({ action: 'money_request.declined', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason ?? null }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -2231,11 +2379,33 @@ const portfolioRouter = router({
     }).returning();
     return row;
   }),
-  execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(portfolioRebalancingOrders).set({ status: "completed", executedAt: new Date() })
-      .where(eq(portfolioRebalancingOrders.id, input.id));
-    return { success: true };
+    // S15b / spec #13: no real portfolio execution rail exists in this repo.
+    // demoOrFail throws (fail-loud) in production BEFORE any state write;
+    // only behind PAYGATE_SIMULATION_MODE=true does the simulated flip run.
+    const rail = demoOrFail(
+      { orderId: input.id, status: "completed", rail: "none-in-repo" },
+      "Portfolio rebalancing execution rail",
+    );
+    // Ownership + status guard: only the owner's own PENDING order may flip.
+    const [claimed] = await db.update(portfolioRebalancingOrders)
+      .set({ status: "completed", executedAt: new Date() })
+      .where(and(
+        eq(portfolioRebalancingOrders.id, input.id),
+        eq(portfolioRebalancingOrders.userId, ctx.user.id),
+        eq(portfolioRebalancingOrders.status, "pending"),
+      ))
+      .returning({ id: portfolioRebalancingOrders.id });
+    if (!claimed) {
+      const [existing] = await db.select().from(portfolioRebalancingOrders)
+        .where(eq(portfolioRebalancingOrders.id, input.id)).limit(1);
+      if (!existing || existing.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Rebalancing order not found" });
+      }
+      throw new TRPCError({ code: "CONFLICT", message: `Rebalancing order is '${existing.status}', only 'pending' orders can be executed` });
+    }
+    return { success: true, rail };
   }),
 });
 
@@ -2655,19 +2825,27 @@ const sdkTokensRouter = router({
     }).returning();
     return { ...row, token };
   }),
-  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(sdkTokens).set({ isRevoked: 1 })
-      .where(eq(sdkTokens.tokenId, input.id));
-    publishAuditEventLoud({ action: 'sdk_token.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
+    // Merchant scope: a caller must never revoke another merchant's SDK token.
+    const [updated] = await db.update(sdkTokens).set({ isRevoked: 1 })
+      .where(and(eq(sdkTokens.tokenId, input.id), eq(sdkTokens.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "SDK token not found" });
+    publishAuditEventLoud({ action: 'sdk_token.revoked', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const newToken = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
     const newTokenHash = createHash("sha256").update(newToken).digest("hex");
-    await db.update(sdkTokens).set({ tokenHash: newTokenHash, isRevoked: 0 })
-      .where(eq(sdkTokens.tokenId, input.id));
+    // Merchant scope: rotation returns the new raw token, so it must be
+    // impossible to rotate a token owned by another merchant.
+    const [updated] = await db.update(sdkTokens).set({ tokenHash: newTokenHash, isRevoked: 0 })
+      .where(and(eq(sdkTokens.tokenId, input.id), eq(sdkTokens.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "SDK token not found" });
+    publishAuditEventLoud({ action: 'sdk_token.rotated', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true, token: newToken };
   }),
 });

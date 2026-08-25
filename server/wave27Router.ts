@@ -12,8 +12,48 @@
 
 import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb, execRaw } from "./db";
 import { calculateSecurityScore } from "./security27";
+import { logger } from "./logger";
+import { publishAuditEvent } from "./auditEvents";
+
+// ─── Platform-admin guard (DB re-check, mirrors adminRouter.ts:25-38) ────────
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { users } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const [user] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (!user || user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  }
+  return next({ ctx });
+});
+
+// ─── Tenant access check: platform admin → any tenant; otherwise the caller ──
+// must own a merchant belonging to the target tenant.
+async function assertTenantAccess(ctx: { user: { id: number; openId: string } }, tenantId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { users, merchants } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const [u] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (u?.role === "admin") return;
+  const [m] = await db.select({ tenantId: merchants.tenantId })
+    .from(merchants)
+    .where(eq(merchants.ownerId, ctx.user.id))
+    .limit(1);
+  if (!m || m.tenantId !== tenantId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this tenant" });
+  }
+}
 
 // ─── Batch A: Tenant Onboarding Wizard ───────────────────────────────────────
 const tenantOnboardingRouter = router({
@@ -219,21 +259,31 @@ const domainSslRouter = router({
       tenantId: z.string(),
       domain: z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Ownership: only the tenant's own merchant (or a platform admin) may
+      // initiate domain verification for a tenant.
+      await assertTenantAccess(ctx, input.tenantId);
       // Generate ACME challenge token
       const challengeToken = `paygate-verify-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
       const txtRecord = `_paygate-challenge.${input.domain}`;
       // tenants has no domain_verified / domain_challenge_token / ssl_status
-      // columns — only custom_domain exists. The challenge token is returned to
-      // the caller (ephemeral); there is no column to persist it in.
+      // columns — only custom_domain exists. The issued challenge token is
+      // PERSISTED as an audit_logs record (action domain_verification_challenge)
+      // so verifyDomain can require an EXACT token match instead of accepting
+      // any well-formed TXT record.
       await execRaw(db, `
         UPDATE tenants SET
           custom_domain = $1,
           updated_at = NOW()
         WHERE id = $2
       `, [input.domain, input.tenantId]);
+      await execRaw(db, `
+        INSERT INTO audit_logs (id, user_id, action, resource, resource_id, metadata, created_at)
+        VALUES ($1, $2, 'domain_verification_challenge', 'tenant_domain', $3, $4, NOW())
+      `, [crypto.randomUUID(), String(ctx.user.id), input.tenantId,
+          JSON.stringify({ domain: input.domain, challengeToken })]);
       return {
         domain: input.domain,
         challengeToken,
@@ -250,9 +300,11 @@ const domainSslRouter = router({
 
   verifyDomain: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Ownership: tenant's own merchant or platform admin only.
+      await assertTenantAccess(ctx, input.tenantId);
       const result = await execRaw(db, `
         SELECT custom_domain FROM tenants WHERE id = $1
       `, [input.tenantId]);
@@ -261,15 +313,39 @@ const domainSslRouter = router({
       const { custom_domain } = rows[0];
       if (!custom_domain) throw new Error("No custom domain configured");
 
-      // Real DNS TXT lookup using Node.js dns module. tenants has no
-      // domain_challenge_token column to persist the token in, so we accept any
-      // well-formed paygate challenge record issued by initiateDomainVerification.
+      // Load the EXACT challenge token persisted by initiateDomainVerification.
+      const challengeRows = await execRaw(db, `
+        SELECT metadata FROM audit_logs
+        WHERE action = 'domain_verification_challenge'
+          AND resource = 'tenant_domain'
+          AND resource_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [input.tenantId]);
+      if (!challengeRows.length) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No domain verification has been initiated for this tenant",
+        });
+      }
+      let expected: { domain?: string; challengeToken?: string } = {};
+      try { expected = JSON.parse(challengeRows[0].metadata ?? "{}"); } catch { expected = {}; }
+      if (!expected.challengeToken || expected.domain !== custom_domain) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Domain verification challenge does not match the configured domain — re-initiate verification",
+        });
+      }
+
+      // Real DNS TXT lookup using Node.js dns module. Verification requires the
+      // TXT record to contain the EXACT persisted challenge token — any other
+      // well-formed paygate-verify record is rejected.
       let verified = false;
       try {
         const dns = await import("dns/promises");
         const txtRecords = await dns.resolveTxt(`_paygate-challenge.${custom_domain}`);
         const flat = txtRecords.flat();
-        verified = flat.some((r) => /^paygate-verify-\d+-[a-z0-9]+$/.test(r));
+        verified = flat.some((r) => r === expected.challengeToken);
       } catch {
         // DNS lookup failed or record not found
         verified = false;
@@ -650,14 +726,17 @@ const loyaltyTierRouter = router({
       };
     }),
 
-  awardPoints: protectedProcedure
+  // Points are cash-convertible (wave68 redeemPoints) — minting them is a
+  // platform-admin-only operation, executed atomically with its ledger row and
+  // recorded in the audit trail.
+  awardPoints: adminProcedure
     .input(z.object({
       userId: z.string(),
       points: z.number().positive(),
-      reason: z.string().max(5000),
+      reason: z.string().min(1).max(5000),
       transactionId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       // user_id is an integer FK — coerce/validate before binding.
@@ -665,19 +744,35 @@ const loyaltyTierRouter = router({
       if (!Number.isInteger(userIdNum) || userIdNum <= 0) {
         throw new Error("Invalid userId: must be a numeric user id");
       }
-      await execRaw(db, `
-        UPDATE consumer_loyalty_accounts SET
-          points_balance = points_balance + $1,
-          lifetime_points = lifetime_points + $1,
-          updated_at = NOW()
-        WHERE user_id = $2
-      `, [input.points, userIdNum]);
-      // consumer_loyalty_txns columns: id (text PK, required), user_id, type,
-      // points, description, reference_id, created_at (no transaction_id column).
-      await execRaw(db, `
-        INSERT INTO consumer_loyalty_txns (id, user_id, points, type, description, reference_id, created_at)
-        VALUES ($1, $2, $3, 'earn', $4, $5, NOW())
-      `, ["lt_" + nanoid(16), userIdNum, input.points, input.reason, input.transactionId || null]);
+      await db.transaction(async (tx) => {
+        const updated = await tx.execute(drizSql`
+          UPDATE consumer_loyalty_accounts SET
+            points_balance = points_balance + ${input.points},
+            lifetime_points = lifetime_points + ${input.points},
+            updated_at = NOW()
+          WHERE user_id = ${userIdNum}
+          RETURNING user_id
+        `);
+        const updatedRows: any[] = (updated as any).rows ?? (updated as any);
+        if (updatedRows.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Loyalty account not found for this user" });
+        }
+        // consumer_loyalty_txns columns: id (text PK, required), user_id, type,
+        // points, description, reference_id, created_at (no transaction_id column).
+        await tx.execute(drizSql`
+          INSERT INTO consumer_loyalty_txns (id, user_id, points, type, description, reference_id, created_at)
+          VALUES (${"lt_" + nanoid(16)}, ${userIdNum}, ${input.points}, 'earn', ${input.reason}, ${input.transactionId || null}, NOW())
+        `);
+      });
+      // Audit event — failures are logged, never silently swallowed.
+      publishAuditEvent({
+        action: "loyalty.points_awarded",
+        resourceType: "consumer_loyalty_account",
+        resourceId: String(userIdNum),
+        actorId: ctx.user.openId,
+        metadata: { points: input.points, reason: input.reason, transactionId: input.transactionId ?? null },
+        result: "success",
+      }).catch((e) => logger.error("[wave27] awardPoints audit event failed", e));
       return { success: true, pointsAwarded: input.points };
     }),
 
@@ -704,7 +799,7 @@ const referralRewardsRouter = router({
       newUserId: z.string(),
       rewardType: z.enum(["points", "cashback", "fee_waiver"]).default("points"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 
@@ -713,15 +808,24 @@ const referralRewardsRouter = router({
       if (!Number.isInteger(newUserIdNum) || newUserIdNum <= 0) {
         return { success: false, reason: "Invalid newUserId" };
       }
+      // S15b fix: a signup referral reward is an internal event — the caller
+      // must BE the new user claiming their own signup reward. Without this,
+      // any authenticated caller can mint cash-redeemable points into
+      // arbitrary accounts (Sybil points mint).
+      if (Number(ctx.user.id) !== newUserIdNum) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only claim a referral reward for your own signup" });
+      }
       const userCheck = await execRaw(db, `SELECT id FROM users WHERE id = $1`, [newUserIdNum]);
       if (!userCheck.length) return { success: false, reason: "New user not found" };
 
-      // Find referrer
+      // Find referrer — the code must belong to a DIFFERENT, real user.
       const refRows = await execRaw(db, `
         SELECT user_id, referral_code FROM consumer_referrals WHERE referral_code = $1
       `, [input.referralCode]);
       if (!refRows.length) return { success: false, reason: "Invalid referral code" };
       const referrerId = refRows[0].user_id;
+      const referrerCheck = await execRaw(db, `SELECT id FROM users WHERE id = $1`, [Number(referrerId)]);
+      if (!referrerCheck.length) return { success: false, reason: "Referrer account not found" };
 
       // Block self-referral
       if (String(referrerId) === String(newUserIdNum)) {
@@ -744,6 +848,21 @@ const referralRewardsRouter = router({
         const dupRows: any[] = (dup as any).rows ?? (dup as any);
         if (dupRows.length > 0) return { replayed: true as const };
 
+        // R4 S16 (Sybil farming): the welcome bonus is ONCE PER NEW USER, not
+        // once per (code, newUserId) — otherwise one signup can claim a
+        // welcome bonus against EVERY valid referral code. Check for ANY prior
+        // welcome earn row keyed to this newUserId across all codes. The
+        // welcome row's reference is deterministic per user
+        // (`referral_welcome:<newUserId>`), so the unique index
+        // consumer_loyalty_txns_reference_id_unique backs the guard against
+        // concurrent claims with different codes.
+        const priorWelcome = await tx.execute(drizSql`
+          SELECT id FROM consumer_loyalty_txns
+          WHERE user_id = ${newUserIdNum} AND type = 'earn' AND reference_id LIKE ${'referral_welcome:%'} LIMIT 1
+        `);
+        const priorWelcomeRows: any[] = (priorWelcome as any).rows ?? (priorWelcome as any);
+        if (priorWelcomeRows.length > 0) return { replayed: true as const, alreadyWelcomed: true as const };
+
         // Award referrer 500 points
         await tx.execute(drizSql`
           UPDATE consumer_loyalty_accounts SET points_balance = points_balance + ${REFERRER_POINTS}, lifetime_points = lifetime_points + ${REFERRER_POINTS}, updated_at = NOW()
@@ -754,14 +873,16 @@ const referralRewardsRouter = router({
           VALUES (${"lt_" + nanoid(16)}, ${Number(referrerId)}, 'earn', ${REFERRER_POINTS}, ${`Referral reward for inviting user ${newUserIdNum}`}, ${dedupRef}, NOW())
         `);
 
-        // Award new user 200 points
+        // Award new user 200 points — reference is deterministic per user
+        // (referral_welcome:<newUserId>) so the unique index enforces the
+        // once-per-new-user guard above even under concurrent claims.
         await tx.execute(drizSql`
           UPDATE consumer_loyalty_accounts SET points_balance = points_balance + ${NEW_USER_POINTS}, lifetime_points = lifetime_points + ${NEW_USER_POINTS}, updated_at = NOW()
           WHERE user_id = ${newUserIdNum}
         `);
         await tx.execute(drizSql`
           INSERT INTO consumer_loyalty_txns (id, user_id, type, points, description, reference_id, created_at)
-          VALUES (${"lt_" + nanoid(16)}, ${newUserIdNum}, 'earn', ${NEW_USER_POINTS}, ${`Welcome bonus via referral code ${input.referralCode}`}, ${`referral_welcome:${input.referralCode}:${newUserIdNum}`}, NOW())
+          VALUES (${"lt_" + nanoid(16)}, ${newUserIdNum}, 'earn', ${NEW_USER_POINTS}, ${`Welcome bonus via referral code ${input.referralCode}`}, ${`referral_welcome:${newUserIdNum}`}, NOW())
         `);
 
         // Record referral
@@ -776,6 +897,9 @@ const referralRewardsRouter = router({
       });
 
       if (outcome.replayed) {
+        if ("alreadyWelcomed" in outcome && outcome.alreadyWelcomed) {
+          return { success: false, reason: "Welcome bonus already claimed for this user — only one signup referral reward per user", deduplicated: true };
+        }
         return { success: false, reason: "Referral reward already processed for this user", deduplicated: true };
       }
       return { success: true, referrerReward: REFERRER_POINTS, newUserReward: NEW_USER_POINTS, rewardType: input.rewardType };
@@ -959,7 +1083,7 @@ const tenantRateLimitsRouter = router({
       return result[0] || null;
     }),
 
-  updateTenantLimits: protectedProcedure
+  updateTenantLimits: adminProcedure
     .input(z.object({
       tenantId: z.string(),
       // Real tenants limit columns (max_merchants / max_consumers /
@@ -989,7 +1113,7 @@ const tenantRateLimitsRouter = router({
 
 // ─── Batch F: Audit Log CSV Export ───────────────────────────────────────────
 const auditLogExportRouter = router({
-  exportCsv: protectedProcedure
+  exportCsv: adminProcedure
     .input(z.object({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
@@ -1103,7 +1227,12 @@ const payoutApprovalRouter = router({
     return (result as any).rows;
   }),
 
-  approvePayoutBatch: protectedProcedure
+  // Platform-admin gated (spec #2). The approver identity always comes from
+  // ctx.user — never from input. Only batches awaiting approval may be
+  // approved (no re-approving approved/rejected/processed batches).
+  // NOTE: payout_batches has no initiator/created_by column, so maker≠checker
+  // cannot be enforced against a stored initiator; the admin gate is the control.
+  approvePayoutBatch: adminProcedure
     .input(z.object({
       batchId: z.string(),
       approverNote: z.string().optional(),
@@ -1111,19 +1240,29 @@ const payoutApprovalRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `
+      const updated = await execRaw(db, `
         UPDATE payout_batches SET
           status = 'approved',
           approved_by = $1,
           approved_at = NOW(),
           approver_note = $2,
           updated_at = NOW()
-        WHERE id = $3
+        WHERE id = $3 AND status = 'pending_approval'
+        RETURNING id
       `, [ctx.user.id, input.approverNote || null, input.batchId]);
+      if (!updated.length) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Payout batch not found or not awaiting approval",
+        });
+      }
       return { success: true, status: "approved" };
     }),
 
-  rejectPayoutBatch: protectedProcedure
+  // Platform-admin gated (same control as approvePayoutBatch). Rejections are
+  // only valid from pending_approval; the guarded UPDATE with checked
+  // RETURNING rejects re-rejection / rejecting already-approved batches.
+  rejectPayoutBatch: adminProcedure
     .input(z.object({
       batchId: z.string(),
       reason: z.string().min(5),
@@ -1131,22 +1270,29 @@ const payoutApprovalRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `
+      const updated = await execRaw(db, `
         UPDATE payout_batches SET
           status = 'rejected',
           approved_by = $1,
           approved_at = NOW(),
           approver_note = $2,
           updated_at = NOW()
-        WHERE id = $3
+        WHERE id = $3 AND status = 'pending_approval'
+        RETURNING id
       `, [ctx.user.id, input.reason, input.batchId]);
+      if (!updated.length) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Payout batch not found or not awaiting approval",
+        });
+      }
       return { success: true, status: "rejected" };
     }),
 });
 
 // ─── Batch F: Webhook Retry Scheduler ────────────────────────────────────────
 const webhookRetryRouter = router({
-  getFailedDeliveries: protectedProcedure.query(async () => {
+  getFailedDeliveries: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`

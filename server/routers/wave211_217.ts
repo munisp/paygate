@@ -890,55 +890,23 @@ export const energyRouter = router({
         requestBody: input,
         execute: async () => {
           const id = genId("VND");
-          // Debit/reserve the customer's wallet BEFORE creating the vend
-          // obligation. Without the ledger bridge there is nothing to debit —
-          // fail loud (demo payload only when PAYGATE_SIMULATION_MODE=true).
-          if (!isBridgeAvailable()) {
-            return demoOrFail(
-              {
-                id,
-                token: null,
-                units: null,
-                status: "PENDING_TOKEN",
-                message: "Vend request NOT recorded — simulation only, no funds moved.",
-              },
-              "energy.initiateVend wallet debit (ledger bridge unreachable)",
-            );
-          }
-          await debitWalletViaMiddleware({
-            walletId: `wallet_${ctx.user.openId}`,
-            userId: ctx.user.openId,
-            amount: Math.round(input.amount * 100),
-            currency: input.currency,
-            reference: id,
-            description: `Energy vend ${input.meterNumber} (${input.disco})`,
-          });
-          // Token generation requires the Rust NEPA STS engine via gRPC (PAYGATE-ENERGY-STS-001).
-          // Until that integration is live, the transaction is recorded as PENDING_TOKEN
-          // and the token field is null. The caller must poll for the token via getVendStatus.
-          // NEVER return a random/fabricated token — a customer who receives a fake token
-          // and attempts to load it into their meter will lose money with no recourse.
-          const token: string | null = null;
-          const units: number | null = null;
-          const status = "PENDING_TOKEN";
-
-          await db.execute(sql`
-            INSERT INTO energy_vend_transactions
-              (id, meter_number, disco, amount, currency, customer_phone,
-               customer_fsp, customer_account, token, units, status, created_by, created_at, vended_at)
-            VALUES
-              (${id}, ${input.meterNumber}, ${input.disco}, ${input.amount}, ${input.currency},
-               ${input.customerPhone}, ${input.customerFsp}, ${input.customerAccount},
-               ${token}, ${units}, ${status},
-               ${ctx.user.openId}, NOW(), NULL)
-          `);
-          return {
-            id,
-            token: null,
-            units: null,
-            status,
-            message: "Vend request queued. Token will be delivered via webhook once the DISCO STS responds.",
-          };
+          // R4 F13 (spec #13): token generation requires the Rust NEPA STS
+          // engine via gRPC (PAYGATE-ENERGY-STS-001), which is NOT integrated.
+          // The previous flow debited the customer's wallet and stranded the
+          // row in PENDING_TOKEN forever — phantom execution of a vend that
+          // could never deliver a token. Fail honestly BEFORE any money
+          // moves; a demo payload exists only under PAYGATE_SIMULATION_MODE.
+          return demoOrFail(
+            {
+              id,
+              token: null,
+              units: null,
+              status: "NOT_AVAILABLE",
+              message:
+                "Energy vend unavailable — the STS vend rail is not integrated, so no token can be issued. No funds moved and no vend was recorded.",
+            },
+            "energy.initiateVend (STS vend rail not integrated)",
+          );
         },
       });
     }),
@@ -1076,26 +1044,42 @@ export const cbdcRouter = router({
           // VALIDATED and the caller is told settlement requires the rail.
           if (isSimulationMode()) {
             demoOrFail({ railRef }, "cbdc.initiateTransfer settlement");
-            await db.execute(sql`
-              UPDATE cbdc_accounts
-              SET balance = balance - ${input.amount}, updated_at = NOW()
-              WHERE wallet_id = ${input.senderWallet} AND rail = ${input.rail}
-                AND balance >= ${input.amount}
-            `);
-            await db.execute(sql`
-              UPDATE cbdc_accounts
-              SET balance = balance + ${input.amount}, updated_at = NOW()
-              WHERE wallet_id = ${input.receiverWallet} AND rail = ${input.rail}
-            `);
-            await db.execute(sql`
-              INSERT INTO cbdc_transfers
-                (id, rail, sender_wallet, receiver_wallet, amount, currency,
-                 narration, status, rail_ref, created_by, created_at, settled_at)
-              VALUES
-                (${id}, ${input.rail}, ${input.senderWallet}, ${input.receiverWallet},
-                 ${input.amount}, ${input.currency}, ${input.narration ?? null},
-                 'SETTLED', ${railRef}, ${ctx.user.openId}, NOW(), NOW())
-            `);
+            // R4 F1/F13: the debit, credit and transfer record are ONE
+            // transaction. The debit is a GUARDED update (balance >= amount)
+            // whose affected-row count is CHECKED — previously an unchecked
+            // guard let a race/overdraft debit 0 rows and still credit the
+            // receiver, creating money out of thin air.
+            const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+            await db.transaction(async (tx) => {
+              const debited = rowsOf(await tx.execute(sql`
+                UPDATE cbdc_accounts
+                SET balance = balance - ${input.amount}, updated_at = NOW()
+                WHERE wallet_id = ${input.senderWallet} AND rail = ${input.rail}
+                  AND balance >= ${input.amount}
+                RETURNING wallet_id
+              `));
+              if (!debited.length) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient CBDC wallet balance" });
+              }
+              const credited = rowsOf(await tx.execute(sql`
+                UPDATE cbdc_accounts
+                SET balance = balance + ${input.amount}, updated_at = NOW()
+                WHERE wallet_id = ${input.receiverWallet} AND rail = ${input.rail}
+                RETURNING wallet_id
+              `));
+              if (!credited.length) {
+                throw new TRPCError({ code: "NOT_FOUND", message: "Receiver CBDC wallet not found" });
+              }
+              await tx.execute(sql`
+                INSERT INTO cbdc_transfers
+                  (id, rail, sender_wallet, receiver_wallet, amount, currency,
+                   narration, status, rail_ref, created_by, created_at, settled_at)
+                VALUES
+                  (${id}, ${input.rail}, ${input.senderWallet}, ${input.receiverWallet},
+                   ${input.amount}, ${input.currency}, ${input.narration ?? null},
+                   'SETTLED', ${railRef}, ${ctx.user.openId}, NOW(), NOW())
+              `);
+            });
             return {
               id, railRef, status: "SETTLED",
               source: "simulation", simulation: true,

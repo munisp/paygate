@@ -122,7 +122,7 @@ async function getKafkaAdmin(): Promise<any | null> {
 /** Drop the cached admin so the next call reconnects (e.g. after broker restart). */
 function resetKafkaAdmin(): void {
   try {
-    _admin?.disconnect().catch(() => {});
+    _admin?.disconnect().catch((e: unknown) => console.warn("[infraHistory] kafka admin disconnect failed:", e instanceof Error ? e.message : String(e)));
   } catch {}
   _admin = null;
   _assignerProtocol = null;
