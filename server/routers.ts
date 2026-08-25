@@ -233,6 +233,20 @@ import { regulatoryReportsRouter as regulatoryReportsOpsRouter } from './routers
 import { chargebackLifecycleRouter as chargebackLifecycleOpsRouter } from './routers/chargebackLifecycle';
 import { ecommerceRouter } from './routers/ecommerce';
 import { hostedCheckoutRouter } from './routers/hostedCheckout';
+import { apBillPayRouter } from './routers/apBillPay';
+import { apBillInboxRouter } from './routers/apBillInbox';
+import { apPayOverTimeRouter } from './routers/apPayOverTime';
+import { taxComplianceRouter } from './routers/taxCompliance';
+import { accountingSyncRouter } from './routers/accountingSync';
+import { apApprovalsRouter } from './routers/apApprovals';
+import { apVendorDirectoryRouter } from './routers/apVendorDirectory';
+import { remittanceAdviceRouter } from './routers/remittanceAdvice';
+import { arFeeChoiceRouter } from './routers/arFeeChoice';
+import { arPartialPaymentsRouter } from './routers/arPartialPayments';
+import { apRecurringRouter } from './routers/apRecurring';
+import { apVendorCardsRouter } from './routers/apVendorCards';
+import { apAssistantRouter } from './routers/apAssistant';
+import { syndicationApRouter } from './routers/syndicationAp';
 import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -10867,6 +10881,20 @@ export const appRouter = router({
   ecommerce: ecommerceRouter,
   // Hosted Checkout Payment Page
   hostedCheckout: hostedCheckoutRouter,
+  apBillPay: apBillPayRouter,
+  apBillInbox: apBillInboxRouter,
+  apPayOverTime: apPayOverTimeRouter,
+  taxCompliance: taxComplianceRouter,
+  accountingSync: accountingSyncRouter,
+  apApprovals: apApprovalsRouter,
+  apVendorDirectory: apVendorDirectoryRouter,
+  remittanceAdvice: remittanceAdviceRouter,
+  arFeeChoice: arFeeChoiceRouter,
+  arPartialPayments: arPartialPaymentsRouter,
+  apRecurring: apRecurringRouter,
+  apVendorCards: apVendorCardsRouter,
+  apAssistant: apAssistantRouter,
+  syndicationAp: syndicationApRouter,
   // Wave 228 — PDF Export, Cashback/Rewards, API Docs
   pdfExport: pdfExportRouter,
   cashbackRewards: cashbackRewardsRouter,

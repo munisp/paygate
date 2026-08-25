@@ -367,6 +367,11 @@ export const virtualCards = pgTable("virtual_cards", {
   balance: bigint("balance", { mode: "number" }).default(0).notNull(),
   spendLimit: bigint("spend_limit", { mode: "number" }),
   label: text("label"),
+  // ── Melio AP suite (S0 / migration 0089): single-use vendor-locked cards ──
+  singleUse: boolean("single_use").default(false).notNull(),
+  authorizedAmountKobo: bigint("authorized_amount_kobo", { mode: "number" }),
+  lockedMerchantVendorId: varchar("locked_merchant_vendor_id"),
+  terminatedAt: timestamp("terminated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2320,6 +2325,10 @@ export const invoices = pgTable("invoices", {
   paidAt: timestamp("paid_at"),
   paymentLinkUrl: text("payment_link_url"),
   notes: text("notes"),
+  // ── Melio AR suite (S0 / migration 0089): fee-choice + partial payments ──
+  feePolicy: varchar("fee_policy", { length: 32 }).default("merchant_absorbs"),
+  surchargeBps: integer("surcharge_bps").default(290),
+  allowPartial: boolean("allow_partial").default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2335,6 +2344,7 @@ export const invoicePayments = pgTable("invoice_payments", {
   amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
   method: text("method"),
   reference: text("reference"),
+  metadata: jsonb("metadata"),
   paidAt: timestamp("paid_at").defaultNow().notNull(),
 }, (t) => [index("ip_invoice_idx").on(t.invoiceId)]);
 export type InvoicePayment = typeof invoicePayments.$inferSelect;
@@ -2422,6 +2432,9 @@ export const taxWithholdingRecords = pgTable("tax_withholding_records", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   merchantId: text("merchant_id").notNull(),
   transactionId: text("transaction_id"),
+  // ── Melio AP suite (S0 / migration 0091): link WHT lines to bills/vendors ──
+  billId: text("bill_id"),
+  vendorId: varchar("vendor_id"),
   grossAmountKobo: bigint("gross_amount_kobo", { mode: "number" }).notNull(),
   taxAmountKobo: bigint("tax_amount_kobo", { mode: "number" }).default(0),
   netAmountKobo: bigint("net_amount_kobo", { mode: "number" }).notNull(),
@@ -2434,6 +2447,8 @@ export const taxWithholdingRecords = pgTable("tax_withholding_records", {
 }, (t) => [
   index("twr_merchant_idx").on(t.merchantId),
   index("twr_period_idx").on(t.period),
+  index("twr_bill_idx").on(t.billId),
+  index("twr_vendor_idx").on(t.vendorId),
 ]);
 export type TaxWithholdingRecord = typeof taxWithholdingRecords.$inferSelect;
 
@@ -7203,6 +7218,15 @@ export const vendors = pgTable("vendors", {
   paymentTerms: varchar("payment_terms").default("net30"),
   notes: text("notes"),
   isActive: boolean("is_active").default(true),
+  // ── Melio AP suite (S0 / migration 0088) ──
+  tin: varchar("tin", { length: 32 }),
+  bankCode: varchar("bank_code", { length: 16 }),
+  accountNumber: varchar("account_number", { length: 32 }),
+  accountName: varchar("account_name", { length: 255 }),
+  creditBalanceKobo: bigint("credit_balance_kobo", { mode: "number" }).default(0).notNull(),
+  openBalanceKobo: bigint("open_balance_kobo", { mode: "number" }).default(0).notNull(),
+  whtRatePct: numeric("wht_rate_pct", { precision: 5, scale: 2 }),
+  isWhtApplicable: boolean("is_wht_applicable").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -7227,3 +7251,237 @@ export const corridorConfig = pgTable("corridor_config", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [unique("corridor_config_pair_unique").on(t.sourceCurrency, t.destinationCurrency)]);
 export type CorridorConfig = typeof corridorConfig.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Melio-Inspired AP/AR Suite — S0 schema wave (migrations 0088–0091)
+// Enum-like fields use varchar + zod-level validation (dominant repo pattern for
+// feature tables). Money is bigint kobo. FK-typed columns match the referenced
+// tables: merchants.id/payouts.id/virtual_cards.id are text, vendors.id is varchar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── AP Bills (0088) ──────────────────────────────────────────────────────────
+export const apBills = pgTable("ap_bills", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id"),
+  billNumber: varchar("bill_number", { length: 64 }),
+  status: varchar("status", { length: 32 }).default("draft").notNull(), // draft|pending_extraction|extracted|pending_approval|approved|scheduled|paid|partially_paid|rejected|void
+  currency: varchar("currency", { length: 3 }).default("NGN"),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }),
+  taxKobo: bigint("tax_kobo", { mode: "number" }),
+  whtKobo: bigint("wht_kobo", { mode: "number" }).default(0),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  amountPaidKobo: bigint("amount_paid_kobo", { mode: "number" }).default(0),
+  dueDate: timestamp("due_date"),
+  source: varchar("source", { length: 32 }).default("manual"), // manual|email|upload|ocr|accounting_sync
+  sourceRef: varchar("source_ref", { length: 255 }),
+  documentUrl: text("document_url"),
+  extractedData: jsonb("extracted_data"),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("ap_bills_merchant_bill_vendor_uniq").on(t.merchantId, t.billNumber, t.vendorId),
+  index("ap_bills_merchant_idx").on(t.merchantId),
+  index("ap_bills_vendor_idx").on(t.vendorId),
+  index("ap_bills_status_idx").on(t.status),
+  index("ap_bills_due_date_idx").on(t.dueDate),
+]);
+export type ApBill = typeof apBills.$inferSelect;
+export type InsertApBill = typeof apBills.$inferInsert;
+
+// ─── AP Bill Line Items (0088) ────────────────────────────────────────────────
+export const apBillLineItems = pgTable("ap_bill_line_items", {
+  id: serial("id").primaryKey(),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  description: text("description"),
+  quantity: numeric("quantity"),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  accountCode: varchar("account_code", { length: 32 }),
+}, (t) => [index("ap_bill_line_items_bill_idx").on(t.billId)]);
+export type ApBillLineItem = typeof apBillLineItems.$inferSelect;
+export type InsertApBillLineItem = typeof apBillLineItems.$inferInsert;
+
+// ─── AP Payments (0088) ───────────────────────────────────────────────────────
+export const apPayments = pgTable("ap_payments", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  payoutId: text("payout_id"),
+  fundingMethod: varchar("funding_method", { length: 32 }).default("wallet").notNull(), // wallet|card|bank_transfer|pay_over_time
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  feeKobo: bigint("fee_kobo", { mode: "number" }).default(0),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending|processing|completed|failed
+  reference: varchar("reference", { length: 128 }),
+  vendorCardId: text("vendor_card_id"),
+  remittanceSentAt: timestamp("remittance_sent_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ap_payments_bill_idx").on(t.billId),
+  index("ap_payments_merchant_idx").on(t.merchantId),
+]);
+export type ApPayment = typeof apPayments.$inferSelect;
+export type InsertApPayment = typeof apPayments.$inferInsert;
+
+// ─── AP Bill Approval Rules (0088) ────────────────────────────────────────────
+export const apBillApprovalRules = pgTable("ap_bill_approval_rules", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  priority: integer("priority").default(0),
+  minAmountKobo: bigint("min_amount_kobo", { mode: "number" }),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  vendorId: varchar("vendor_id"),
+  approverRole: varchar("approver_role", { length: 64 }),
+  approverUserId: integer("approver_user_id"),
+  requiredApprovals: integer("required_approvals").default(1),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ap_bill_approval_rules_merchant_idx").on(t.merchantId)]);
+export type ApBillApprovalRule = typeof apBillApprovalRules.$inferSelect;
+export type InsertApBillApprovalRule = typeof apBillApprovalRules.$inferInsert;
+
+// ─── AP Bill Approvals (0088) ─────────────────────────────────────────────────
+export const apBillApprovals = pgTable("ap_bill_approvals", {
+  id: serial("id").primaryKey(),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  ruleId: integer("rule_id"),
+  step: integer("step").notNull(),
+  approverUserId: integer("approver_user_id").notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending|approved|rejected|skipped
+  decidedAt: timestamp("decided_at"),
+  notes: text("notes"),
+}, (t) => [
+  unique("ap_bill_approvals_bill_step_approver_uniq").on(t.billId, t.step, t.approverUserId),
+  index("ap_bill_approvals_bill_idx").on(t.billId),
+]);
+export type ApBillApproval = typeof apBillApprovals.$inferSelect;
+export type InsertApBillApproval = typeof apBillApprovals.$inferInsert;
+
+// ─── Vendor Credits (0088) ────────────────────────────────────────────────────
+export const vendorCredits = pgTable("vendor_credits", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  remainingKobo: bigint("remaining_kobo", { mode: "number" }).notNull(),
+  source: varchar("source", { length: 32 }).default("adjustment"), // overpayment|refund|adjustment
+  billId: text("bill_id"),
+  status: varchar("status", { length: 32 }).default("open").notNull(), // open|applied|expired
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  appliedAt: timestamp("applied_at"),
+}, (t) => [
+  index("vendor_credits_merchant_idx").on(t.merchantId),
+  index("vendor_credits_vendor_idx").on(t.vendorId),
+]);
+export type VendorCredit = typeof vendorCredits.$inferSelect;
+export type InsertVendorCredit = typeof vendorCredits.$inferInsert;
+
+// ─── AP Recurring Schedules (0089) ────────────────────────────────────────────
+export const apRecurringSchedules = pgTable("ap_recurring_schedules", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id"),
+  billTemplate: jsonb("bill_template"),
+  frequency: varchar("frequency", { length: 16 }).default("monthly").notNull(), // weekly|monthly|quarterly
+  nextRunAt: timestamp("next_run_at"),
+  lastRunAt: timestamp("last_run_at"),
+  runCount: integer("run_count").default(0),
+  maxRuns: integer("max_runs"),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  autoApproveBelowKobo: bigint("auto_approve_below_kobo", { mode: "number" }),
+  isActive: boolean("is_active").default(true),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ap_recurring_schedules_merchant_idx").on(t.merchantId)]);
+export type ApRecurringSchedule = typeof apRecurringSchedules.$inferSelect;
+export type InsertApRecurringSchedule = typeof apRecurringSchedules.$inferInsert;
+
+// ─── Accounting Connections (0090) ────────────────────────────────────────────
+export const accountingConnections = pgTable("accounting_connections", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(), // quickbooks|xero|odoo
+  status: varchar("status", { length: 32 }).default("active").notNull(), // active|expired|revoked|error
+  realmId: varchar("realm_id", { length: 128 }),
+  accessTokenEnc: text("access_token_enc"),
+  refreshTokenEnc: text("refresh_token_enc"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  scopes: text("scopes"),
+  lastSyncAt: timestamp("last_sync_at"),
+  syncCursor: varchar("sync_cursor", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("accounting_connections_merchant_provider_uniq").on(t.merchantId, t.provider),
+  index("accounting_connections_merchant_idx").on(t.merchantId),
+]);
+export type AccountingConnection = typeof accountingConnections.$inferSelect;
+export type InsertAccountingConnection = typeof accountingConnections.$inferInsert;
+
+// ─── Accounting Sync Runs (0090) ──────────────────────────────────────────────
+export const accountingSyncRuns = pgTable("accounting_sync_runs", {
+  id: serial("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => accountingConnections.id, { onDelete: "cascade" }),
+  direction: varchar("direction", { length: 16 }).notNull(), // push|pull
+  entity: varchar("entity", { length: 32 }).notNull(), // bill|invoice|payment|vendor|account
+  status: varchar("status", { length: 32 }).default("running").notNull(), // running|succeeded|failed
+  recordsIn: integer("records_in").default(0),
+  recordsOut: integer("records_out").default(0),
+  error: text("error"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+}, (t) => [index("accounting_sync_runs_connection_idx").on(t.connectionId)]);
+export type AccountingSyncRun = typeof accountingSyncRuns.$inferSelect;
+export type InsertAccountingSyncRun = typeof accountingSyncRuns.$inferInsert;
+
+// ─── Accounting Entity Map (0090) ─────────────────────────────────────────────
+export const accountingEntityMap = pgTable("accounting_entity_map", {
+  id: serial("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => accountingConnections.id, { onDelete: "cascade" }),
+  entity: varchar("entity", { length: 32 }).notNull(),
+  localId: varchar("local_id", { length: 64 }).notNull(),
+  remoteId: varchar("remote_id", { length: 128 }).notNull(),
+  remoteUpdatedAt: timestamp("remote_updated_at"),
+}, (t) => [
+  unique("accounting_entity_map_local_uniq").on(t.connectionId, t.entity, t.localId),
+  unique("accounting_entity_map_remote_uniq").on(t.connectionId, t.entity, t.remoteId),
+]);
+export type AccountingEntityMapEntry = typeof accountingEntityMap.$inferSelect;
+export type InsertAccountingEntityMapEntry = typeof accountingEntityMap.$inferInsert;
+
+// ─── TIN Validations (0091) ───────────────────────────────────────────────────
+export const tinValidations = pgTable("tin_validations", {
+  id: serial("id").primaryKey(),
+  subjectType: varchar("subject_type", { length: 16 }).notNull(), // vendor|merchant
+  subjectId: varchar("subject_id", { length: 255 }).notNull(),
+  tin: varchar("tin", { length: 32 }).notNull(),
+  status: varchar("status", { length: 16 }).default("unverified").notNull(), // valid|invalid|unverified
+  validatedAt: timestamp("validated_at"),
+  validatorRef: varchar("validator_ref", { length: 128 }),
+  rawResponse: jsonb("raw_response"),
+}, (t) => [index("tin_validations_subject_idx").on(t.subjectType, t.subjectId)]);
+export type TinValidation = typeof tinValidations.$inferSelect;
+export type InsertTinValidation = typeof tinValidations.$inferInsert;
+
+// ─── WHT Remittances (0091) ───────────────────────────────────────────────────
+export const whtRemittances = pgTable("wht_remittances", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  period: varchar("period", { length: 7 }).notNull(),
+  totalWhtKobo: bigint("total_wht_kobo", { mode: "number" }).default(0).notNull(),
+  recordCount: integer("record_count").default(0),
+  status: varchar("status", { length: 16 }).default("draft").notNull(), // draft|filed|remitted
+  filedAt: timestamp("filed_at"),
+  remittedAt: timestamp("remitted_at"),
+  reference: varchar("reference", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wht_remittances_merchant_idx").on(t.merchantId),
+  index("wht_remittances_period_idx").on(t.period),
+]);
+export type WhtRemittance = typeof whtRemittances.$inferSelect;
+export type InsertWhtRemittance = typeof whtRemittances.$inferInsert;

@@ -69,12 +69,12 @@ type SubmitDisputeResponse struct {
 
 // ResolveDisputeRequest is the JSON body for POST /v1/disputes/{id}/resolve
 type ResolveDisputeRequest struct {
-	DisputeID   string `json:"dispute_id"`
-	MerchantID  string `json:"merchant_id"`
-	Resolution  string `json:"resolution"` // "won" | "lost" | "partial"
-	Amount      uint64 `json:"amount,omitempty"`
-	ReviewerID  string `json:"reviewer_id"`
-	Notes       string `json:"notes,omitempty"`
+	DisputeID  string `json:"dispute_id"`
+	MerchantID string `json:"merchant_id"`
+	Resolution string `json:"resolution"` // "won" | "lost" | "partial"
+	Amount     uint64 `json:"amount,omitempty"`
+	ReviewerID string `json:"reviewer_id"`
+	Notes      string `json:"notes,omitempty"`
 }
 
 // ResolveDisputeResponse is returned by POST /v1/disputes/{id}/resolve
@@ -173,10 +173,10 @@ type CreateBNPLLoanResponse struct {
 
 // ProcessBNPLInstalmentRequest is the JSON body for POST /v1/bnpl/loans/{id}/instalment
 type ProcessBNPLInstalmentRequest struct {
-	MerchantID        string `json:"merchant_id"`
-	InstalmentNumber  int    `json:"instalment_number"`
-	Amount            uint64 `json:"amount"`
-	Currency          string `json:"currency"`
+	MerchantID       string `json:"merchant_id"`
+	InstalmentNumber int    `json:"instalment_number"`
+	Amount           uint64 `json:"amount"`
+	Currency         string `json:"currency"`
 }
 
 // ProcessBNPLInstalmentResponse is returned by POST /v1/bnpl/loans/{id}/instalment
@@ -214,8 +214,13 @@ type IssueVirtualCardRequest struct {
 	MerchantID    string `json:"merchant_id"`
 	SpendingLimit uint64 `json:"spending_limit"`
 	Currency      string `json:"currency"`
-	Label         string `json:"label"`
-	IssuerID      string `json:"issuer_id"`
+	// SingleUse marks a single-use vendor card (terminated on first
+	// authorisation / 30-day sweep). Optional — defaults to false.
+	SingleUse bool `json:"single_use"`
+	// VendorID locks the card to a single vendor (null/absent = unlocked).
+	VendorID *string `json:"vendor_id"`
+	Label    string  `json:"label"`
+	IssuerID string  `json:"issuer_id"`
 }
 
 // IssueVirtualCardResponse is returned by POST /v1/virtual-cards/issue
@@ -306,18 +311,18 @@ type ReconcileMoMoResponse struct {
 
 // SyncRolesRequest is the JSON body for POST /v1/auth/sync-roles
 type SyncRolesRequest struct {
-	UserID           string   `json:"user_id"`
-	MerchantID       string   `json:"merchant_id"`
-	KeycloakSubject  string   `json:"keycloak_subject"`
-	Roles            []string `json:"roles"`
+	UserID          string   `json:"user_id"`
+	MerchantID      string   `json:"merchant_id"`
+	KeycloakSubject string   `json:"keycloak_subject"`
+	Roles           []string `json:"roles"`
 }
 
 // SyncRolesResponse is returned by POST /v1/auth/sync-roles
 type SyncRolesResponse struct {
-	UserID                  string   `json:"user_id"`
-	SyncedRoles             []string `json:"synced_roles"`
-	PermifyRelationships    int      `json:"permify_relationships"`
-	KeycloakUpdated         bool     `json:"keycloak_updated"`
+	UserID               string   `json:"user_id"`
+	SyncedRoles          []string `json:"synced_roles"`
+	PermifyRelationships int      `json:"permify_relationships"`
+	KeycloakUpdated      bool     `json:"keycloak_updated"`
 }
 
 // ─── Temporal Workflow Observability ─────────────────────────────────────────

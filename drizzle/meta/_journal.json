@@ -617,6 +617,41 @@
       "when": 1787593812001,
       "tag": "0087_round4_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787600000001,
+      "tag": "0088_ap_bills",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1787600000002,
+      "tag": "0089_recurring_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1787600000003,
+      "tag": "0090_accounting_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1787600000004,
+      "tag": "0091_tax_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1787600000005,
+      "tag": "0092_invoice_payments_meta",
+      "breakpoints": true
     }
   ]
 }

@@ -306,6 +306,20 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Accounts Payable",
+    icon: Briefcase,
+    items: [
+      { icon: FileText, label: "Bill Inbox", path: "/ap/inbox", badge: "New" },
+      { icon: Receipt, label: "Bill Pay", path: "/ap/bills", badge: "New" },
+      { icon: ShieldCheck, label: "Approvals", path: "/ap/approvals", badge: "New" },
+      { icon: Building2, label: "AP Vendors", path: "/ap/vendors", badge: "New" },
+      { icon: RefreshCw, label: "Accounting Sync", path: "/ap/accounting-sync", badge: "New" },
+      { icon: CalendarClock, label: "Pay Over Time", path: "/ap/pay-over-time", badge: "New" },
+      { icon: Scale, label: "Tax Compliance", path: "/ap/tax", badge: "New" },
+      { icon: Bot, label: "AP Assistant", path: "/ap/assistant", badge: "AI" },
+    ],
+  },
+  {
     title: "HR & Payroll",
     icon: DollarSign,
     items: [

@@ -98,6 +98,13 @@ export const ENV = {
   loyaltyLedgerUrl: process.env.LOYALTY_LEDGER_URL ?? "",
   payrollServiceUrl: process.env.PAYROLL_SERVICE_URL ?? "",
 
+  // ── AP/AR suite services (Melio wave) ────────────────────────────────────
+  accountingSyncUrl: process.env.ACCOUNTING_SYNC_URL ?? "http://accounting-sync:8107",
+  billInboxUrl: process.env.BILL_INBOX_URL ?? "http://bill-inbox:8108",
+  artReasoningUrl: process.env.ART_REASONING_URL ?? "http://art-reasoning:8103",
+  accountingTokenKey: process.env.ACCOUNTING_TOKEN_KEY ?? "",
+  billInboxToken: process.env.BILL_INBOX_TOKEN ?? "",
+
   // ── Observability ────────────────────────────────────────────────────────
   otelExporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "",
   otelServiceName: process.env.OTEL_SERVICE_NAME ?? "paygate-portal",

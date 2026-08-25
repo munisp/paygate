@@ -121,6 +121,16 @@ const Billing = lz(() => import("./pages/Billing"));
 const ConsumerAnalytics = lz(() => import("./pages/ConsumerAnalytics"));
 const ConsumerDisputes = lz(() => import("./pages/ConsumerDisputes"));
 
+// ── Accounts Payable (Melio-style AP suite) ──────────────────────────────────
+const ApBillInbox = lz(() => import("./pages/ap/BillInbox"));
+const ApBillPay = lz(() => import("./pages/ap/BillPay"));
+const ApApprovals = lz(() => import("./pages/ap/Approvals"));
+const ApVendors = lz(() => import("./pages/ap/Vendors"));
+const AccountingSync = lz(() => import("./pages/ap/AccountingSync"));
+const ApPayOverTime = lz(() => import("./pages/ap/PayOverTime"));
+const ApTaxCompliance = lz(() => import("./pages/ap/TaxCompliance"));
+const ApAssistant = lz(() => import("./pages/ap/Assistant"));
+
 // ── Tier 1-5 pages ────────────────────────────────────────────────────────────
 const RecurringBilling = lz(() => import("./pages/tier1to5/RecurringBilling"));
 const DCCDashboard = lz(() => import("./pages/tier1to5/DCCDashboard"));
@@ -676,6 +686,14 @@ function Router() {
           <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
           <Route path="/purchase-orders" component={PurchaseOrders} />
           <Route path="/vendors" component={Vendors} />
+          <Route path="/ap/inbox" component={ApBillInbox} />
+          <Route path="/ap/bills" component={ApBillPay} />
+          <Route path="/ap/approvals" component={ApApprovals} />
+          <Route path="/ap/vendors" component={ApVendors} />
+          <Route path="/ap/accounting-sync" component={AccountingSync} />
+          <Route path="/ap/pay-over-time" component={ApPayOverTime} />
+          <Route path="/ap/tax" component={ApTaxCompliance} />
+          <Route path="/ap/assistant" component={ApAssistant} />
           <Route path="/refunds" component={RefundWorkflow} />
           <Route path="/payout-batching" component={PayoutBatching} />
           <Route path="/receipt/:txId" component={TransactionReceipt} />

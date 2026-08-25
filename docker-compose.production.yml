@@ -83,6 +83,10 @@ services:
       AI_INSIGHTS_URL: http://ai-insights:8000
       AML_MONITOR_URL: http://aml-monitor:8000
       SETTLEMENT_FORECAST_URL: http://settlement-forecast:8000
+      # accounting-sync / bill-inbox listen on their own pinned container
+      # ports (8107/8108) rather than the anchored 8000.
+      ACCOUNTING_SYNC_URL: http://accounting-sync:8107
+      BILL_INBOX_URL: http://bill-inbox:8108
       GNN_FRAUD_URL: http://gnn-fraud:8141
       PUSH_SERVICE_URL: http://push-service:8096
       USSD_GATEWAY_URL: http://ussd-gateway:8095
@@ -579,6 +583,57 @@ services:
     container_name: paygate_settlement_forecast
     ports:
       - "${SETTLEMENT_FORECAST_PORT:-8108}:8000"
+
+  # ─── Python: Accounting Sync (QuickBooks/Xero) ───────────────────
+  # Listens on container port 8107 (pinned in its Dockerfile CMD, not the
+  # anchored PORT=8000), so the healthcheck and host mapping target 8107.
+  # Host defaults 8130/8137 avoid clashes with aml-monitor:8107 and
+  # settlement-forecast:8108 which already claim those host ports.
+  accounting-sync:
+    <<: *python-defaults
+    build:
+      context: ./python-services/accounting-sync
+      dockerfile: Dockerfile
+    container_name: paygate_accounting_sync
+    ports:
+      - "${ACCOUNTING_SYNC_PORT:-8130}:8107"
+    environment:
+      PORT: "8107"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      QBO_CLIENT_ID: ${QBO_CLIENT_ID:?must be set — no default QuickBooks client id allowed in production}
+      QBO_CLIENT_SECRET: ${QBO_CLIENT_SECRET:?must be set — no default QuickBooks client secret allowed in production}
+      XERO_CLIENT_ID: ${XERO_CLIENT_ID:?must be set — no default Xero client id allowed in production}
+      XERO_CLIENT_SECRET: ${XERO_CLIENT_SECRET:?must be set — no default Xero client secret allowed in production}
+      ACCOUNTING_TOKEN_KEY: ${ACCOUNTING_TOKEN_KEY:?must be set — no default accounting token encryption key allowed in production}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8107/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── Python: Bill Inbox (AP bill intake) ─────────────────────────
+  bill-inbox:
+    <<: *python-defaults
+    build:
+      context: ./python-services/bill-inbox
+      dockerfile: Dockerfile
+    container_name: paygate_bill_inbox
+    ports:
+      - "${BILL_INBOX_PORT:-8137}:8108"
+    environment:
+      PORT: "8108"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      BILL_INBOX_TOKEN: ${BILL_INBOX_TOKEN:?must be set — no default bill inbox token allowed in production}
+      APP_INTERNAL_URL: http://app:3000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8108/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # ─── Python: Lakehouse Audit ──────────────────────────────────────
   lakehouse-audit:
