@@ -5,10 +5,52 @@
  */
 import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
-import { db } from "../db";
+import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import * as schema from "../../drizzle/schema";
-import { eq, desc, and, gte, lte, like, sql, asc, inArray } from "drizzle-orm";
+import { eq, desc, and, gte, lte, like, sql, asc, inArray, gt } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { withIdempotency } from "../idempotency";
+
+// ─── R4 security helpers ─────────────────────────────────────────────────────
+/** Platform-admin gate: DB re-check users.role === 'admin' (adminRouter.ts:25-38 pattern). */
+async function requirePlatformAdmin(openId: string): Promise<void> {
+  const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+    .where(eq(schema.users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/** Resolve the caller's user row from the session (fail closed). */
+async function requireCtxUser(openId: string) {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  return user;
+}
+
+/** Resolve the caller's merchant server-side (chargebackLifecycle.ts resolveMerchantId pattern). */
+async function resolveCtxMerchant(openId: string) {
+  const user = await requireCtxUser(openId);
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  return merchant;
+}
+
+/**
+ * Merchant scoping for list/stats reads: platform admins may filter by any
+ * merchantId; every other caller is hard-scoped to their OWN merchant so a
+ * client-supplied merchantId can never read another merchant's rows.
+ */
+async function applyMerchantScope(openId: string, requestedMerchantId: string | undefined, column: any, conditions: any[]): Promise<void> {
+  const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+    .where(eq(schema.users.openId, openId)).limit(1);
+  if (caller?.role === "admin") {
+    if (requestedMerchantId) conditions.push(eq(column, requestedMerchantId));
+    return;
+  }
+  const merchant = await resolveCtxMerchant(openId);
+  conditions.push(eq(column, merchant.id));
+}
 
 // ─── 1. Bill Payments ─────────────────────────────────────────────────────────
 export const billPaymentsRouter = router({
@@ -17,12 +59,12 @@ export const billPaymentsRouter = router({
       limit: z.number().min(1).max(200).default(50),
       offset: z.number().min(0).default(0),
       status: z.string().optional(),
-      userId: z.number().optional(),
     }))
-    .query(async ({ input }) => {
-      const conditions: any[] = [];
+    .query(async ({ ctx, input }) => {
+      // R4: client userId filter removed — users may only ever list their OWN bill payments.
+      const user = await requireCtxUser(ctx.user.openId);
+      const conditions: any[] = [eq(schema.billPayments.userId, user.id)];
       if (input.status) conditions.push(eq(schema.billPayments.status, input.status as any));
-      if (input.userId) conditions.push(eq(schema.billPayments.userId, input.userId));
       const rows = await db.select().from(schema.billPayments)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(schema.billPayments.createdAt))
@@ -34,27 +76,44 @@ export const billPaymentsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: ownership check — users may only read their OWN bill payments.
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.select().from(schema.billPayments)
-        .where(eq(schema.billPayments.id, input.id));
+        .where(and(eq(schema.billPayments.id, input.id), eq(schema.billPayments.userId, user.id)));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Bill payment not found" });
       return row;
     }),
 
   create: protectedProcedure
     .input(z.object({
-      userId: z.number(),
-      walletId: z.string(),
       category: z.string(),
       billerCode: z.string(),
       billerName: z.string(),
       customerReference: z.string(),
-      amountKobo: z.number().positive(),
+      amountKobo: z.number().int().positive(),
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F1-3: userId/walletId are resolved server-side from the session —
+      // the client can no longer create bill payments for other users/wallets.
+      const user = await requireCtxUser(ctx.user.openId);
+      const [wallet] = await db.select().from(schema.consumerWallets)
+        .where(and(
+          eq(schema.consumerWallets.userId, user.id),
+          eq(schema.consumerWallets.currency, input.currency),
+        ))
+        .limit(1);
+      if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "Wallet not found. Please top up first." });
       const [row] = await db.insert(schema.billPayments).values({
-        ...input,
+        userId: user.id,
+        walletId: wallet.id,
+        category: input.category,
+        billerCode: input.billerCode,
+        billerName: input.billerName,
+        customerReference: input.customerReference,
+        amountKobo: input.amountKobo,
+        currency: input.currency,
         status: "pending",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -65,16 +124,29 @@ export const billPaymentsRouter = router({
   updateStatus: protectedProcedure
     .input(z.object({
       id: z.string(),
-      status: z.enum(["pending", "processing", "completed", "failed"]),
+      status: z.enum(["processing", "completed", "failed"]),
       providerRef: z.string().optional(),
       failureReason: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F1-3: ownership check + transition guard. The row's userId must match
+      // the session user, and only non-terminal rows may transition
+      // (pending → processing/completed/failed; processing → completed/failed).
+      // Terminal states are not re-enterable. ('cancelled' is not enum-valid for
+      // bill_payments and is therefore not writable here.)
+      const user = await requireCtxUser(ctx.user.openId);
       const { id, ...data } = input;
+      const allowedFrom: Array<"pending" | "processing" | "completed" | "failed"> =
+        input.status === "processing" ? ["pending"] : ["pending", "processing"];
       const [row] = await db.update(schema.billPayments)
         .set({ ...data, updatedAt: new Date() } as any)
-        .where(eq(schema.billPayments.id, id))
+        .where(and(
+          eq(schema.billPayments.id, id),
+          eq(schema.billPayments.userId, user.id),
+          inArray(schema.billPayments.status, allowedFrom),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Bill payment not found, not owned by you, or in a terminal state" });
       return row;
     }),
 
@@ -99,10 +171,11 @@ export const carbonCreditsRouter = router({
       status: z.string().optional(),
       merchantId: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.carbonCredits.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.carbonCredits.status as any, input.status));
-      if (input.merchantId) conditions.push(eq(schema.carbonCredits.merchantId, input.merchantId));
       const rows = await db.select().from(schema.carbonCredits)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(schema.carbonCredits.createdAt))
@@ -112,27 +185,32 @@ export const carbonCreditsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.carbonCredits.creditId, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.carbonCredits.merchantId, conditions);
       const [row] = await db.select().from(schema.carbonCredits)
-        .where(eq(schema.carbonCredits.creditId, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Carbon credit not found" });
       return row;
     }),
 
   create: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
       projectId: z.string(),
       projectName: z.string(),
       tonnes: z.string(),
-      pricePerTonneKobo: z.number().positive(),
-      totalKobo: z.number().positive(),
+      pricePerTonneKobo: z.number().int().positive(),
+      totalKobo: z.number().int().positive(),
       vintage: z.string().optional(),
       standard: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.insert(schema.carbonCredits).values({
         ...input,
+        merchantId: merchant.id,
         creditId: `CC-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
         status: "pending",
         createdAt: new Date(),
@@ -142,11 +220,19 @@ export const carbonCreditsRouter = router({
 
   retire: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership + status guard — only the owning merchant may retire, and
+      // a credit cannot be retired twice.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.carbonCredits)
         .set({ status: "retired" as any, retiredAt: new Date() } as any)
-        .where(eq(schema.carbonCredits.creditId, input.id))
+        .where(and(
+          eq(schema.carbonCredits.creditId, input.id),
+          eq(schema.carbonCredits.merchantId, merchant.id),
+          sql`${schema.carbonCredits.status} <> 'retired'`,
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Carbon credit not found, not owned by you, or already retired" });
       return row;
     }),
 
@@ -171,11 +257,12 @@ export const consumerFinanceLoansRouter = router({
       customerId: z.string().optional(),
       merchantId: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.consumerFinanceLoans.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.consumerFinanceLoans.status as any, input.status));
       if (input.customerId) conditions.push(eq(schema.consumerFinanceLoans.customerId, input.customerId));
-      if (input.merchantId) conditions.push(eq(schema.consumerFinanceLoans.merchantId, input.merchantId));
       const rows = await db.select().from(schema.consumerFinanceLoans)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(schema.consumerFinanceLoans.createdAt))
@@ -185,9 +272,12 @@ export const consumerFinanceLoansRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.consumerFinanceLoans.loanId, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.consumerFinanceLoans.merchantId, conditions);
       const [row] = await db.select().from(schema.consumerFinanceLoans)
-        .where(eq(schema.consumerFinanceLoans.loanId, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
       return row;
     }),
@@ -195,15 +285,17 @@ export const consumerFinanceLoansRouter = router({
   applyLoan: protectedProcedure
     .input(z.object({
       customerId: z.string(),
-      merchantId: z.string(),
-      amountKobo: z.number().positive(),
+      amountKobo: z.number().int().positive(),
       termDays: z.number().min(1).max(730).default(30),
       rateAnnualPct: z.string().default("5"),
       dueDate: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.insert(schema.consumerFinanceLoans).values({
         ...input,
+        merchantId: merchant.id,
         loanId: `LOAN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
         outstandingKobo: input.amountKobo,
         status: "pending",
@@ -215,39 +307,65 @@ export const consumerFinanceLoansRouter = router({
 
   approve: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F7#9: loan approval is a platform operation — platform-admin gate
+      // (DB re-check of users.role) + status guard so only pending applications
+      // can be activated.
+      await requirePlatformAdmin(ctx.user.openId);
       const [row] = await db.update(schema.consumerFinanceLoans)
         .set({ status: "active" as any, updatedAt: new Date() } as any)
-        .where(eq(schema.consumerFinanceLoans.loanId, input.id))
+        .where(and(
+          eq(schema.consumerFinanceLoans.loanId, input.id),
+          inArray(schema.consumerFinanceLoans.status, ["pending", "pending_review"]),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "CONFLICT", message: "Loan not found or not in a pending state" });
       return row;
     }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F7#9: platform-admin gate + status guard (only pending loans can be rejected).
+      await requirePlatformAdmin(ctx.user.openId);
       const [row] = await db.update(schema.consumerFinanceLoans)
         .set({ status: "rejected" as any, updatedAt: new Date() } as any)
-        .where(eq(schema.consumerFinanceLoans.loanId, input.id))
+        .where(and(
+          eq(schema.consumerFinanceLoans.loanId, input.id),
+          inArray(schema.consumerFinanceLoans.status, ["pending", "pending_review"]),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "CONFLICT", message: "Loan not found or not in a pending state" });
       return row;
     }),
 
   bulkApprove: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
-      await db.update(schema.consumerFinanceLoans)
+    .mutation(async ({ ctx, input }) => {
+      // R4 F7#9: platform-admin gate + status guard; reports actually-updated rows.
+      await requirePlatformAdmin(ctx.user.openId);
+      const rows = await db.update(schema.consumerFinanceLoans)
         .set({ status: "active" as any, updatedAt: new Date() } as any)
-        .where(inArray(schema.consumerFinanceLoans.loanId, input.ids));
-      return { updated: input.ids.length };
+        .where(and(
+          inArray(schema.consumerFinanceLoans.loanId, input.ids),
+          inArray(schema.consumerFinanceLoans.status, ["pending", "pending_review"]),
+        ))
+        .returning({ loanId: schema.consumerFinanceLoans.loanId });
+      return { updated: rows.length, skipped: input.ids.length - rows.length };
     }),
   bulkReject: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100), reason: z.string().max(500).optional() }))
-    .mutation(async ({ input }) => {
-      await db.update(schema.consumerFinanceLoans)
+    .mutation(async ({ ctx, input }) => {
+      // R4 F7#9: platform-admin gate + status guard; reports actually-updated rows.
+      await requirePlatformAdmin(ctx.user.openId);
+      const rows = await db.update(schema.consumerFinanceLoans)
         .set({ status: "rejected" as any, updatedAt: new Date() } as any)
-        .where(inArray(schema.consumerFinanceLoans.loanId, input.ids));
-      return { updated: input.ids.length };
+        .where(and(
+          inArray(schema.consumerFinanceLoans.loanId, input.ids),
+          inArray(schema.consumerFinanceLoans.status, ["pending", "pending_review"]),
+        ))
+        .returning({ loanId: schema.consumerFinanceLoans.loanId });
+      return { updated: rows.length, skipped: input.ids.length - rows.length };
     }),
   stats: protectedProcedure.query(async () => {
     const [stats] = await db.select({
@@ -313,14 +431,16 @@ export const couponsRouter = router({
       code: z.string().min(3).max(50),
       type: z.enum(["percent", "fixed", "free_transfer"]),
       value: z.number().positive(),
-      minAmountKobo: z.number().min(0).default(0),
-      maxDiscountKobo: z.number().optional(),
+      minAmountKobo: z.number().int().min(0).default(0),
+      maxDiscountKobo: z.number().int().optional(),
       usageLimit: z.number().optional(),
       perUserLimit: z.number().default(1),
       validFrom: z.string(),
       validUntil: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: coupon creation mints discount value — platform-admin gated (spec #1/#3).
+      await requirePlatformAdmin(ctx.user.openId);
       const [row] = await db.insert(schema.coupons).values({
         ...input,
         id: `CPN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
@@ -341,7 +461,9 @@ export const couponsRouter = router({
       usageLimit: z.number().optional(),
       validUntil: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       const { id, validUntil, ...data } = input;
       const [row] = await db.update(schema.coupons)
         .set({ ...data, ...(validUntil ? { validUntil: new Date(validUntil) } : {}) } as any)
@@ -352,14 +474,18 @@ export const couponsRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.delete(schema.coupons).where(eq(schema.coupons.id, input.id));
       return { success: true };
     }),
 
   bulkDeactivate: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.update(schema.coupons)
         .set({ isActive: false } as any)
         .where(inArray(schema.coupons.id, input.ids));
@@ -367,13 +493,17 @@ export const couponsRouter = router({
     }),
   bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.delete(schema.coupons).where(inArray(schema.coupons.id, input.ids));
       return { deleted: input.ids.length };
     }),
   bulkActivate: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.update(schema.coupons)
         .set({ isActive: true } as any)
         .where(inArray(schema.coupons.id, input.ids));
@@ -397,10 +527,18 @@ export const devicePushTokensRouter = router({
       userId: z.number().optional(),
       platform: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(schema.devicePushTokens.merchantId, input.merchantId));
-      if (input.userId) conditions.push(eq(schema.devicePushTokens.userId, input.userId));
+      // R4: non-admin callers only ever see their OWN device tokens.
+      const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+        .where(eq(schema.users.openId, ctx.user.openId)).limit(1);
+      if (caller?.role === "admin") {
+        if (input.merchantId) conditions.push(eq(schema.devicePushTokens.merchantId, input.merchantId));
+        if (input.userId) conditions.push(eq(schema.devicePushTokens.userId, input.userId));
+      } else {
+        const user = await requireCtxUser(ctx.user.openId);
+        conditions.push(eq(schema.devicePushTokens.userId, user.id));
+      }
       if (input.platform) conditions.push(eq(schema.devicePushTokens.platform, input.platform));
       return db.select().from(schema.devicePushTokens)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -409,26 +547,31 @@ export const devicePushTokensRouter = router({
 
   register: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      userId: z.number(),
       token: z.string(),
       platform: z.string().default("fcm"),
       deviceId: z.string().optional(),
       appVersion: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: userId/merchantId resolved server-side from the session
+      // (routers.ts registerPushToken pattern: 'consumer' when no merchant).
+      const user = await requireCtxUser(ctx.user.openId);
+      const merchant = await getMerchantByOwnerId(user.id);
+      const merchantId = merchant?.id ?? "consumer";
       // Upsert by token
       const existing = await db.select().from(schema.devicePushTokens)
         .where(eq(schema.devicePushTokens.token, input.token));
       if (existing.length > 0) {
         const [row] = await db.update(schema.devicePushTokens)
-          .set({ merchantId: input.merchantId, userId: input.userId, isActive: true, updatedAt: new Date() } as any)
+          .set({ merchantId, userId: user.id, isActive: true, updatedAt: new Date() } as any)
           .where(eq(schema.devicePushTokens.token, input.token))
           .returning();
         return row;
       }
       const [row] = await db.insert(schema.devicePushTokens).values({
         ...input,
+        merchantId,
+        userId: user.id,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -438,10 +581,15 @@ export const devicePushTokensRouter = router({
 
   deregister: protectedProcedure
     .input(z.object({ token: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — users may only deregister their OWN tokens.
+      const user = await requireCtxUser(ctx.user.openId);
       await db.update(schema.devicePushTokens)
         .set({ isActive: false, updatedAt: new Date() } as any)
-        .where(eq(schema.devicePushTokens.token, input.token));
+        .where(and(
+          eq(schema.devicePushTokens.token, input.token),
+          eq(schema.devicePushTokens.userId, user.id),
+        ));
       return { success: true };
     }),
 
@@ -474,14 +622,18 @@ export const fraudAlertCommentsRouter = router({
   add: protectedProcedure
     .input(z.object({
       alertId: z.string(),
-      merchantId: z.string(),
-      authorName: z.string(),
       body: z.string().min(1).max(2000),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId + authorName resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.insert(schema.fraudAlertComments).values({
         id: `FAC-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ...input,
+        alertId: input.alertId,
+        merchantId: merchant.id,
+        authorName: user.name ?? user.email ?? `user:${user.id}`,
+        body: input.body,
         createdAt: new Date(),
       } as any).returning();
       return row;
@@ -489,9 +641,14 @@ export const fraudAlertCommentsRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — merchants may only delete comments on their own alerts.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       await db.delete(schema.fraudAlertComments)
-        .where(eq(schema.fraudAlertComments.id, input.id));
+        .where(and(
+          eq(schema.fraudAlertComments.id, input.id),
+          eq(schema.fraudAlertComments.merchantId, merchant.id),
+        ));
       return { success: true };
     }),
 });
@@ -505,9 +662,10 @@ export const idempotencyRequestsRouter = router({
       merchantId: z.string().optional(),
       operation: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(schema.idempotencyRequests.merchantId, input.merchantId));
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.idempotencyRequests.merchantId, conditions);
       if (input.operation) conditions.push(eq(schema.idempotencyRequests.operation, input.operation));
       const rows = await db.select().from(schema.idempotencyRequests)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -525,7 +683,9 @@ export const idempotencyRequestsRouter = router({
     return stats;
   }),
 
-  purgeExpired: protectedProcedure.mutation(async () => {
+  purgeExpired: protectedProcedure.mutation(async ({ ctx }) => {
+    // R4: platform-maintenance op — platform-admin gated.
+    await requirePlatformAdmin(ctx.user.openId);
     await db.delete(schema.idempotencyRequests)
       .where(lte(schema.idempotencyRequests.expiresAt, new Date()));
     return { purged: true };
@@ -542,11 +702,12 @@ export const insurancePoliciesRouter = router({
       customerId: z.string().optional(),
       merchantId: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.insurancePolicies.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.insurancePolicies.status as any, input.status));
       if (input.customerId) conditions.push(eq(schema.insurancePolicies.customerId, input.customerId));
-      if (input.merchantId) conditions.push(eq(schema.insurancePolicies.merchantId as any, input.merchantId));
       const rows = await db.select().from(schema.insurancePolicies)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(schema.insurancePolicies.createdAt))
@@ -558,9 +719,12 @@ export const insurancePoliciesRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.insurancePolicies.policyId, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.insurancePolicies.merchantId, conditions);
       const [row] = await db.select().from(schema.insurancePolicies)
-        .where(eq(schema.insurancePolicies.policyId, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Policy not found" });
       return row;
     }),
@@ -568,17 +732,19 @@ export const insurancePoliciesRouter = router({
   create: protectedProcedure
     .input(z.object({
       customerId: z.string(),
-      merchantId: z.string().optional(),
       productId: z.string(),
       productName: z.string(),
       provider: z.string(),
-      premiumKobo: z.number().positive(),
+      premiumKobo: z.number().int().positive(),
       coverageType: z.string(),
       expiresAt: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.insert(schema.insurancePolicies).values({
         ...input,
+        merchantId: merchant.id,
         policyId: `POL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
         status: "active",
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -589,11 +755,17 @@ export const insurancePoliciesRouter = router({
 
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — only the owning merchant may cancel a policy.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.insurancePolicies)
         .set({ status: "cancelled" as any })
-        .where(eq(schema.insurancePolicies.policyId, input.id))
+        .where(and(
+          eq(schema.insurancePolicies.policyId, input.id),
+          eq(schema.insurancePolicies.merchantId as any, merchant.id),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Policy not found or not owned by you" });
       return row;
     }),
 
@@ -618,10 +790,11 @@ export const loanRepaymentsRouter = router({
       limit: z.number().min(1).max(200).default(50),
       offset: z.number().min(0).default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.loanRepayments.merchantId, conditions);
       if (input.loanId) conditions.push(eq(schema.loanRepayments.loanId, input.loanId));
-      if (input.merchantId) conditions.push(eq(schema.loanRepayments.merchantId, input.merchantId));
       const rows = await db.select().from(schema.loanRepayments)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(schema.loanRepayments.createdAt))
@@ -632,14 +805,31 @@ export const loanRepaymentsRouter = router({
   record: protectedProcedure
     .input(z.object({
       loanId: z.string(),
-      merchantId: z.string(),
-      amountKobo: z.number().positive(),
+      amountKobo: z.number().int().positive(),
       transferId: z.string().optional(),
       method: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F1-4a: merchant resolved server-side from the session; the repayment
+      // must reference an ACTIVE loan owned by the caller's merchant — clients
+      // can no longer record repayments against arbitrary merchants/loans.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const [loan] = await db.select().from(schema.consumerFinanceLoans)
+        .where(and(
+          eq(schema.consumerFinanceLoans.loanId, input.loanId),
+          eq(schema.consumerFinanceLoans.merchantId, merchant.id),
+        ))
+        .limit(1);
+      if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found for this merchant" });
+      if (loan.status !== "active") {
+        throw new TRPCError({ code: "CONFLICT", message: `Repayments can only be recorded against an active loan (current status: ${loan.status})` });
+      }
       const [row] = await db.insert(schema.loanRepayments).values({
-        ...input,
+        loanId: input.loanId,
+        merchantId: merchant.id,
+        amountKobo: input.amountKobo,
+        transferId: input.transferId ?? null,
+        method: input.method ?? null,
         createdAt: new Date(),
       } as any).returning();
       return row;
@@ -647,8 +837,11 @@ export const loanRepaymentsRouter = router({
 
   stats: protectedProcedure
     .input(z.object({ loanId: z.string().optional() }))
-    .query(async ({ input }) => {
-      const conditions = input.loanId ? [eq(schema.loanRepayments.loanId, input.loanId)] : [];
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.loanRepayments.merchantId, conditions);
+      if (input.loanId) conditions.push(eq(schema.loanRepayments.loanId, input.loanId));
       const [stats] = await db.select({
         total: sql<number>`count(*)`,
         totalAmountKobo: sql<number>`coalesce(sum(amount_kobo), 0)`,
@@ -661,17 +854,33 @@ export const loanRepaymentsRouter = router({
   markPaid: protectedProcedure
     .input(z.object({
       loanId: z.string(),
-      merchantId: z.string().optional(),
-      amountKobo: z.number().positive(),
-      transferId: z.string().optional(),
+      amountKobo: z.number().int().positive(),
+      paymentReference: z.string().min(1),
       method: z.string().optional().default("manual"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4 F1-4a: merchant resolved server-side; ownership + status guard — the
+      // repayment can only be recorded against an ACTIVE loan owned by the
+      // caller's merchant (loan_repayments has no scheduled/pending status
+      // column, so the guard is enforced on the parent loan); a non-empty
+      // paymentReference is REQUIRED so every "paid" repayment is traceable to
+      // a real external payment (spec #3).
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const [loan] = await db.select().from(schema.consumerFinanceLoans)
+        .where(and(
+          eq(schema.consumerFinanceLoans.loanId, input.loanId),
+          eq(schema.consumerFinanceLoans.merchantId, merchant.id),
+        ))
+        .limit(1);
+      if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found for this merchant" });
+      if (loan.status !== "active") {
+        throw new TRPCError({ code: "CONFLICT", message: `Repayments can only be marked paid against an active loan (current status: ${loan.status})` });
+      }
       const [row] = await db.insert(schema.loanRepayments).values({
         loanId: input.loanId,
-        merchantId: input.merchantId ?? "",
+        merchantId: merchant.id,
         amountKobo: input.amountKobo,
-        transferId: input.transferId ?? null,
+        transferId: input.paymentReference,
         method: input.method ?? "manual",
         createdAt: new Date(),
       } as any).returning();
@@ -689,10 +898,11 @@ export const posTerminalsRouter = router({
       merchantId: z.string().optional(),
       search: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.posTerminals.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.posTerminals.status, input.status as any));
-      if (input.merchantId) conditions.push(eq(schema.posTerminals.merchantId, input.merchantId));
       if (input.search) conditions.push(like(schema.posTerminals.serialNumber, `%${input.search}%`));
       const rows = await db.select().from(schema.posTerminals)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -705,25 +915,30 @@ export const posTerminalsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.posTerminals.id, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.posTerminals.merchantId, conditions);
       const [row] = await db.select().from(schema.posTerminals)
-        .where(eq(schema.posTerminals.id, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Terminal not found" });
       return row;
     }),
 
   provision: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      tenantId: z.string(),
       serialNumber: z.string(),
       model: z.string().default("soundbox_basic"),
       label: z.string().optional(),
       location: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId/tenantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.insert(schema.posTerminals).values({
         ...input,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId,
         id: `pos_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         status: "active",
         audioAlertsEnabled: true,
@@ -739,25 +954,37 @@ export const posTerminalsRouter = router({
       id: z.string(),
       status: z.enum(["active", "inactive", "maintenance", "stolen"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — only the owning merchant may change terminal status.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.posTerminals)
         .set({ status: input.status as any })
-        .where(eq(schema.posTerminals.id, input.id))
+        .where(and(
+          eq(schema.posTerminals.id, input.id),
+          eq(schema.posTerminals.merchantId, merchant.id),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Terminal not found or not owned by you" });
       return row;
     }),
 
   heartbeat: protectedProcedure
     .input(z.object({ id: z.string(), firmwareVersion: z.string().optional(), ipAddress: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — a caller may only heartbeat their own merchant's terminals.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.posTerminals)
         .set({
           lastHeartbeatAt: new Date(),
           ...(input.firmwareVersion ? { firmwareVersion: input.firmwareVersion } : {}),
           ...(input.ipAddress ? { ipAddress: input.ipAddress } : {}),
         } as any)
-        .where(eq(schema.posTerminals.id, input.id))
+        .where(and(
+          eq(schema.posTerminals.id, input.id),
+          eq(schema.posTerminals.merchantId, merchant.id),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Terminal not found or not owned by you" });
       return row;
     }),
 
@@ -794,10 +1021,11 @@ export const posTransactionsRouter = router({
       merchantId: z.string().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.posTransactions.merchantId, conditions);
       if (input.terminalId) conditions.push(eq(schema.posTransactions.terminalId, input.terminalId));
-      if (input.merchantId) conditions.push(eq(schema.posTransactions.merchantId, input.merchantId));
       if (input.status) conditions.push(eq(schema.posTransactions.status, input.status));
       const rows = await db.select().from(schema.posTransactions)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -810,9 +1038,12 @@ export const posTransactionsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.posTransactions.id, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.posTransactions.merchantId, conditions);
       const [row] = await db.select().from(schema.posTransactions)
-        .where(eq(schema.posTransactions.id, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "POS transaction not found" });
       return row;
     }),
@@ -820,15 +1051,26 @@ export const posTransactionsRouter = router({
   create: protectedProcedure
     .input(z.object({
       terminalId: z.string(),
-      merchantId: z.string(),
-      amountKobo: z.number().positive(),
+      amountKobo: z.number().int().positive(),
       currency: z.string().default("NGN"),
       channel: z.enum(["qr", "card", "nip", "ussd"]).default("card"),
       maskedPan: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side; the terminal must belong to the
+      // caller's merchant — clients can no longer fabricate completed POS
+      // transactions against arbitrary merchants.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const [terminal] = await db.select().from(schema.posTerminals)
+        .where(and(
+          eq(schema.posTerminals.id, input.terminalId),
+          eq(schema.posTerminals.merchantId, merchant.id),
+        ))
+        .limit(1);
+      if (!terminal) throw new TRPCError({ code: "NOT_FOUND", message: "Terminal not found for this merchant" });
       const [row] = await db.insert(schema.posTransactions).values({
         ...input,
+        merchantId: merchant.id,
         id: `ptxn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         status: "completed",
         settlementStatus: "pending",
@@ -839,8 +1081,10 @@ export const posTransactionsRouter = router({
 
   stats: protectedProcedure
     .input(z.object({ merchantId: z.string().optional() }))
-    .query(async ({ input }) => {
-      const conditions = input.merchantId ? [eq(schema.posTransactions.merchantId, input.merchantId)] : [];
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [];
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.posTransactions.merchantId, conditions);
       const [stats] = await db.select({
         total: sql<number>`count(*)`,
         completed: sql<number>`count(*) filter (where status = 'completed')`,
@@ -861,10 +1105,11 @@ export const purchaseOrdersRouter = router({
       merchantId: z.string().optional(),
       search: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.purchaseOrders.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.purchaseOrders.status, input.status));
-      if (input.merchantId) conditions.push(eq(schema.purchaseOrders.merchantId, input.merchantId));
       if (input.search) conditions.push(like(schema.purchaseOrders.itemName, `%${input.search}%`));
       const rows = await db.select().from(schema.purchaseOrders)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -877,29 +1122,35 @@ export const purchaseOrdersRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.purchaseOrders.id, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.purchaseOrders.merchantId, conditions);
       const [row] = await db.select().from(schema.purchaseOrders)
-        .where(eq(schema.purchaseOrders.id, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Purchase order not found" });
       return row;
     }),
 
   create: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
       inventoryItemId: z.string().optional(),
       itemName: z.string(),
       vendorName: z.string().optional(),
       quantity: z.number().positive(),
       unit: z.string().default("unit"),
-      unitCostKobo: z.number().min(0).default(0),
+      unitCostKobo: z.number().int().min(0).default(0),
       notes: z.string().optional(),
-      createdBy: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId/createdBy resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const user = await requireCtxUser(ctx.user.openId);
       const totalCostKobo = input.quantity * input.unitCostKobo;
       const [row] = await db.insert(schema.purchaseOrders).values({
         ...input,
+        merchantId: merchant.id,
+        createdBy: user.name ?? user.email ?? `user:${user.id}`,
         id: `po_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         totalCostKobo,
         status: "pending",
@@ -912,20 +1163,39 @@ export const purchaseOrdersRouter = router({
   updateStatus: protectedProcedure
     .input(z.object({
       id: z.string(),
-      status: z.enum(["pending", "approved", "received", "cancelled"]),
+      status: z.enum(["approved", "received", "cancelled"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership + transition guard — pending→approved→received,
+      // pending/approved→cancelled; no backward or cross-merchant transitions.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      const allowedFrom: Record<string, string[]> = {
+        approved: ["pending"],
+        received: ["approved"],
+        cancelled: ["pending", "approved"],
+      };
       const [row] = await db.update(schema.purchaseOrders)
         .set({ status: input.status, updatedAt: new Date() })
-        .where(eq(schema.purchaseOrders.id, input.id))
+        .where(and(
+          eq(schema.purchaseOrders.id, input.id),
+          eq(schema.purchaseOrders.merchantId, merchant.id),
+          inArray(schema.purchaseOrders.status, allowedFrom[input.status] ?? []),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Purchase order not found, not owned by you, or invalid status transition" });
       return row;
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
-      await db.delete(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, input.id));
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — only the owning merchant may delete a PO.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      await db.delete(schema.purchaseOrders)
+        .where(and(
+          eq(schema.purchaseOrders.id, input.id),
+          eq(schema.purchaseOrders.merchantId, merchant.id),
+        ));
       return { success: true };
     }),
 
@@ -950,9 +1220,10 @@ export const qrPaymentsRouter = router({
       merchantId: z.string().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(schema.qrPayments.merchantId, input.merchantId));
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.qrPayments.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.qrPayments.status, input.status as any));
       const rows = await db.select().from(schema.qrPayments)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -965,33 +1236,37 @@ export const qrPaymentsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.qrPayments.id, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.qrPayments.merchantId, conditions);
       const [row] = await db.select().from(schema.qrPayments)
-        .where(eq(schema.qrPayments.id, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "QR payment not found" });
       return row;
     }),
 
   generate: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
       amount: z.number().positive().optional(),
       currency: z.string().default("NGN"),
       description: z.string().optional(),
       expiresInMinutes: z.number().min(1).max(1440).default(30),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const expiresAt = new Date(Date.now() + input.expiresInMinutes * 60 * 1000);
       const transactionRef = `QR-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
       const [row] = await db.insert(schema.qrPayments).values({
-        merchantId: input.merchantId,
+        merchantId: merchant.id,
         amount: input.amount,
         currency: input.currency,
         description: input.description,
         status: "pending",
         transactionRef,
         expiresAt,
-        metadata: JSON.stringify({ type: "paygate_qr", merchantId: input.merchantId }),
+        metadata: JSON.stringify({ type: "paygate_qr", merchantId: merchant.id }),
         createdAt: new Date(),
         updatedAt: new Date(),
       } as any).returning();
@@ -1001,25 +1276,34 @@ export const qrPaymentsRouter = router({
   claim: protectedProcedure
     .input(z.object({
       id: z.string(),
-      claimedBy: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: claimedBy resolved server-side; guarded claim — only a pending,
+      // unexpired QR may be claimed (prevents double-claim / expired claims).
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.update(schema.qrPayments)
         .set({
           status: "claimed",
-          claimedBy: input.claimedBy,
+          claimedBy: user.id,
           claimedAt: new Date(),
           updatedAt: new Date(),
         } as any)
-        .where(eq(schema.qrPayments.id, input.id))
+        .where(and(
+          eq(schema.qrPayments.id, input.id),
+          eq(schema.qrPayments.status, "pending"),
+          gt(schema.qrPayments.expiresAt, new Date()),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "CONFLICT", message: "QR payment not found, already claimed, or expired" });
       return row;
     }),
 
   stats: protectedProcedure
     .input(z.object({ merchantId: z.string().optional() }))
-    .query(async ({ input }) => {
-      const conditions = input.merchantId ? [eq(schema.qrPayments.merchantId, input.merchantId)] : [];
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [];
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.qrPayments.merchantId, conditions);
       const [stats] = await db.select({
         total: sql<number>`count(*)`,
         claimed: sql<number>`count(*) filter (where status = 'claimed')`,
@@ -1059,9 +1343,17 @@ export const redEnvelopesRouter = router({
       senderId: z.number().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.senderId) conditions.push(eq(schema.redEnvelopes.senderId, input.senderId));
+      // R4: non-admin callers only ever see their OWN envelopes.
+      const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+        .where(eq(schema.users.openId, ctx.user.openId)).limit(1);
+      if (caller?.role === "admin") {
+        if (input.senderId) conditions.push(eq(schema.redEnvelopes.senderId, input.senderId));
+      } else {
+        const user = await requireCtxUser(ctx.user.openId);
+        conditions.push(eq(schema.redEnvelopes.senderId, user.id));
+      }
       if (input.status) conditions.push(eq(schema.redEnvelopes.status, input.status as any));
       const rows = await db.select().from(schema.redEnvelopes)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -1072,26 +1364,80 @@ export const redEnvelopesRouter = router({
 
   create: protectedProcedure
     .input(z.object({
-      senderId: z.number(),
-      senderWalletId: z.string(),
-      totalAmountKobo: z.number().positive(),
+      idempotencyKey: z.string().min(8),
+      // S15b: kobo is an integer minor unit — fractional kobo is invalid money.
+      totalAmountKobo: z.number().int().positive(),
       currency: z.string().default("NGN"),
       slots: z.number().min(1).max(100).default(5),
       message: z.string().optional(),
       expiresInHours: z.number().min(1).max(168).default(24),
     }))
-    .mutation(async ({ input }) => {
-      const { expiresInHours, ...data } = input;
-      const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
-      const [row] = await db.insert(schema.redEnvelopes).values({
-        ...data,
-        status: "active",
-        claimedSlots: 0,
-        expiresAt,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any).returning();
-      return row;
+    .mutation(async ({ ctx, input }) => {
+      // R4 F4-1 (money-printer fix): the sender and their wallet are resolved
+      // server-side from the session — the client can no longer supply
+      // senderId/senderWalletId. The sender's wallet is debited atomically via
+      // a guarded UPDATE (... WHERE balance_kobo >= amount RETURNING) inside the
+      // SAME transaction as the envelope insert and the ledger txn row, so no
+      // 'active' envelope can exist without real funds backing it (claim path
+      // server/routers.ts:9716+ credits real wallets). Mirrors the funded
+      // create at server/routers.ts:9641-9697. Idempotency key REQUIRED (spec #6).
+      const user = await requireCtxUser(ctx.user.openId);
+      const { expiresInHours, idempotencyKey } = input;
+      return withIdempotency({
+        key: idempotencyKey,
+        merchantId: `consumer:${user.id}`,
+        operation: "redEnvelopes.create",
+        requestBody: input,
+        execute: async () => {
+          return db.transaction(async (tx) => {
+            const [wallet] = await tx.select().from(schema.consumerWallets)
+              .where(and(
+                eq(schema.consumerWallets.userId, user.id),
+                eq(schema.consumerWallets.currency, input.currency),
+                eq(schema.consumerWallets.isActive, true),
+              ))
+              .limit(1);
+            if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "Wallet not found. Please top up first." });
+            // Guarded atomic debit — the WHERE clause enforces sufficient funds under the row lock.
+            const debitRows = await tx.update(schema.consumerWallets)
+              .set({ balanceKobo: sql`${schema.consumerWallets.balanceKobo} - ${input.totalAmountKobo}`, updatedAt: new Date() })
+              .where(and(
+                eq(schema.consumerWallets.id, wallet.id),
+                gte(schema.consumerWallets.balanceKobo, input.totalAmountKobo),
+              ))
+              .returning({ balanceKobo: schema.consumerWallets.balanceKobo });
+            if (!debitRows[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+            const newBalance = debitRows[0].balanceKobo;
+            const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+            const [row] = await tx.insert(schema.redEnvelopes).values({
+              senderId: user.id,
+              senderWalletId: wallet.id,
+              totalAmountKobo: input.totalAmountKobo,
+              currency: input.currency,
+              slots: input.slots,
+              message: input.message,
+              status: "active",
+              claimedSlots: 0,
+              expiresAt,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            } as any).returning();
+            await tx.insert(schema.consumerWalletTxns).values({
+              walletId: wallet.id,
+              userId: user.id,
+              type: "red_envelope_send",
+              amountKobo: input.totalAmountKobo,
+              currency: input.currency,
+              balanceAfterKobo: newBalance,
+              description: `Red envelope created (${input.slots} slots)`,
+              reference: row.id,
+              status: "completed",
+              createdAt: new Date(),
+            } as any);
+            return row;
+          });
+        },
+      });
     }),
 
   getClaims: protectedProcedure
@@ -1123,9 +1469,17 @@ export const referralsRouter = router({
       referrerId: z.number().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.referrerId) conditions.push(eq(schema.referrals.referrerId, input.referrerId));
+      // R4: non-admin callers only ever see their OWN referrals.
+      const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+        .where(eq(schema.users.openId, ctx.user.openId)).limit(1);
+      if (caller?.role === "admin") {
+        if (input.referrerId) conditions.push(eq(schema.referrals.referrerId, input.referrerId));
+      } else {
+        const user = await requireCtxUser(ctx.user.openId);
+        conditions.push(eq(schema.referrals.referrerId, user.id));
+      }
       if (input.status) conditions.push(eq(schema.referrals.status, input.status));
       const rows = await db.select().from(schema.referrals)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -1138,14 +1492,16 @@ export const referralsRouter = router({
 
   create: protectedProcedure
     .input(z.object({
-      referrerId: z.number(),
-      referrerRewardKobo: z.number().default(50000),
-      refereeRewardKobo: z.number().default(25000),
+      referrerRewardKobo: z.number().int().default(50000),
+      refereeRewardKobo: z.number().int().default(25000),
       expiresAt: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: referrerId resolved server-side — users can only create referrals for themselves.
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.insert(schema.referrals).values({
         ...input,
+        referrerId: user.id,
         referralCode: `REF-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
         status: "pending",
         referrerPaid: false,
@@ -1158,19 +1514,34 @@ export const referralsRouter = router({
     }),
 
   complete: protectedProcedure
-    .input(z.object({ referralCode: z.string(), refereeId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ referralCode: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // R4: refereeId resolved server-side; only pending referrals may complete.
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.update(schema.referrals)
-        .set({ status: "completed", refereeId: input.refereeId, updatedAt: new Date() } as any)
-        .where(eq(schema.referrals.referralCode, input.referralCode))
+        .set({ status: "completed", refereeId: user.id, updatedAt: new Date() } as any)
+        .where(and(
+          eq(schema.referrals.referralCode, input.referralCode),
+          eq(schema.referrals.status, "pending"),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "CONFLICT", message: "Referral not found or already completed/cancelled" });
       return row;
     }),
 
   stats: protectedProcedure
     .input(z.object({ referrerId: z.number().optional() }))
-    .query(async ({ input }) => {
-      const conditions = input.referrerId ? [eq(schema.referrals.referrerId, input.referrerId)] : [];
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers only ever see their OWN referral stats.
+      const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+        .where(eq(schema.users.openId, ctx.user.openId)).limit(1);
+      let conditions: any[];
+      if (caller?.role === "admin") {
+        conditions = input.referrerId ? [eq(schema.referrals.referrerId, input.referrerId)] : [];
+      } else {
+        const user = await requireCtxUser(ctx.user.openId);
+        conditions = [eq(schema.referrals.referrerId, user.id)];
+      }
       const [stats] = await db.select({
         total: sql<number>`count(*)`,
         completed: sql<number>`count(*) filter (where status = 'completed')`,
@@ -1182,7 +1553,9 @@ export const referralsRouter = router({
     }),
   bulkApprove: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: completing referrals releases reward value — platform-admin gated (spec #1/#3).
+      await requirePlatformAdmin(ctx.user.openId);
       await db.update(schema.referrals)
         .set({ status: "completed" as any, updatedAt: new Date() } as any)
         .where(inArray(schema.referrals.id, input.ids));
@@ -1190,7 +1563,9 @@ export const referralsRouter = router({
     }),
   bulkReject: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.update(schema.referrals)
         .set({ status: "cancelled" as any, updatedAt: new Date() } as any)
         .where(inArray(schema.referrals.id, input.ids));
@@ -1198,13 +1573,17 @@ export const referralsRouter = router({
     }),
   bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       await db.delete(schema.referrals).where(inArray(schema.referrals.id, input.ids));
       return { deleted: input.ids.length };
     }),
   bulkComplete: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: completing referrals releases reward value — platform-admin gated (spec #1/#3).
+      await requirePlatformAdmin(ctx.user.openId);
       await db.update(schema.referrals)
         .set({ status: "completed" as any, updatedAt: new Date() } as any)
         .where(inArray(schema.referrals.id, input.ids));
@@ -1215,25 +1594,28 @@ export const referralsRouter = router({
 // ─── 16. Saved Beneficiaries ──────────────────────────────────────────────────
 export const savedBeneficiariesRouter = router({
   list: protectedProcedure
-    .input(z.object({ userId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
+      // R4: client userId filter removed — users may only list their OWN beneficiaries.
+      const user = await requireCtxUser(ctx.user.openId);
       return db.select().from(schema.savedBeneficiaries)
-        .where(eq(schema.savedBeneficiaries.userId, input.userId))
+        .where(eq(schema.savedBeneficiaries.userId, user.id))
         .orderBy(desc(schema.savedBeneficiaries.lastUsedAt));
     }),
 
   add: protectedProcedure
     .input(z.object({
-      userId: z.number(),
       accountNumber: z.string(),
       bankCode: z.string(),
       bankName: z.string(),
       accountName: z.string(),
       nickname: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: userId resolved server-side from the session.
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.insert(schema.savedBeneficiaries).values({
         ...input,
+        userId: user.id,
         transferCount: 1,
         lastUsedAt: new Date(),
         createdAt: new Date(),
@@ -1246,33 +1628,50 @@ export const savedBeneficiariesRouter = router({
       id: z.string(),
       nickname: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — users may only update their OWN beneficiaries.
+      const user = await requireCtxUser(ctx.user.openId);
       const { id, ...data } = input;
       const [row] = await db.update(schema.savedBeneficiaries)
         .set(data as any)
-        .where(eq(schema.savedBeneficiaries.id, id))
+        .where(and(
+          eq(schema.savedBeneficiaries.id, id),
+          eq(schema.savedBeneficiaries.userId, user.id),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Beneficiary not found or not owned by you" });
       return row;
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — users may only delete their OWN beneficiaries.
+      const user = await requireCtxUser(ctx.user.openId);
       await db.delete(schema.savedBeneficiaries)
-        .where(eq(schema.savedBeneficiaries.id, input.id));
+        .where(and(
+          eq(schema.savedBeneficiaries.id, input.id),
+          eq(schema.savedBeneficiaries.userId, user.id),
+        ));
       return { success: true };
     }),
 
   incrementUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership guard — users may only touch their OWN beneficiaries.
+      const user = await requireCtxUser(ctx.user.openId);
       const [row] = await db.update(schema.savedBeneficiaries)
         .set({
           transferCount: sql`transfer_count + 1`,
           lastUsedAt: new Date(),
         } as any)
-        .where(eq(schema.savedBeneficiaries.id, input.id))
+        .where(and(
+          eq(schema.savedBeneficiaries.id, input.id),
+          eq(schema.savedBeneficiaries.userId, user.id),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Beneficiary not found or not owned by you" });
       return row;
     }),
 });
@@ -1286,9 +1685,10 @@ export const subscriptionsRouter = router({
       merchantId: z.string().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
-      if (input.merchantId) conditions.push(eq(schema.subscriptions.merchantId, input.merchantId));
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.subscriptions.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.subscriptions.status, input.status as any));
       const rows = await db.select().from(schema.subscriptions)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -1301,31 +1701,36 @@ export const subscriptionsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      const conditions: any[] = [eq(schema.subscriptions.id, input.id)];
+      await applyMerchantScope(ctx.user.openId, undefined, schema.subscriptions.merchantId, conditions);
       const [row] = await db.select().from(schema.subscriptions)
-        .where(eq(schema.subscriptions.id, input.id));
+        .where(and(...conditions));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
       return row;
     }),
 
   create: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
-      tenantId: z.string(),
       customerEmail: z.string().email().optional(),
       customerName: z.string().optional(),
       customerPhone: z.string().optional(),
       planName: z.string(),
-      amountKobo: z.number().positive(),
+      amountKobo: z.number().int().positive(),
       currency: z.string().default("NGN"),
       interval: z.enum(["daily", "weekly", "monthly", "quarterly", "annually"]).default("monthly"),
       totalCycles: z.number().optional(),
       startAt: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId/tenantId resolved server-side from the session.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const startAt = new Date(input.startAt);
       const [row] = await db.insert(schema.subscriptions).values({
         ...input,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId,
         id: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         status: "active",
         completedCycles: 0,
@@ -1337,31 +1742,53 @@ export const subscriptionsRouter = router({
 
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership + transition guard — only active/paused subscriptions of
+      // the caller's merchant may be cancelled.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.subscriptions)
         .set({ status: "cancelled" as any })
-        .where(eq(schema.subscriptions.id, input.id))
+        .where(and(
+          eq(schema.subscriptions.id, input.id),
+          eq(schema.subscriptions.merchantId, merchant.id),
+          inArray(schema.subscriptions.status, ["active", "paused"]),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Subscription not found, not owned by you, or already cancelled" });
       return row;
     }),
 
   pause: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership + transition guard — active → paused only.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.subscriptions)
         .set({ status: "paused" as any })
-        .where(eq(schema.subscriptions.id, input.id))
+        .where(and(
+          eq(schema.subscriptions.id, input.id),
+          eq(schema.subscriptions.merchantId, merchant.id),
+          eq(schema.subscriptions.status, "active"),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Subscription not found, not owned by you, or not active" });
       return row;
     }),
 
   resume: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: ownership + transition guard — paused → active only.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.update(schema.subscriptions)
         .set({ status: "active" as any })
-        .where(eq(schema.subscriptions.id, input.id))
+        .where(and(
+          eq(schema.subscriptions.id, input.id),
+          eq(schema.subscriptions.merchantId, merchant.id),
+          eq(schema.subscriptions.status, "paused"),
+        ))
         .returning();
+      if (!row) throw new TRPCError({ code: "FORBIDDEN", message: "Subscription not found, not owned by you, or not paused" });
       return row;
     }),
 
@@ -1387,10 +1814,11 @@ export const ussdSessionsRouter = router({
       merchantId: z.string().optional(),
       msisdn: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [];
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.ussdSessions.merchantId, conditions);
       if (input.status) conditions.push(eq(schema.ussdSessions.status, input.status as any));
-      if (input.merchantId) conditions.push(eq(schema.ussdSessions.merchantId, input.merchantId));
       if (input.msisdn) conditions.push(like(schema.ussdSessions.msisdn, `%${input.msisdn}%`));
       const rows = await db.select().from(schema.ussdSessions)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -1423,11 +1851,15 @@ export const ussdSessionsRouter = router({
 
   terminate: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: session termination is a platform operation — platform-admin gated
+      // (prevents any user killing other users' USSD sessions).
+      await requirePlatformAdmin(ctx.user.openId);
       const [row] = await db.update(schema.ussdSessions)
         .set({ status: "failed" as any, endedAt: new Date() } as any)
         .where(eq(schema.ussdSessions.sessionId, input.sessionId))
         .returning();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "USSD session not found" });
       return row;
     }),
 });
@@ -1442,9 +1874,10 @@ export const wafAlertsRouter = router({
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const conditions: any[] = [like(schema.auditEvents.action, "waf.%")];
-      if (input.merchantId) conditions.push(eq(schema.auditEvents.merchantId, input.merchantId));
+      // R4: non-admin callers are hard-scoped to their own merchant.
+      await applyMerchantScope(ctx.user.openId, input.merchantId, schema.auditEvents.merchantId, conditions);
       if (input.dateFrom) conditions.push(gte(schema.auditEvents.createdAt, new Date(input.dateFrom)));
       if (input.dateTo) conditions.push(lte(schema.auditEvents.createdAt, new Date(input.dateTo)));
       const rows = await db.select().from(schema.auditEvents)
@@ -1482,7 +1915,6 @@ export const wafAlertsRouter = router({
 
   ingest: protectedProcedure
     .input(z.object({
-      merchantId: z.string(),
       attackType: z.string(),
       sourceIp: z.string(),
       endpoint: z.string(),
@@ -1491,9 +1923,12 @@ export const wafAlertsRouter = router({
       ruleId: z.string().optional(),
       country: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: merchantId resolved server-side — callers can no longer inject
+      // forged WAF audit events against arbitrary merchants.
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
       const [row] = await db.insert(schema.auditEvents).values({
-        merchantId: input.merchantId,
+        merchantId: merchant.id,
         actorId: "system",
         actorName: "OpenAppSec WAF",
         action: `waf.${input.attackType}`,
@@ -1519,7 +1954,9 @@ export const offlineResilienceRouter = router({
       aggregateId: z.string(),
       limit: z.number().min(1).max(100).default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // R4: consumer_outbox is a system sync queue — platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       return db.select().from(schema.consumerOutbox)
         .where(and(
           eq(schema.consumerOutbox.status, "pending"),
@@ -1531,7 +1968,9 @@ export const offlineResilienceRouter = router({
 
   markSynced: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // R4: marking outbox rows processed mutates a system queue — platform-admin gated.
+      await requirePlatformAdmin(ctx.user.openId);
       for (const id of input.ids) {
         await db.update(schema.consumerOutbox)
           .set({ status: "processed", processedAt: new Date() } as any)

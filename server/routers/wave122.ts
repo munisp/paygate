@@ -626,21 +626,39 @@ export const loyaltyRedemptionRouter = router({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid PIN" });
       }
       await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
-      // Deduct points with a guarded atomic decrement (balance checked in the
-      // same UPDATE — no stale pointsBalanceAfter, no overdraw race).
-      const [member] = await db.update(loyaltyV3Members)
-        .set({
-          pointsBalance: sql`${loyaltyV3Members.pointsBalance} - ${redemption.pointsRedeemed}`,
-          updatedAt: new Date(),
-        } as any)
-        .where(and(
-          eq(loyaltyV3Members.id, redemption.memberId),
-          gte(loyaltyV3Members.pointsBalance, redemption.pointsRedeemed),
-        ))
-        .returning();
-      if (!member) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points balance" });
-      }
+      // S15b: atomically CLAIM the redemption (pending → confirmed) with the
+      // status predicate INSIDE the guarded update, in the SAME transaction
+      // as the points deduction. A concurrent double-confirm loses the claim
+      // race (CONFLICT) instead of double-deducting points; a failed
+      // deduction rolls the claim back.
+      const member = await db.transaction(async (tx) => {
+        const [claimed] = await tx.update(loyaltyV3Redemptions)
+          .set({ status: "confirmed", pinVerified: true, confirmedAt: new Date(), updatedAt: new Date() })
+          .where(and(
+            eq(loyaltyV3Redemptions.id, input.redemptionId),
+            eq(loyaltyV3Redemptions.status, "pending"),
+          ))
+          .returning({ id: loyaltyV3Redemptions.id });
+        if (!claimed) {
+          throw new TRPCError({ code: "CONFLICT", message: "Redemption was already confirmed by a concurrent request" });
+        }
+        // Deduct points with a guarded atomic decrement (balance checked in
+        // the same UPDATE — no stale pointsBalanceAfter, no overdraw race).
+        const [deducted] = await tx.update(loyaltyV3Members)
+          .set({
+            pointsBalance: sql`${loyaltyV3Members.pointsBalance} - ${redemption.pointsRedeemed}`,
+            updatedAt: new Date(),
+          } as any)
+          .where(and(
+            eq(loyaltyV3Members.id, redemption.memberId),
+            gte(loyaltyV3Members.pointsBalance, redemption.pointsRedeemed),
+          ))
+          .returning();
+        if (!deducted) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points balance" });
+        }
+        return deducted;
+      });
       // Publish Kafka event
       const kafkaEventId = crypto.randomUUID();
       let kafkaStatus = "pending";
@@ -665,14 +683,12 @@ export const loyaltyRedemptionRouter = router({
       } catch {
         kafkaStatus = "failed";
       }
-      // Update redemption record
+      // Enrich the (already claimed, status=confirmed) redemption record with
+      // the Kafka publication metadata — status is NOT re-flipped here.
       await db.update(loyaltyV3Redemptions)
         .set({
-          status: "confirmed",
-          pinVerified: true,
           kafkaEventId,
           kafkaEventStatus: kafkaStatus,
-          confirmedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(loyaltyV3Redemptions.id, input.redemptionId));

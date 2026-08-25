@@ -40,13 +40,36 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("fatf-sanctions-sync")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
+
 # ─── Config ────────────────────────────────────────────────────────────────────
-DATABASE_URL          = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL          = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 REDIS_URL             = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 KAFKA_BOOTSTRAP       = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 OPENSEARCH_URL        = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 OPENSEARCH_USER       = os.getenv("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASS       = os.getenv("OPENSEARCH_PASS", "admin")
+OPENSEARCH_PASS       = _require_secret_env("OPENSEARCH_PASS")
 PORT                  = int(os.getenv("PORT", "8600"))
 SYNC_INTERVAL_SECONDS = int(os.getenv("SYNC_INTERVAL_SECONDS", "21600"))  # 6 hours
 

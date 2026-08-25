@@ -17,7 +17,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -251,12 +251,23 @@ async fn main() {
         .route("/nonce/payment", post(generate_payment_nonce_handler))
         .route("/nonce/webhook", post(generate_webhook_nonce_handler))
         .route("/nonce/csrf", post(generate_csrf_token_handler))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer({
+            // Internal service — allow only explicitly configured origins
+            // (ALLOWED_ORIGINS, comma-separated). No permissive `Any`.
+            let origins: Vec<axum::http::HeaderValue> = std::env::var("ALLOWED_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|o| o.trim().parse().ok())
+                .collect();
+            let layer = CorsLayer::new()
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                .allow_headers([axum::http::header::CONTENT_TYPE]);
+            if origins.is_empty() {
+                layer
+            } else {
+                layer.allow_origin(origins)
+            }
+        })
         .layer(RequestBodyLimitLayer::new(1 * 1024 * 1024)) // 1 MB body limit
         .with_state(state);
 

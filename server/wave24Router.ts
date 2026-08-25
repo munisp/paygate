@@ -24,6 +24,7 @@ import {
   merchantRiskScores,
   consumerBudgets,
   consumerSavingsGoals,
+  consumerWalletTxns,
   referrals,
   chargebacks,
   settlementSlaEvents,
@@ -31,10 +32,13 @@ import {
   merchantStatusLog,
   transactionReceipts,
   merchants,
+  users,
   webhooks,
 } from "../drizzle/schema";
-import { eq, desc, asc, and, sql, count } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { getUserByOpenId, getMerchantByOwnerId } from "./db";
+import { withIdempotency } from "./idempotency";
 
 // ─── DB helper ────────────────────────────────────────────────────────────────
 async function requireDb() {
@@ -42,6 +46,28 @@ async function requireDb() {
   if (!d) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
   return d;
 }
+
+// ─── Server-side merchant resolution (mirrors routers/chargebackLifecycle.ts) ─
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "NOT_FOUND", message: "Merchant not found for user" });
+  return merchant.id;
+}
+
+// ─── Platform-admin guard (DB re-check, mirrors adminRouter.ts:25-38) ────────
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const d = await requireDb();
+  const [user] = await d.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (!user || user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  }
+  return next({ ctx });
+});
 
 // ─── Help Search Analytics ────────────────────────────────────────────────────
 export const helpAnalyticsRouter = router({
@@ -468,25 +494,67 @@ export const savingsGoalsRouter = router({
     .input(z.object({
       id: z.string(),
       amountKobo: z.number().int().min(100),
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ input, ctx }) => {
       const d = await requireDb();
-      const [goal] = await d.select().from(consumerSavingsGoals)
-        .where(and(eq(consumerSavingsGoals.id, input.id), eq(consumerSavingsGoals.userId, ctx.user.id)))
-        .limit(1);
-      if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Savings goal not found" });
-      const newSaved = goal.savedKobo + input.amountKobo;
-      const completed = newSaved >= goal.targetKobo;
-      const [updated] = await d.update(consumerSavingsGoals)
-        .set({
-          savedKobo: newSaved,
-          status: completed ? "completed" : "active",
-          completedAt: completed ? new Date() : undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(consumerSavingsGoals.id, input.id))
-        .returning();
-      return updated;
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: `consumer:${ctx.user.id}`,
+        operation: "wave24.savingsGoals.deposit",
+        requestBody: input,
+        execute: async () => {
+          // Unbacked value writes are bugs: the goal increment must be funded by
+          // a real, guarded wallet debit in the SAME transaction, with a ledger row.
+          return d.transaction(async (tx) => {
+            const [goal] = await tx.select().from(consumerSavingsGoals)
+              .where(and(eq(consumerSavingsGoals.id, input.id), eq(consumerSavingsGoals.userId, ctx.user.id)))
+              .limit(1);
+            if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Savings goal not found" });
+            // Guarded atomic debit — fails (0 rows) when balance is insufficient.
+            const debitResult = await tx.execute(sql`
+              UPDATE consumer_wallets
+              SET balance_kobo = balance_kobo - ${input.amountKobo}, updated_at = NOW()
+              WHERE user_id = ${ctx.user.id}
+                AND is_active = true
+                AND balance_kobo >= ${input.amountKobo}
+              RETURNING id, balance_kobo
+            `);
+            // tx.execute returns a RowList (array-like); use the repo idiom
+            // ((res as any)?.rows ?? res ?? []) to normalise both driver shapes.
+            const debitRows = (((debitResult as any)?.rows ?? debitResult ?? []) as Array<{ id: string; balance_kobo: number | string }>);
+            const wallet = debitRows[0];
+            if (!wallet) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: "Insufficient wallet balance (or no active wallet) for this deposit",
+              });
+            }
+            const newSaved = goal.savedKobo + input.amountKobo;
+            const completed = newSaved >= goal.targetKobo;
+            const [updated] = await tx.update(consumerSavingsGoals)
+              .set({
+                savedKobo: newSaved,
+                status: completed ? "completed" : "active",
+                completedAt: completed ? new Date() : undefined,
+                updatedAt: new Date(),
+              })
+              .where(eq(consumerSavingsGoals.id, input.id))
+              .returning();
+            // Ledger row for the wallet debit.
+            await tx.insert(consumerWalletTxns).values({
+              walletId: wallet.id,
+              userId: ctx.user.id,
+              type: "debit",
+              amountKobo: input.amountKobo,
+              balanceAfterKobo: Number(wallet.balance_kobo),
+              description: `Savings goal deposit: ${goal.name}`,
+              reference: `savings_deposit:${input.id}:${input.idempotencyKey}`,
+            });
+            return updated;
+          });
+        },
+      });
     }),
 
   update: protectedProcedure
@@ -656,8 +724,12 @@ export const chargebacksRouter = router({
         additionalNotes: z.string().optional(),
       }),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const d = await requireDb();
+      // S15b: merchant scoping (a merchant may only submit evidence on its OWN
+      // chargebacks) + status guard: evidence may be submitted while the
+      // chargeback is open/under_review; terminal states reject the write.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const [updated] = await d.update(chargebacks)
         .set({
           evidence: JSON.stringify(input.evidence),
@@ -665,9 +737,19 @@ export const chargebacksRouter = router({
           status: "under_review",
           updatedAt: new Date(),
         })
-        .where(eq(chargebacks.id, input.id))
+        .where(and(
+          eq(chargebacks.id, input.id),
+          eq(chargebacks.merchantId, merchantId),
+          inArray(chargebacks.status, ["open", "under_review"]),
+        ))
         .returning();
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Chargeback not found" });
+      if (!updated) {
+        const [existing] = await d.select().from(chargebacks)
+          .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, merchantId)))
+          .limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Chargeback not found" });
+        throw new TRPCError({ code: "CONFLICT", message: `Chargeback is '${existing.status}' — evidence can only be submitted while open/under_review` });
+      }
       return updated;
     }),
 
@@ -677,9 +759,13 @@ export const chargebacksRouter = router({
       status: z.enum(["open", "under_review", "won", "lost", "accepted", "withdrawn"]),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const d = await requireDb();
+      // Merchant scoping: a merchant may only transition its OWN chargebacks.
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const resolved = ["won", "lost", "accepted", "withdrawn"].includes(input.status);
+      // Transition guard: only open/under_review chargebacks may transition;
+      // terminal states (won/lost/accepted/withdrawn) are not re-enterable.
       const [updated] = await d.update(chargebacks)
         .set({
           status: input.status,
@@ -687,9 +773,23 @@ export const chargebacksRouter = router({
           resolvedAt: resolved ? new Date() : undefined,
           updatedAt: new Date(),
         })
-        .where(eq(chargebacks.id, input.id))
+        .where(and(
+          eq(chargebacks.id, input.id),
+          eq(chargebacks.merchantId, merchantId),
+          inArray(chargebacks.status, ["open", "under_review"]),
+        ))
         .returning();
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Chargeback not found" });
+      if (!updated) {
+        const [existing] = await d.select({ status: chargebacks.status })
+          .from(chargebacks)
+          .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, merchantId)))
+          .limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Chargeback not found" });
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Chargeback is in terminal status '${existing.status}' and cannot be transitioned`,
+        });
+      }
       return updated;
     }),
 });
@@ -871,7 +971,7 @@ export const webhookSimulatorRouter = router({
 
 // ─── Merchant Actions (Admin) ─────────────────────────────────────────────────
 export const merchantActionsRouter = router({
-  ban: protectedProcedure
+  ban: adminProcedure
     .input(z.object({ merchantId: z.string(), reason: z.string().min(10), notes: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
       const d = await requireDb();
@@ -892,7 +992,7 @@ export const merchantActionsRouter = router({
       return log;
     }),
 
-  suspend: protectedProcedure
+  suspend: adminProcedure
     .input(z.object({
       merchantId: z.string(),
       reason: z.string().min(10),
@@ -919,7 +1019,7 @@ export const merchantActionsRouter = router({
       return log;
     }),
 
-  unsuspend: protectedProcedure
+  unsuspend: adminProcedure
     .input(z.object({ merchantId: z.string(), reason: z.string().min(5), notes: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
       const d = await requireDb();

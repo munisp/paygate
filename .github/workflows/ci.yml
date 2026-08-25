@@ -106,12 +106,10 @@ jobs:
           server/stripeWebhook.real.test.ts
           server/money-correctness.test.ts
           server/sqlInjection.regression.test.ts
-      # INFORMATIONAL: the legacy suite contains ~141 stale/env-dependent failures
-      # (pre-existing assertions written against mock-era behavior, plus suites that
-      # require live external credentials). Tracked for cleanup — do not let it
-      # mask the hard gate above, and do not treat its redness as a regression.
-      - name: Run legacy full suite (informational — stale assertions pending update)
-        continue-on-error: true
+      # HARD GATE: the legacy full suite must also pass. The previous
+      # continue-on-error made this a declared-but-unenforced gate; stale
+      # assertions have been remediated, so redness here is a real regression.
+      - name: Run full test suite (hard gate)
         run: pnpm test
 
   go:
@@ -127,6 +125,7 @@ jobs:
           - { name: upi-gateway, path: go-services/upi-gateway, vendored: false }
           - { name: mojaloop-fspiop-adapter, path: go-services/mojaloop-fspiop-adapter, vendored: false }
           - { name: pbac-engine, path: go-services/pbac-engine, vendored: true }
+          - { name: liveness-gateway, path: go-services/liveness-gateway, vendored: true }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

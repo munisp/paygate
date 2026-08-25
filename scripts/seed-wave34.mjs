@@ -6,9 +6,15 @@ import pg from 'pg';
 import { randomUUID } from 'crypto';
 const { Pool } = pg;
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 const pool = new Pool({
   connectionString: process.env.PG_DATABASE_URL || process.env.DATABASE_URL,
-  ssl: process.env.PG_DATABASE_URL ? { rejectUnauthorized: false } : false,
+  ssl: process.env.PG_DATABASE_URL ? SEED_SSL : false,
 });
 
 async function q(sql, params = []) {

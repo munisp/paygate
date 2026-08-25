@@ -19,13 +19,36 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ai-insights")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
+
 # ─── Configuration ─────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 BUILT_IN_FORGE_API_URL = os.getenv("BUILT_IN_FORGE_API_URL", "https://api.manus.im/v1")
 BUILT_IN_FORGE_API_KEY = os.getenv("BUILT_IN_FORGE_API_KEY", "")
 FLUVIO_ENDPOINT = os.getenv("FLUVIO_ENDPOINT", "localhost:9003")
 SYNC_RELAY_URL = os.getenv("SYNC_RELAY_URL", "http://localhost:8090")
-SYNC_RELAY_KEY = os.getenv("SYNC_RELAY_KEY", "sync-relay-key-default")
+SYNC_RELAY_KEY = _require_secret_env("SYNC_RELAY_KEY")
 PORT = int(os.getenv("PORT", "8098"))
 
 # ─── Models ────────────────────────────────────────────────────────────────────

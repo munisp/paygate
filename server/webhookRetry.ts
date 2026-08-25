@@ -15,8 +15,10 @@ import { isSuppressedWorkerError } from './workerErrorFilter';
  *   Attempt 6: 12 hours
  *   Attempt 7: 24 hours (final — moves to dead-letter after this)
  *
- * After 7 failed attempts, the delivery is marked "dead_letter" and the
- * merchant is notified via the in-app notification system.
+ * After 7 failed attempts, the delivery stays 'failed' with
+ * attemptCount >= 7 and no next_retry_at — that IS the dead-letter state
+ * (webhook_delivery_status enum has no 'dead_letter'/'cancelled' values;
+ * spec #12 — dead-lettered rows are filtered by attemptCount at read time).
  *
  * Usage: call startWebhookRetryWorker() once in server/_core/index.ts
  */
@@ -134,11 +136,19 @@ async function processRetries() {
       .limit(1);
 
     if (!endpointRows.length || !endpointRows[0].isActive) {
-      // Endpoint deleted or disabled — mark as cancelled
+      // R4 F14 (spec #12): 'cancelled' is NOT in the webhook_delivery_status
+      // enum (pending|success|failed|retrying) — writing it would throw or
+      // corrupt. Terminally park the delivery as 'failed' with
+      // attemptCount = MAX_ATTEMPTS so it is never selected for retry again.
       await db
         .update(webhookDeliveries)
-        .set({ status: "cancelled" } as any)
+        .set({
+          status: "failed",
+          attemptCount: MAX_ATTEMPTS,
+          nextRetryAt: null,
+        } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
+      logger.warn(`[webhookRetry] Delivery ${delivery.id} parked (endpoint deleted or disabled) — no further retries`);
       continue;
     }
 
@@ -159,17 +169,21 @@ async function processRetries() {
 
       console.info(`[webhookRetry] Delivery ${delivery.id} succeeded on attempt ${newAttemptCount}`);
     } else if (newAttemptCount >= MAX_ATTEMPTS) {
-      // Dead-letter
+      // Dead-letter (spec #12): 'dead_letter' is NOT in the
+      // webhook_delivery_status enum. The dead-letter state is represented as
+      // status='failed' with attemptCount >= MAX_ATTEMPTS and no next retry —
+      // readers filter on attemptCount.
       await db
         .update(webhookDeliveries)
         .set({
-          status: "dead_letter",
+          status: "failed",
           attemptCount: newAttemptCount,
           responseStatus: statusCode ?? null,
+          nextRetryAt: null,
         } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
 
-      logger.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered after ${newAttemptCount} attempts`);
+      logger.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered (status=failed, attemptCount=${newAttemptCount} >= ${MAX_ATTEMPTS})`);
     } else {
       // Schedule next retry
       const retryAt = nextRetryAt(newAttemptCount);

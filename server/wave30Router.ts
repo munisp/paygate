@@ -7,10 +7,37 @@
  * Security VULN-031–040
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, execRaw } from "./db";
 import { publishEvent, KAFKA_TOPICS } from "./kafkaClient";
+import { publishAuditEvent } from "./auditEvents";
+import { logger } from "./logger";
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Payout approvals, platform billing writes and treasury/fx position closes
+// are platform-level operations: the caller's session role is NOT trusted —
+// the role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+// Identity strings that may appear in payout_approval_workflows.requested_by,
+// used to enforce maker ≠ checker against the authenticated approver.
+function approverIdentities(ctx: any): string[] {
+  return [ctx?.user?.email, ctx?.user?.openId, ctx?.user?.name, String(ctx?.user?.id ?? "")]
+    .filter((v): v is string => Boolean(v));
+}
 
 // ─── Tenant Billing Stripe Integration ───────────────────────────────────────
 const tenantStripeBillingRouter = router({
@@ -107,12 +134,29 @@ const tenantStripeBillingRouter = router({
 
   markInvoicePaid: protectedProcedure
     .input(z.object({ invoiceId: z.string(), stripeInvoiceId: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `UPDATE tenant_billing_invoices 
+      // Platform billing: only a platform admin may mark a tenant invoice
+      // paid (a tenant must never mark its own platform invoice paid).
+      await requirePlatformAdmin(ctx);
+      // Status guard: only unpaid/draft invoices may transition to paid.
+      const updated = await execRaw(db, `UPDATE tenant_billing_invoices 
          SET status = 'paid', stripe_invoice_id = $2, paid_at = NOW(), updated_at = NOW()
-         WHERE id = $1`, [input.invoiceId, input.stripeInvoiceId ?? null]);
+         WHERE id = $1 AND status <> 'paid'
+         RETURNING id`, [input.invoiceId, input.stripeInvoiceId ?? null]);
+      if (!updated.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Invoice not found or already paid" });
+      }
+      await publishAuditEvent({
+        action: "billing.invoice_marked_paid",
+        resourceType: "tenant_billing_invoice",
+        resourceId: input.invoiceId,
+        actorId: String(ctx.user.id),
+        actorName: ctx.user.name ?? "unknown",
+        actorEmail: ctx.user.email ?? null,
+        metadata: { stripeInvoiceId: input.stripeInvoiceId ?? null },
+      });
       return { success: true };
     }),
 
@@ -453,7 +497,7 @@ const kybStateMachineRouter = router({
         },
         String(input.merchantId),
         { "x-event-type": "kyb.state_transition" },
-      ).catch(() => {});
+      ).catch((e) => logger.error("[wave30] kyb.state_transition event publish failed — audit trail lost", { merchantId: input.merchantId, error: e instanceof Error ? e.message : String(e) }));
       return { success: true, newState: resolvedToState };
     }),
 
@@ -639,36 +683,62 @@ const payoutApprovalRouter = router({
     }),
 
   approve: protectedProcedure
-    .input(z.object({ payoutId: z.string(), approvedBy: z.number(), notes: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutId: z.string(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout approval is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Status guard + maker ≠ checker: approver must not be the initiator
+      // (requested_by) when the initiator is known.
+      const wf = await execRaw(db, `SELECT requested_by FROM payout_approval_workflows WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId]);
+      if (!wf.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Payout not found or not pending approval" });
+      }
+      const requestedBy = (wf[0] as any).requested_by;
+      if (requestedBy && approverIdentities(ctx).includes(String(requestedBy))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Maker-checker violation: approver cannot be the payout initiator" });
+      }
+      // Approver identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $2, approval_notes = $3, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.approvedBy, input.notes ?? null]);
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, ctx.user.id, input.notes ?? null]);
       return { success: true };
     }),
 
   reject: protectedProcedure
-    .input(z.object({ payoutId: z.string(), rejectedBy: z.number(), reason: z.string().max(5000) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutId: z.string(), reason: z.string().max(5000) }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout rejection is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Rejector identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'rejected', rejected_by = $2, rejection_reason = $3, rejected_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.rejectedBy, input.reason]);
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, ctx.user.id, input.reason]);
       return { success: true };
     }),
 
   bulkApprove: protectedProcedure
-    .input(z.object({ payoutIds: z.array(z.string()), approvedBy: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutIds: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Batch payout approval is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Maker ≠ checker: refuse the whole batch if the approver initiated any
+      // of the payouts (when the initiator is known).
+      const selfInitiated = await execRaw(db, `SELECT payout_id FROM payout_approval_workflows
+         WHERE payout_id = ANY($1) AND requested_by = ANY($2)`, [input.payoutIds, approverIdentities(ctx)]);
+      if (selfInitiated.length) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Maker-checker violation: cannot approve payouts you initiated" });
+      }
       const placeholders = input.payoutIds.map((_, i) => `$${i + 2}`).join(', ');
+      // Approver identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`, [input.approvedBy, ...input.payoutIds]);
+         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`, [ctx.user.id, ...input.payoutIds]);
       return { success: true, count: input.payoutIds.length };
     }),
 
@@ -688,9 +758,11 @@ const payoutApprovalRouter = router({
 
   autoApprove: protectedProcedure
     .input(z.object({ riskScoreThreshold: z.number().default(30), maxAmountKobo: z.number().default(10000000) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Mass-approving payouts is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const { rows } = await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', auto_approved = TRUE, approved_at = NOW(), updated_at = NOW()
          WHERE status = 'pending_approval' 
@@ -765,9 +837,11 @@ const fxHedgingRouter = router({
 
   closePosition: protectedProcedure
     .input(z.object({ positionId: z.string(), closingRate: z.number().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Closing platform treasury hedge positions is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const { rows } = await execRaw(db, `SELECT * FROM fx_hedge_positions WHERE id = $1 OR position_id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];

@@ -13,6 +13,7 @@ package handlers
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,8 +21,86 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 )
+
+// ─── Secret resolution (fail closed) ──────────────────────────────────────────
+
+var (
+	biometricSecretOnce sync.Once
+	biometricSecret     string
+)
+
+// biometricHMACSecret resolves the HMAC secret for biometric challenge/token
+// operations. Fail closed per remediation spec #16/#19:
+//   - JWT_SECRET set → use it.
+//   - Unset in production → return "" (handlers reject with 503; NEVER fall
+//     back to a well-known hardcoded default).
+//   - Unset in dev → generate a per-boot random secret and log a warning.
+func biometricHMACSecret() string {
+	biometricSecretOnce.Do(func() {
+		biometricSecret = os.Getenv("JWT_SECRET")
+		if biometricSecret != "" {
+			return
+		}
+		env := strings.ToLower(os.Getenv("ENV"))
+		appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+		if env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod" {
+			slog.Error("FATAL: JWT_SECRET must be set when ENV=production — biometric token endpoints will reject all requests (fail closed)")
+			biometricSecret = ""
+			return
+		}
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			slog.Error("FATAL: crypto/rand unavailable — biometric token endpoints disabled", "err", err)
+			biometricSecret = ""
+			return
+		}
+		biometricSecret = hex.EncodeToString(b)
+		slog.Warn("JWT_SECRET unset — generated per-boot random secret for biometric tokens (dev only; tokens are NOT verifiable by other services)")
+	})
+	return biometricSecret
+}
+
+// ─── Token revocation denylist (in-memory, TTL-bound) ─────────────────────────
+
+var (
+	revokedBiometricMu sync.Mutex
+	revokedBiometric   = map[string]int64{} // token → unix time when the entry may be purged
+)
+
+// revokeBiometricToken adds a token to the revocation denylist. The entry is
+// kept for the full token lifetime (15 minutes) and purged lazily afterwards.
+func revokeBiometricToken(token string) {
+	revokedBiometricMu.Lock()
+	defer revokedBiometricMu.Unlock()
+	// Lazy purge of expired entries
+	now := time.Now().Unix()
+	for t, exp := range revokedBiometric {
+		if exp < now {
+			delete(revokedBiometric, t)
+		}
+	}
+	revokedBiometric[token] = time.Now().Add(15 * time.Minute).Unix()
+}
+
+// IsBiometricTokenRevoked reports whether a biometric session token has been
+// revoked. Verifiers of biometric tokens MUST consult this denylist.
+func IsBiometricTokenRevoked(token string) bool {
+	revokedBiometricMu.Lock()
+	defer revokedBiometricMu.Unlock()
+	exp, ok := revokedBiometric[token]
+	if !ok {
+		return false
+	}
+	if exp < time.Now().Unix() {
+		delete(revokedBiometric, token)
+		return false
+	}
+	return true
+}
 
 // BiometricTokenRequest is the body for the biometric token exchange endpoint.
 type BiometricTokenRequest struct {
@@ -49,10 +128,13 @@ func BiometricToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify HMAC challenge: HMAC-SHA256(JWT_SECRET+deviceID, nonce)
-	secret := os.Getenv("JWT_SECRET")
+	// Verify HMAC challenge: HMAC-SHA256(JWT_SECRET+deviceID, nonce).
+	// Fail closed: no well-known default secret is ever used.
+	secret := biometricHMACSecret()
 	if secret == "" {
-		secret = "dev-secret"
+		slog.Error("[biometric] token exchange refused: JWT_SECRET not configured")
+		http.Error(w, `{"error":"biometric token service not configured"}`, http.StatusServiceUnavailable)
+		return
 	}
 	mac := hmac.New(sha256.New, []byte(secret+req.DeviceID))
 	mac.Write([]byte(req.Nonce))
@@ -94,8 +176,10 @@ func BiometricRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"user_id and token are required"}`, http.StatusBadRequest)
 		return
 	}
-	// In production: add token to a Redis revocation set with TTL matching expiry.
-	// Here we log and acknowledge.
+	// Real revocation: add the token to the in-memory denylist with a TTL
+	// matching the token lifetime (15 min). Verifiers consult
+	// IsBiometricTokenRevoked before trusting a biometric session token.
+	revokeBiometricToken(req.Token)
 	slog.Info("[biometric] token revoked", "user_id", req.UserID, "device_id", req.DeviceID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }

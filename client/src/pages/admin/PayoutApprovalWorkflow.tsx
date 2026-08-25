@@ -34,10 +34,10 @@ export default function PayoutApprovalWorkflow() {
   const handleAction = () => {
     if (!selectedWorkflow || !action) return;
     if (action === "approve") {
-      approve.mutate({ id: selectedWorkflow.id, approverId: 1, notes });
+      approve.mutate({ id: selectedWorkflow.id, notes });
     } else {
       if (!notes) { toast.error("Rejection reason is required"); return; }
-      reject.mutate({ id: selectedWorkflow.id, approverId: 1, reason: notes });
+      reject.mutate({ id: selectedWorkflow.id, reason: notes });
     }
   };
 

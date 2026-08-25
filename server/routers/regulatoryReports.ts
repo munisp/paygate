@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from '../db';
 import * as schema from '../../drizzle/schema';
 import { eq, and, desc, count, gte, lte } from 'drizzle-orm';
+import { logger } from '../logger';
 
 async function resolveMerchantId(openId: string): Promise<string> {
   const user = await getUserByOpenId(openId);
@@ -160,7 +161,10 @@ export const regulatoryReportsRouter = router({
         db.update(schema.regulatoryReports)
           .set({ status: 'acknowledged', acknowledgedAt: new Date() })
           .where(eq(schema.regulatoryReports.id, sub.reportId))
-          .catch(() => {}); // best-effort; submission is already acknowledged
+          .catch((e) => logger.error("[regulatoryReports] parent report acknowledgement persistence failed", {
+            reportId: sub.reportId,
+            error: e instanceof Error ? e.message : String(e),
+          })); // best-effort; submission is already acknowledged
       }
       return { success: true };
     }),

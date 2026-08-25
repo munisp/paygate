@@ -200,12 +200,28 @@ export const usdcRouter = router({
         `/v1/usdc/balance?wallet=${wallet.walletAddress}&network=${network}`
       );
 
+      // R4 F5: a null bridge result means the balance is UNKNOWN — reporting
+      // "0.00" would fabricate an empty account (and could green-light spends
+      // against an unverifiable balance). Fail loud instead.
+      if (!result) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "USDC balance unavailable — settlement bridge unreachable. Balance NOT reported as zero.",
+        });
+      }
+      if (typeof result.balance_usdc !== "string" || typeof result.balance_lamports !== "number") {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "USDC balance unavailable — settlement bridge returned a malformed balance payload.",
+        });
+      }
+
       return {
         hasWallet: true,
         walletAddress: wallet.walletAddress,
         network: wallet.network,
-        balanceLamports: result?.balance_lamports ?? 0,
-        balanceUsdc: result?.balance_usdc ?? "0.00",
+        balanceLamports: result.balance_lamports,
+        balanceUsdc: result.balance_usdc,
       };
     }),
 
@@ -217,9 +233,10 @@ export const usdcRouter = router({
       amountUsdc: z.number().positive().max(1_000_000),
       reference: z.string().max(128).optional(),
       network: z.enum(["mainnet", "devnet"]).default("mainnet"),
-      // Idempotency key for this money movement. A retry with the same key
-      // replays the stored response and NEVER creates a second payout.
-      idempotencyKey: z.string().min(8).max(128).optional(),
+      // Idempotency key — REQUIRED for this money movement (spec #6). A retry
+      // with the same key replays the stored response and NEVER creates a
+      // second payout.
+      idempotencyKey: z.string().min(8).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
       const merchantId = ctx.user.openId;
@@ -304,19 +321,15 @@ export const usdcRouter = router({
         };
       };
 
-      // Exactly-once: when the client supplies an idempotency key, claim it
-      // atomically — concurrent/duplicate retries replay, never re-execute.
-      if (input.idempotencyKey) {
-        return withIdempotency({
-          key: input.idempotencyKey,
-          merchantId,
-          operation: "usdc.initiatePayout",
-          requestBody: input,
-          execute,
-        });
-      }
-      logger.warn(`[usdc] initiatePayout called WITHOUT idempotency key (merchant=${merchantId}) — duplicate submissions are not deduplicated`);
-      return execute();
+      // Exactly-once (idempotency key is REQUIRED): claim the key atomically —
+      // concurrent/duplicate retries replay, never re-execute.
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId,
+        operation: "usdc.initiatePayout",
+        requestBody: input,
+        execute,
+      });
     }),
 
   getPayoutStatus: protectedProcedure

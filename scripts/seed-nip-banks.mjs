@@ -15,6 +15,12 @@ import { randomUUID } from "crypto";
 
 const { Pool } = pg;
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 // ── Bank data ─────────────────────────────────────────────────────────────────
 // [bankCode, bankName, shortName, nipCode, category, supportsNip, supportsUssd]
 const NIGERIAN_BANKS = [
@@ -102,7 +108,7 @@ async function seedNipBanks() {
     connectionString: connStr,
     ssl: connStr.includes("localhost") || connStr.includes("127.0.0.1")
       ? false
-      : { rejectUnauthorized: false },
+      : SEED_SSL,
   });
 
   console.log(`Seeding ${NIGERIAN_BANKS.length} Nigerian banks into nip_banks table...`);

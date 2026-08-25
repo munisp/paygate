@@ -267,6 +267,9 @@ export default function ConsumerSavingsGoals() {
               onClick={() => depositGoalId && depositMutation.mutate({
                 id: depositGoalId,
                 amountKobo: Math.round(parseFloat(depositAmount) * 100),
+                // Generated per user-initiated deposit (not per render) so
+                // retries of the same action stay replay-safe.
+                idempotencyKey: crypto.randomUUID(),
               })}
               disabled={!depositAmount || parseFloat(depositAmount) <= 0 || depositMutation.isPending}
             >

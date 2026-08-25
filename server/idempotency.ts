@@ -49,6 +49,31 @@ function hashRequest(body: unknown): string {
     .digest("hex");
 }
 
+/** tRPC error code -> HTTP-ish status persisted on the idempotency row. */
+const TRPC_CODE_TO_STATUS = {
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  UNPROCESSABLE_CONTENT: 422,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL_SERVER_ERROR: 500,
+  PRECONDITION_FAILED: 412,
+  SERVICE_UNAVAILABLE: 503,
+} as const;
+const TRPC_CODE_SET: Record<string, true> = Object.fromEntries(
+  Object.keys(TRPC_CODE_TO_STATUS).map((k) => [k, true])
+);
+/** Reverse lookup used when a legacy stored row has no `code` field. */
+const STATUS_TO_TRPC_CODE: Record<number, keyof typeof TRPC_CODE_TO_STATUS> =
+  Object.fromEntries(
+    Object.entries(TRPC_CODE_TO_STATUS).map(([code, status]) => [
+      status,
+      code as keyof typeof TRPC_CODE_TO_STATUS,
+    ])
+  );
+
 /**
  * withIdempotency wraps any async operation with exactly-once semantics.
  *
@@ -145,6 +170,22 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
       });
     }
 
+    // R4 F5 (spec #11): a stored FAILED response must be re-thrown, never
+    // returned as a success payload. Errors are persisted as
+    // { error: string, code: TRPC_ERROR_CODE } alongside responseStatus >= 400.
+    if (record.responseStatus >= 400) {
+      const stored = (record.responseBody ?? {}) as { error?: unknown; code?: unknown };
+      const message =
+        typeof stored.error === "string" && stored.error.length > 0
+          ? stored.error
+          : `Stored failure for idempotency key '${key}' (HTTP ${record.responseStatus})`;
+      const code: keyof typeof TRPC_CODE_TO_STATUS =
+        typeof stored.code === "string" && stored.code in TRPC_CODE_TO_STATUS
+          ? (stored.code as keyof typeof TRPC_CODE_TO_STATUS)
+          : (STATUS_TO_TRPC_CODE[record.responseStatus] ?? "INTERNAL_SERVER_ERROR");
+      throw new TRPCError({ code, message });
+    }
+
     // Cache hit: return stored response without re-executing.
     return record.responseBody as T;
   }
@@ -170,21 +211,16 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
     // Store failed responses too so retries get the same error
     responseStatus = 500;
     if (err instanceof TRPCError) {
-      const codeToStatus: Record<string, number> = {
-        BAD_REQUEST: 400,
-        UNAUTHORIZED: 401,
-        FORBIDDEN: 403,
-        NOT_FOUND: 404,
-        CONFLICT: 409,
-        UNPROCESSABLE_CONTENT: 422,
-        TOO_MANY_REQUESTS: 429,
-        INTERNAL_SERVER_ERROR: 500,
-      };
-      responseStatus = codeToStatus[err.code] ?? 500;
+      responseStatus =
+        TRPC_CODE_TO_STATUS[err.code as keyof typeof TRPC_CODE_TO_STATUS] ?? 500;
     }
 
-    // Persist the error so replays get the same error without re-executing
-    await persist({ error: err instanceof Error ? err.message : String(err) });
+    // Persist the error (message + tRPC code) so replays re-THROW the same
+    // error without re-executing (spec #11).
+    await persist({
+      error: err instanceof Error ? err.message : String(err),
+      code: err instanceof TRPCError ? err.code : "INTERNAL_SERVER_ERROR",
+    });
 
     throw err;
   }

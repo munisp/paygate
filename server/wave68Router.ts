@@ -24,6 +24,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { demoOrFail } from "./_core/demoData";
+import { withIdempotency } from "./idempotency";
 import {
   getCashbackBalanceViaMiddleware,
   redeemCashbackViaMiddleware,
@@ -516,7 +517,8 @@ export const moneyRequestRouter = router({
       });
 
       // Earn loyalty points
-      await earnPoints(user.id, req.amountKobo, "P2P payment request", ref).catch(() => {});
+      await earnPoints(user.id, req.amountKobo, "P2P payment request", ref)
+        .catch((e) => logger.error("[wave68] loyalty points accrual failed — points lost for settled P2P payment", { ref, userId: user.id, error: e instanceof Error ? e.message : String(e) }));
 
       // Fire-and-forget push notification to requester
       const amtNaira = (req.amountKobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
@@ -604,58 +606,66 @@ export const consumerQrPayRouter = router({
       amountKobo: z.number().int().positive(),
       currency: z.string().length(3).default("NGN"),
       pin: z.string().length(4),
-      idempotencyKey: z.string().min(8).max(128).optional(),
+      // REQUIRED (spec #6): money mutations must carry an idempotency key.
+      idempotencyKey: z.string().min(8).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = (await getDb())!;
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const { consumerPins } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: String(user.id),
+        operation: "wave68.qrPay.pay",
+        requestBody: input,
+        execute: async () => {
+          const db = (await getDb())!;
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+          const { consumerPins } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
 
-      // Verify PIN
-      const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
-      if (!pinRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "Please set your transaction PIN first" });
-      if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
-        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
-      }
-      const pinOk = await verifyPin(input.pin, pinRecord.pinHash);
-      if (!pinOk) {
-        const fails = pinRecord.failedAttempts + 1;
-        const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
-        await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect PIN" });
-      }
-      await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
+          // Verify PIN
+          const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+          if (!pinRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "Please set your transaction PIN first" });
+          if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
+            throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
+          }
+          const pinOk = await verifyPin(input.pin, pinRecord.pinHash);
+          if (!pinOk) {
+            const fails = pinRecord.failedAttempts + 1;
+            const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+            await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect PIN" });
+          }
+          await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
 
-      // Validate QR
-      if (!input.qrId.startsWith("qr_")) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Invalid QR code" });
-      }
+          // Validate QR
+          if (!input.qrId.startsWith("qr_")) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Invalid QR code" });
+          }
 
-      // Debit consumer wallet
-      const wallet = await getConsumerWallet(user.id, input.currency);
-      if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found. Please top up first." });
+          // Debit consumer wallet
+          const wallet = await getConsumerWallet(user.id, input.currency);
+          if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found. Please top up first." });
 
-      // Idempotency: a client retry with the same key returns the original result
-      // instead of double-charging the wallet.
-      const ref = input.idempotencyKey ? `qrpay_idem_${input.idempotencyKey}` : nanoid("qrpay_");
-      if (input.idempotencyKey) {
-        const existing = await findExistingWalletTxn(wallet.id, ref);
-        if (existing) {
-          return { success: true, reference: ref, newBalanceKobo: existing.balanceAfterKobo, deduplicated: true };
-        }
-      }
+          // Idempotency: deterministic reference + ledger-level dedupe as a
+          // second layer behind withIdempotency (a retry can never double-charge).
+          const ref = `qrpay_idem_${input.idempotencyKey}`;
+          const existing = await findExistingWalletTxn(wallet.id, ref);
+          if (existing) {
+            return { success: true, reference: ref, newBalanceKobo: existing.balanceAfterKobo, deduplicated: true };
+          }
 
-      const newBalance = await debitWallet(
-        wallet.id, user.id, input.amountKobo, input.currency,
-        "qr_pay", `QR Payment to merchant`, ref, "PayGate Merchant", input.qrId,
-      );
+          const newBalance = await debitWallet(
+            wallet.id, user.id, input.amountKobo, input.currency,
+            "qr_pay", `QR Payment to merchant`, ref, "PayGate Merchant", input.qrId,
+          );
 
-      // Earn loyalty points for QR payments
-      await earnPoints(user.id, input.amountKobo, "QR payment", ref).catch(() => {});
+          // Earn loyalty points for QR payments (non-critical; failure is logged, never swallowed)
+          await earnPoints(user.id, input.amountKobo, "QR payment", ref)
+            .catch((e) => logger.error("[wave68.qrPay] earnPoints failed", e));
 
-      return { success: true, reference: ref, newBalanceKobo: newBalance };
+          return { success: true, reference: ref, newBalanceKobo: newBalance };
+        },
+      });
     }),
 });
 
@@ -798,7 +808,22 @@ export const loyaltyRouter = router({
       // Try middleware bridge first
       if (isBridgeAvailable()) {
         const result = await redeemCashbackViaMiddleware(String(user.id), input.points / 100, String(input.merchantId ?? user.id));
-        if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
+        if (result && result.success) {
+          return { success: true, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
+        }
+        if (!result) {
+          // S15b: safe() swallows timeouts/errors — a null result after an
+          // ATTEMPTED redeem is AMBIGUOUS (the bridge may have credited).
+          // Falling through to the DB redeem here double-pays. Fail loud and
+          // honestly; the client may retry (the bridge side is idempotent on
+          // its own redemption reference).
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "Redemption result unknown — the payment rail timed out or errored after the request was sent. Do NOT assume failure; retry to reconcile.",
+          });
+        }
+        // result.success === false → the bridge DEFINITIVELY rejected the
+        // redemption; the local DB redeem path below is the fallback rail.
       }
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -906,25 +931,53 @@ export const couponsRouter = router({
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { coupons, couponRedemptions } = await import("../drizzle/schema");
-      const { eq, sql } = await import("drizzle-orm");
-      const [coupon] = await db.select().from(coupons).where(eq(coupons.id, input.couponId)).limit(1);
-      if (!coupon || !coupon.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "Coupon not found" });
-      let discountKobo = 0;
-      if (coupon.type === "percent") discountKobo = Math.floor(input.amountKobo * coupon.value / 100);
-      else if (coupon.type === "fixed") discountKobo = coupon.value;
-      else if (coupon.type === "free_transfer") discountKobo = input.amountKobo;
-      if (coupon.maxDiscountKobo) discountKobo = Math.min(discountKobo, coupon.maxDiscountKobo);
-      discountKobo = Math.min(discountKobo, input.amountKobo);
-      await db.insert(couponRedemptions).values({
-        id: nanoid("cr_"),
-        couponId: coupon.id,
-        userId: user.id,
-        amountSavedKobo: discountKobo,
-        referenceId: input.referenceId ?? null,
+      const { eq, and, gte, lte, sql, count: countFn } = await import("drizzle-orm");
+      const now = new Date();
+      // All enforcement happens INSIDE redeem (validate is only a pre-flight
+      // hint) and the redemption row + usage increment are ONE transaction.
+      const discountKobo = await db.transaction(async (tx: Tx) => {
+        // Active + validity-window check under the transaction.
+        const [coupon] = await tx.select().from(coupons)
+          .where(and(
+            eq(coupons.id, input.couponId),
+            eq(coupons.isActive, true),
+            lte(coupons.validFrom, now),
+            gte(coupons.validUntil, now),
+          )).limit(1);
+        if (!coupon) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid or expired coupon" });
+        // Per-user redemption limit, checked under the transaction.
+        const [userUsage] = await tx.select({ count: countFn() }).from(couponRedemptions)
+          .where(and(eq(couponRedemptions.couponId, coupon.id), eq(couponRedemptions.userId, user.id)));
+        if ((userUsage?.count ?? 0) >= coupon.perUserLimit) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "You have already used this coupon" });
+        }
+        // Guarded global increment: WHERE usage_count < usage_limit — a
+        // concurrent redeemer that would exceed the limit gets zero rows.
+        const [bumped] = await tx.update(coupons)
+          .set({ usageCount: sql`${coupons.usageCount} + 1` })
+          .where(and(
+            eq(coupons.id, coupon.id),
+            sql`(${coupons.usageLimit} IS NULL OR ${coupons.usageCount} < ${coupons.usageLimit})`,
+          ))
+          .returning();
+        if (!bumped) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Coupon usage limit reached" });
+        }
+        let discountKobo = 0;
+        if (coupon.type === "percent") discountKobo = Math.floor(input.amountKobo * coupon.value / 100);
+        else if (coupon.type === "fixed") discountKobo = coupon.value;
+        else if (coupon.type === "free_transfer") discountKobo = input.amountKobo;
+        if (coupon.maxDiscountKobo) discountKobo = Math.min(discountKobo, coupon.maxDiscountKobo);
+        discountKobo = Math.min(discountKobo, input.amountKobo);
+        await tx.insert(couponRedemptions).values({
+          id: nanoid("cr_"),
+          couponId: coupon.id,
+          userId: user.id,
+          amountSavedKobo: discountKobo,
+          referenceId: input.referenceId ?? null,
+        });
+        return discountKobo;
       });
-      await db.update(coupons)
-        .set({ usageCount: sql`${coupons.usageCount} + 1` })
-        .where(eq(coupons.id, coupon.id));
       return { success: true, discountKobo };
     }),
 
@@ -1267,20 +1320,42 @@ export const splitBillConsumerRouter = router({
 // ─── 9. Consumer PIN Router ───────────────────────────────────────────────────
 export const consumerPinRouter = router({
   set: protectedProcedure
-    .input(z.object({ pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits") }))
+    .input(z.object({
+      pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits"),
+      // Required when a PIN already exists (PIN change) — knowledge of the old
+      // PIN is the only proof of possession before overwriting the credential.
+      currentPin: z.string().regex(/^\d{4}$/, "Current PIN must be exactly 4 digits").optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPins } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
-      const pinHash = await hashPin(input.pin);
-      const existing = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
-      if (existing.length > 0) {
+      const [existing] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+      if (existing) {
+        // ATO guard: changing an existing PIN requires verifying the current
+        // PIN first, with the same 5-attempt/15-min lockout semantics as
+        // consumerPin.verify. Lockout counters are NOT cleared by a change.
+        if (existing.lockedUntil && existing.lockedUntil > new Date()) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
+        }
+        if (!input.currentPin) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Current PIN is required to change your PIN" });
+        }
+        const ok = await verifyPin(input.currentPin, existing.pinHash);
+        if (!ok) {
+          const fails = existing.failedAttempts + 1;
+          const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+          await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect current PIN" });
+        }
+        const pinHash = await hashPin(input.pin);
         await db.update(consumerPins)
-          .set({ pinHash, failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+          .set({ pinHash, updatedAt: new Date() })
           .where(eq(consumerPins.userId, user.id));
       } else {
+        const pinHash = await hashPin(input.pin);
         await db.insert(consumerPins).values({ userId: user.id, pinHash, failedAttempts: 0 });
       }
       return { success: true };
@@ -1523,6 +1598,12 @@ export const consumerStripeTopUpRouter = router({
           amount_kobo: String(input.amountKobo),
           currency: input.currency,
           type: "consumer_wallet_topup",
+          // R4 S16: the Stripe charge above is a USD CONVERSION of the NGN
+          // amount (Stripe cannot charge NGN). This is the wallet-truth NGN
+          // kobo amount — the webhook (server/stripe.ts) credits it in NGN and
+          // the consumerWallet.topUp claim (server/routers.ts) matches claims
+          // against it, keeping exact-match strictness on the NGN value.
+          ngn_amount_kobo: String(input.amountKobo),
         },
         client_reference_id: String(user.id),
         success_url: `${input.origin}/consumer?topup=success&amount=${input.amountKobo}`,

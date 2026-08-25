@@ -164,7 +164,7 @@ describe("stripeWebhookHandler — real Stripe signature scheme", () => {
     const event = {
       id: "evt_topup_1",
       type: "payment_intent.succeeded",
-      data: { object: { id: "pi_hook1", amount: 250_00, currency: "ngn", metadata: { user_id: "7" } } },
+      data: { object: { id: "pi_hook1", amount: 250_00, currency: "ngn", metadata: { user_id: "7", type: "consumer_wallet_topup" } } },
     };
     const payload = JSON.stringify(event);
 
@@ -179,8 +179,11 @@ describe("stripeWebhookHandler — real Stripe signature scheme", () => {
     await flushAsync(); // async processing after the ACK
     expect(state.consumerTxns).toHaveLength(1);
     expect(state.consumerWallets[0].balanceKobo).toBe(250_00);
+    // R4 spec #10: the dedupe reference is the PAYMENT INTENT id, not the
+    // event id, so checkout.session.completed + payment_intent.succeeded for
+    // one payment can never double-credit.
     expect(state.consumerTxns[0]).toMatchObject({
-      type: "topup", amountKobo: 250_00, reference: "stripe:evt_topup_1", status: "completed",
+      type: "topup", amountKobo: 250_00, reference: "stripe:pi_pi_hook1", status: "completed",
     });
 
     // Stripe at-least-once redelivery of the SAME event
@@ -193,6 +196,52 @@ describe("stripeWebhookHandler — real Stripe signature scheme", () => {
     await flushAsync();
     expect(state.consumerTxns).toHaveLength(1); // duplicate suppressed
     expect(state.consumerWallets[0].balanceKobo).toBe(250_00); // credited exactly once
+
+    // Cross-event-type dedupe (spec #10): checkout.session.completed for the
+    // SAME payment intent must also be a no-op.
+    const checkoutEvent = {
+      id: "evt_checkout_same_pi",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_hook1", payment_status: "paid", payment_intent: "pi_hook1",
+          amount_total: 250_00, currency: "ngn", metadata: { user_id: "7", type: "consumer_wallet_topup" },
+        },
+      },
+    };
+    const checkoutPayload = JSON.stringify(checkoutEvent);
+    const res3 = makeRes();
+    await stripeWebhookHandler(
+      { headers: { "stripe-signature": sign(checkoutPayload, SECRET) }, body: Buffer.from(checkoutPayload) } as any,
+      res3,
+    );
+    expect(res3.statusCode).toBe(200);
+    await flushAsync();
+    expect(state.consumerTxns).toHaveLength(1); // same payment_intent — NOT credited again
+    expect(state.consumerWallets[0].balanceKobo).toBe(250_00);
+  });
+
+  it("paid checkout session with user_id but NO consumer_wallet_topup marker credits nothing (cross-flow reuse guard)", async () => {
+    // R4 S16: subscription checkouts (wave34Router) stamp metadata.user_id
+    // with no purpose marker — they are NOT wallet top-ups.
+    const payload = JSON.stringify({
+      id: "evt_sub_session", type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_sub1", payment_status: "paid", payment_intent: "pi_sub1",
+          amount_total: 500_00, currency: "ngn", metadata: { user_id: "7" },
+        },
+      },
+    });
+    const res = makeRes();
+    await stripeWebhookHandler(
+      { headers: { "stripe-signature": sign(payload, SECRET) }, body: Buffer.from(payload) } as any,
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    await flushAsync();
+    expect(state.consumerTxns).toHaveLength(0);
+    expect(state.consumerWallets).toHaveLength(0);
   });
 
   it("signed event without user_id metadata is ACKed but credits nothing (no fabrication)", async () => {

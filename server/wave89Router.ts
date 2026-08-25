@@ -13,6 +13,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
+import { logger } from "./logger";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function getDb() {
@@ -201,8 +202,10 @@ export const slaBreachesRouter = router({
             resourceId: input.transactionId,
             metadata: JSON.stringify({ note: input.note ?? null, acknowledgedAt: acknowledgedAt.toISOString() }),
             severity: "info",
-          } as any).catch(() => {});
-        } catch { /* graceful */ }
+          } as any).catch((e) => logger.error("[wave89] sla_breach_acknowledged audit insert failed", { transactionId: input.transactionId, error: e instanceof Error ? e.message : String(e) }));
+        } catch (e) {
+          logger.error("[wave89] SLA breach acknowledgement bookkeeping failed", { transactionId: input.transactionId, error: e instanceof Error ? e.message : String(e) });
+        }
       }
       return {
         success: true,
@@ -463,14 +466,17 @@ export const portfolioRebalancingEnhancedRouter = router({
       try {
         const { portfolioRebalancingOrders } = await import("../drizzle/schema");
         const { eq, and } = await import("drizzle-orm");
+        // Status guard (F4-19): only a pending order can be cancelled —
+        // executed/completed/failed orders are terminal and not re-enterable.
         const [row] = (await db.update(portfolioRebalancingOrders) as any)
           .set({ status: "cancelled", updatedAt: new Date() })
           .where(and(
             eq(portfolioRebalancingOrders.id, input.orderId),
             eq(portfolioRebalancingOrders.userId, String(ctx.user.id)),
+            eq(portfolioRebalancingOrders.status, "pending"),
           ))
           .returning();
-        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+        if (!row) throw new TRPCError({ code: "CONFLICT", message: "Order not found or not cancellable (only pending orders can be cancelled)" });
         return { success: true, order: row };
       } catch (e) {
         if (e instanceof TRPCError) throw e;

@@ -49,7 +49,7 @@ export default function LoyaltyV3() {
               <div className="flex items-center gap-3">
                 <p className="font-bold">{m.pointsBalance.toLocaleString()} pts</p>
                 <Badge>{m.tier}</Badge>
-                {m.pointsBalance > 0 && <Button size="sm" variant="outline" onClick={() => redeemPoints.mutate({ memberId: m.id, points: Math.min(100, m.pointsBalance) })}>Redeem 100</Button>}
+                {m.pointsBalance > 0 && <Button size="sm" variant="outline" onClick={() => redeemPoints.mutate({ memberId: m.id, points: Math.min(100, m.pointsBalance), idempotencyKey: crypto.randomUUID() })}>Redeem 100</Button>}
               </div>
             </div>
           ))}</div>

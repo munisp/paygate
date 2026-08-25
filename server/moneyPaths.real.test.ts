@@ -23,11 +23,22 @@ vi.mock("@grpc/grpc-js", () => ({}), { virtual: true });
 vi.mock("@grpc/proto-loader", () => ({ loadSync: () => ({}), load: async () => ({}) }), { virtual: true });
 vi.mock("web-push", () => ({ default: {}, setVapidDetails: () => {}, sendNotification: async () => ({}) }), { virtual: true });
 
+// Contract change (security remediation R4, spec #16): the middleware bridge
+// now FAILS CLOSED unless MIDDLEWARE_INTERNAL_KEY is set, and BRIDGE_KEY is
+// captured when ./routers is first evaluated. Set it in a hoisted block (runs
+// before imports) so tests can exercise the bridge-reachable path; individual
+// tests stub global fetch to simulate a reachable or unreachable bridge.
+vi.hoisted(() => {
+  process.env.MIDDLEWARE_INTERNAL_KEY ||= "test-bridge-internal-key";
+});
+
 // ─── Stripe API fake for wallet.topUp (controllable per test) ───────────────
 const stripeState = vi.hoisted(() => ({
   configured: true,
-  pi: null as null | { status: string; amount: number; currency: string },
-  session: null as null | { payment_status: string; amount_total: number | null; currency: string | null },
+  // S15b: PI/session objects now carry `metadata` — the topUp contract
+  // requires the verified payment to be bound to the caller (user_id).
+  pi: null as null | { status: string; amount: number; currency: string; metadata?: Record<string, string> },
+  session: null as null | { payment_status: string; amount_total: number | null; currency: string | null; metadata?: Record<string, string> },
   retrieveError: null as string | null,
 }));
 vi.mock("./stripe", () => ({
@@ -296,7 +307,12 @@ vi.mock("./db", async (importOriginal) => {
       state.transfers.push({ ...t });
       return state.transfers[state.transfers.length - 1];
     },
-    updateCrossBorderTransferStatusByTransferId: async () => {},
+    // Applies the status transition for real so tests can assert the
+    // fail-loud contract (bridge down → transfer marked "failed").
+    updateCrossBorderTransferStatusByTransferId: async (transferId: string, status: string) => {
+      const t = state.transfers.find((x) => x.transferId === transferId);
+      if (t) t.status = status;
+    },
     getLatestFxRates: async () => state.fxRates,
     logAuditEvent: async () => {},
   };
@@ -343,7 +359,9 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
   // including `type` in the constraint).
   it("debits sender and credits recipient atomically with a double-entry ledger", async () => {
     const caller = appRouter.createCaller(makeCtx());
-    const res = await caller.wallet.sendMoney({ recipientId: "user-2", amount: 40, currency: "NGN" });
+    // Contract change (R4, spec #6): idempotencyKey is now REQUIRED
+    // (z.string().min(8)) — a wallet transfer without one cannot be retry-safe.
+    const res = await caller.wallet.sendMoney({ recipientId: "user-2", amount: 40, currency: "NGN", idempotencyKey: "p2p-key-00000001" });
     expect(res.success).toBe(true);
     expect(res.idempotentReplay).toBe(false);
     const sender = state.wallets.find((w) => w.id === "w_sender")!;
@@ -367,7 +385,7 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
   it("insufficient funds: guarded debit fails and NOTHING is applied (rollback)", async () => {
     const caller = appRouter.createCaller(makeCtx());
     await expect(
-      caller.wallet.sendMoney({ recipientId: "user-2", amount: 150, currency: "NGN" }),
+      caller.wallet.sendMoney({ recipientId: "user-2", amount: 150, currency: "NGN", idempotencyKey: "p2p-key-00000002" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/[Ii]nsufficient/) });
     expect(state.wallets.find((w) => w.id === "w_sender")!.balance).toBe("100.00");
     expect(state.wallets.find((w) => w.id === "w_recipient")!.balance).toBe("10.00");
@@ -390,7 +408,9 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
     // still overlapping the transactions (the fake yields inside tx.execute).
     const pending: Promise<any>[] = [];
     for (let i = 0; i < 5; i++) {
-      pending.push(caller.wallet.sendMoney({ recipientId: "user-2", amount: 60, currency: "NGN" }));
+      // Distinct REQUIRED idempotency keys: five INDEPENDENT transfers racing
+      // on one balance (a shared key would dedupe them into one execution).
+      pending.push(caller.wallet.sendMoney({ recipientId: "user-2", amount: 60, currency: "NGN", idempotencyKey: `p2p-race-key-${i}` }));
       await new Promise((r) => setImmediate(r));
     }
     const results = await Promise.allSettled(pending);
@@ -409,8 +429,11 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
   it("rejects transfer to own wallet", async () => {
     const caller = appRouter.createCaller(makeCtx());
     await expect(
-      caller.wallet.sendMoney({ recipientId: "1", amount: 10, currency: "NGN" }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      caller.wallet.sendMoney({ recipientId: "1", amount: 10, currency: "NGN", idempotencyKey: "p2p-key-00000003" }),
+    // Strengthened: pin the self-transfer guard message, not just the code
+    // (a missing-key validation error is also BAD_REQUEST — the key above
+    // ensures we exercise the real guard).
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/own wallet/) });
   });
 });
 
@@ -419,7 +442,7 @@ describe("wallet.topUp — Stripe-verified crediting (real procedure)", () => {
   beforeEach(() => {
     state = freshState();
     stripeState.configured = true;
-    stripeState.pi = { status: "succeeded", amount: 500_00, currency: "ngn" };
+    stripeState.pi = { status: "succeeded", amount: 500_00, currency: "ngn", metadata: { user_id: "1" } };
     stripeState.session = null;
     stripeState.retrieveError = null;
     state.wallets.push(
@@ -438,7 +461,7 @@ describe("wallet.topUp — Stripe-verified crediting (real procedure)", () => {
   });
 
   it("rejects a payment that is not succeeded", async () => {
-    stripeState.pi = { status: "requires_payment_method", amount: 500_00, currency: "ngn" };
+    stripeState.pi = { status: "requires_payment_method", amount: 500_00, currency: "ngn", metadata: { user_id: "1" } };
     const caller = appRouter.createCaller(makeCtx());
     await expect(
       caller.wallet.topUp({ amount: 500, currency: "NGN", channel: "card", paymentReference: "pi_unpaid1" }),
@@ -447,7 +470,7 @@ describe("wallet.topUp — Stripe-verified crediting (real procedure)", () => {
   });
 
   it("rejects a verified payment whose amount/currency mismatches the request", async () => {
-    stripeState.pi = { status: "succeeded", amount: 100_00, currency: "ngn" }; // 100.00, not 500.00
+    stripeState.pi = { status: "succeeded", amount: 100_00, currency: "ngn", metadata: { user_id: "1" } }; // 100.00, not 500.00
     const caller = appRouter.createCaller(makeCtx());
     await expect(
       caller.wallet.topUp({ amount: 500, currency: "NGN", channel: "card", paymentReference: "pi_mismatch" }),
@@ -461,6 +484,25 @@ describe("wallet.topUp — Stripe-verified crediting (real procedure)", () => {
     await expect(
       caller.wallet.topUp({ amount: 500, currency: "NGN", channel: "card", paymentReference: "pi_any12345" }),
     ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    expect(state.walletTxns).toHaveLength(0);
+  });
+
+  it("rejects a verified payment bound to a DIFFERENT user (S15b ownership binding)", async () => {
+    stripeState.pi = { status: "succeeded", amount: 500_00, currency: "ngn", metadata: { user_id: "999" } };
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.wallet.topUp({ amount: 500, currency: "NGN", channel: "card", paymentReference: "pi_other99" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.stringMatching(/not bound/) });
+    expect(state.walletTxns).toHaveLength(0);
+    expect(state.wallets[0].balance).toBe("0.00");
+  });
+
+  it("rejects a verified payment with NO ownership metadata (S15b fail-closed)", async () => {
+    stripeState.pi = { status: "succeeded", amount: 500_00, currency: "ngn" }; // no metadata
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.wallet.topUp({ amount: 500, currency: "NGN", channel: "card", paymentReference: "pi_unbound1" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.walletTxns).toHaveLength(0);
   });
 
@@ -596,7 +638,18 @@ describe("payouts.approve — maker-checker & atomic fund reservation (real proc
 
 // ─── crossBorder.initiate / getQuote ─────────────────────────────────────────
 describe("crossBorder — idempotent initiation & integer FX (real procedure)", () => {
+  // Contract change (security remediation R4 F13, spec #3/#4): initiate no
+  // longer fabricates success when the middleware bridge is unreachable — it
+  // marks the transfer "failed" and throws SERVICE_UNAVAILABLE. The bridge is
+  // only called when MIDDLEWARE_INTERNAL_KEY is set (vi.hoisted above); these
+  // helpers stub global fetch to simulate a reachable / unreachable bridge.
+  const bridgeOk = () =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "submitted" }) })));
+  const bridgeDown = () =>
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:8080"); }));
+
   beforeEach(() => { state = freshState(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   const baseInput = {
     receiverId: "+2348000000000",
@@ -608,18 +661,40 @@ describe("crossBorder — idempotent initiation & integer FX (real procedure)", 
   };
 
   it("initiate persists integer-FX-derived rate, fee and target amount", async () => {
+    bridgeOk(); // bridge reachable → returns { status: "submitted" }
     const caller = appRouter.createCaller(makeCtx());
     const res = await caller.crossBorder.initiate({ ...baseInput, idempotencyKey: "xb-key-00000001" });
     expect(res.success).toBe(true);
+    // Strengthened: the bridge acknowledgement is surfaced in the response…
+    expect(res.bridgeStatus).toBe("submitted");
     const t = state.transfers[0];
     // 1500 NGN/USD, 1.2 (USD) → cross rate 0.0008, 1.5% fee, half-up rounding
     expect(t.exchangeRate).toBe("0.000800");
     expect(t.fee).toBe("15.00");
     expect(t.targetAmount).toBe("0.79"); // (1000 - 15) * 0.0008 = 0.788 → 79 minor half-up
-    expect(t.status).toBe("pending");
+    // …and persisted onto the transfer (was asserted as a static "pending"
+    // under the old fabricated-success contract).
+    expect(t.status).toBe("submitted");
+  });
+
+  it("bridge unreachable → SERVICE_UNAVAILABLE, transfer marked failed, nothing initiated (fail loud)", async () => {
+    // NEW CONTRACT assertion (R4 F13): no fabricated "initiated" success when
+    // the rail cannot be reached — the error IS the expected outcome and the
+    // persisted record must not masquerade as a live transfer.
+    bridgeDown();
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.crossBorder.initiate({ ...baseInput, idempotencyKey: "xb-key-00000004" }),
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/bridge unreachable/i),
+    });
+    expect(state.transfers).toHaveLength(1);
+    expect(state.transfers[0].status).toBe("failed"); // marked failed, never "initiated"
   });
 
   it("idempotent replay returns the original transferId without re-creating", async () => {
+    bridgeOk();
     const caller = appRouter.createCaller(makeCtx());
     const input = { ...baseInput, idempotencyKey: "xb-key-00000002" };
     const r1 = await caller.crossBorder.initiate(input);
@@ -630,6 +705,7 @@ describe("crossBorder — idempotent initiation & integer FX (real procedure)", 
   });
 
   it("concurrent same-key initiation: exactly one transfer is created", async () => {
+    bridgeOk();
     const caller = appRouter.createCaller(makeCtx());
     const input = { ...baseInput, idempotencyKey: "xb-key-00000003" };
     const p1 = caller.crossBorder.initiate(input);
@@ -652,6 +728,9 @@ describe("crossBorder — idempotent initiation & integer FX (real procedure)", 
 
   it("getQuote computes corridor amounts with integer half-up rounding", async () => {
     const caller = appRouter.createCaller(makeCtx());
+    // Bridge unreachable → getQuote falls back to stored FX rates (the path
+    // under test here; the live-bridge quote path is bridge-specific).
+    bridgeDown();
     const q = await caller.crossBorder.getQuote({ sourceCurrency: "NGN", targetCurrency: "USD", amount: "1000.00", rail: "mojaloop" });
     expect(q.exchange_rate).toBe("0.000800");
     expect(q.fee).toBe("15.00");
@@ -664,6 +743,7 @@ describe("crossBorder — idempotent initiation & integer FX (real procedure)", 
       { targetCurrency: "USD", rate: "1" },
     ];
     const caller = appRouter.createCaller(makeCtx());
+    bridgeDown(); // exercise the stored-FX fallback, not the live bridge quote
     const q = await caller.crossBorder.getQuote({ sourceCurrency: "NGN", targetCurrency: "USD", amount: "333.33", rail: "mojaloop" });
     expect(q.exchange_rate).toBe("1.000000");
     expect(q.fee).toBe("5.00"); // 1.5% of 33333 minor = 499.995 → 500 half-up

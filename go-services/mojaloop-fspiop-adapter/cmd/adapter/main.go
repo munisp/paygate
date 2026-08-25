@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -48,7 +49,7 @@ func loadConfig() Config {
 	cfg := Config{
 		Port:              getEnv("PORT", "8097"),
 		MojaloopURL:       getEnv("MOJALOOP_URL", "https://sandbox.mojaloop.io/v1"),
-		MojaloopAPIKey:    getEnv("MOJALOOP_API_KEY", "mojaloop-sandbox-key"),
+		MojaloopAPIKey:    os.Getenv("MOJALOOP_API_KEY"), // no default — hardcoded sandbox credentials removed (spec #16/#19)
 		CIPSGatewayURL:    getEnv("CIPS_GATEWAY_URL", "http://cips-gateway:8098"),
 		UPIGatewayURL:     getEnv("UPI_GATEWAY_URL", "http://upi-gateway:8099"),
 		PIXGatewayURL:     getEnv("PIX_GATEWAY_URL", "http://pix-gateway:8100"),
@@ -60,7 +61,18 @@ func loadConfig() Config {
 		InternalAPIKey:    os.Getenv("INTERNAL_API_KEY"),
 	}
 	env := strings.ToLower(os.Getenv("ENV"))
-	prod := env == "production" || env == "prod"
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	prod := env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod"
+	if cfg.MojaloopAPIKey == "" {
+		if prod {
+			slog.Error("FATAL: MOJALOOP_API_KEY must be set when ENV=production — refusing to start with fabricated credentials")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.MojaloopAPIKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("MOJALOOP_API_KEY unset — generated per-boot dev key; Mojaloop hub calls will fail upstream auth (dev only)")
+	}
 	if cfg.InternalAPIKey == "" {
 		if prod {
 			slog.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production")
@@ -591,9 +603,14 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-Internal-Key")
 		if key == "" {
-			key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				key = strings.TrimPrefix(auth, "Bearer ")
+			}
 		}
-		if key != s.cfg.InternalAPIKey && key != s.cfg.MojaloopAPIKey {
+		// Only the internal service key authenticates inbound calls — the
+		// outbound Mojaloop hub credential is NOT a valid inbound credential.
+		// Constant-time comparison to resist timing attacks.
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.InternalAPIKey)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}

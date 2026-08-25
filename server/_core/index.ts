@@ -180,7 +180,15 @@ async function startServer() {
   // ── Prometheus scrape endpoint (k8s pod annotations target /api/metrics) ──
   app.get("/api/metrics", (req, res) => { void metricsHandler(req, res); });
 
-  // ── Health probe (Dockerfile HEALTHCHECK + k8s liveness/readiness) ────────
+  // ── Lightweight liveness probe: ALWAYS 200 while the Node process is up.
+  // k8s livenessProbe targets this — /api/health (dependency-aware, 503s when
+  // the DB is down) is the readinessProbe; using a dependency-aware probe for
+  // liveness crash-loops pods during a DB outage for no benefit.
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "alive", timestamp: new Date().toISOString() });
+  });
+
+  // ── Health probe (Dockerfile HEALTHCHECK + k8s readiness) ────────────────
   app.get("/api/health", async (_req, res) => {
     const bridge = getBridgeHealth();
     try {

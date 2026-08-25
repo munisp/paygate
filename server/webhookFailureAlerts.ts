@@ -112,7 +112,9 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
             .slice(0, 5)
             .map((a) => `• ${a.merchantName} — ${a.eventType} (HTTP ${a.responseStatus ?? "timeout"}, attempt ${a.attemptCount})`)
             .join("\n"),
-        }).catch(() => {/* non-fatal */});
+        }).catch((e) => {
+          console.error("[webhookFailureAlerts] CRITICAL webhook failure owner alert FAILED — alert lost:", e instanceof Error ? e.message : String(e));
+        });
       }
     }
 
@@ -140,9 +142,9 @@ let pollerInterval: ReturnType<typeof setInterval> | null = null;
 export function startWebhookFailurePoller(intervalMs = 60_000): void {
   if (pollerInterval) return; // already running
   // Run immediately on start, then on interval
-  pollWebhookFailures().catch(() => {});
+  pollWebhookFailures().catch((e) => console.error("[webhookFailureAlerts] Poll tick failed:", e instanceof Error ? e.message : String(e)));
   pollerInterval = setInterval(() => {
-    pollWebhookFailures().catch(() => {});
+    pollWebhookFailures().catch((e) => console.error("[webhookFailureAlerts] Poll tick failed:", e instanceof Error ? e.message : String(e)));
   }, intervalMs);
   console.info(`[webhookFailureAlerts] Poller started (interval: ${intervalMs}ms)`);
 }

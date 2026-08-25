@@ -206,9 +206,15 @@ describe("Wave 136 — Ollama docker-compose service", () => {
 
   it("ollama service has healthcheck", () => {
     const content = readFileSync(composePath, "utf8");
-    // Check that healthcheck appears after the ollama service definition
-    const ollamaSection = content.split("ollama:")[1];
+    // Check that healthcheck appears after the ollama service definition.
+    // Anchor on the top-level service key ("\n  ollama:") — a bare
+    // split("ollama:") matches incidental occurrences like
+    // `http://ollama:11434` in other services' env vars.
+    const ollamaSection = content.split("\n  ollama:")[1];
+    expect(ollamaSection).toBeDefined();
     expect(ollamaSection).toContain("healthcheck");
+    // Strengthened: the healthcheck must actually probe the Ollama port.
+    expect(ollamaSection).toContain("11434");
   });
 });
 

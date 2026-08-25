@@ -33,6 +33,15 @@ async function db() {
   return d;
 }
 
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB re-check, adminRouter pattern). */
+async function requirePlatformAdmin(d: any, openId: string | undefined): Promise<void> {
+  if (!openId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
+  const [caller] = await d.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
 /**
  * Backward-compatible id inputs: several tables in this router have TEXT primary
  * keys but older clients send numbers (and vice versa for integer columns that
@@ -1224,14 +1233,21 @@ const emiLoansRouter = router({
   }),
   create: protectedProcedure
     .input(z.object({
-      userId: z.number(),
+      // Optional legacy hint — the borrower is ALWAYS derived from the
+      // authenticated session (F8-12); a mismatched value is rejected.
+      userId: z.number().optional(),
       merchantId: z.number().optional(),
       principalKobo: z.number().positive(),
       interestRatePct: z.number().min(0).max(100),
       tenureMonths: z.number().int().min(1).max(60),
       purpose: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+      if (input.userId !== undefined && input.userId !== user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot originate a loan for another user" });
+      }
       const r = input.interestRatePct / 100 / 12;
       const n = input.tenureMonths;
       const emi = r === 0 ? input.principalKobo / n : (input.principalKobo * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
@@ -1241,7 +1257,7 @@ const emiLoansRouter = router({
       // status — there is no merchant_id / emi_amount_kobo / disbursed_at column.
       const [row] = await d.insert(schema.emiLoans).values({
         id: `emi_${crypto.randomUUID()}`,
-        userId: input.userId,
+        userId: user.id,
         principalKobo: input.principalKobo,
         emiKobo: Math.round(emi),
         tenureMonths: input.tenureMonths,
@@ -1251,15 +1267,27 @@ const emiLoansRouter = router({
       }).returning();
       return row;
     }),
-  close: protectedProcedure.input(z.object({ id: textId })).mutation(async ({ input }) => {
+  close: protectedProcedure.input(z.object({ id: textId })).mutation(async ({ input, ctx }) => {
     const d = await db();
-    // emi_loans has no closed_at column.
-    await d.update(schema.emiLoans).set({ status: "closed" }).where(eq(schema.emiLoans.id, input.id));
+    // Closing a loan is a platform servicing action (F8-12).
+    await requirePlatformAdmin(d, ctx.user.openId);
+    // emi_loans has no closed_at column. Guarded flip: only an active loan can
+    // be closed (terminal states are not re-enterable).
+    const [row] = await d.update(schema.emiLoans).set({ status: "closed" })
+      .where(and(eq(schema.emiLoans.id, input.id), eq(schema.emiLoans.status, "active")))
+      .returning({ id: schema.emiLoans.id });
+    if (!row) throw new TRPCError({ code: "CONFLICT", message: "Loan is not active (already closed/defaulted)" });
     return { success: true };
   }),
-  default: protectedProcedure.input(z.object({ id: textId })).mutation(async ({ input }) => {
+  default: protectedProcedure.input(z.object({ id: textId })).mutation(async ({ input, ctx }) => {
     const d = await db();
-    await d.update(schema.emiLoans).set({ status: "defaulted" }).where(eq(schema.emiLoans.id, input.id));
+    // Marking a loan defaulted is a platform servicing action (F8-12).
+    await requirePlatformAdmin(d, ctx.user.openId);
+    // Guarded flip: only an active loan can default.
+    const [row] = await d.update(schema.emiLoans).set({ status: "defaulted" })
+      .where(and(eq(schema.emiLoans.id, input.id), eq(schema.emiLoans.status, "active")))
+      .returning({ id: schema.emiLoans.id });
+    if (!row) throw new TRPCError({ code: "CONFLICT", message: "Loan is not active (already closed/defaulted)" });
     return { success: true };
   }),
 });
@@ -1268,9 +1296,19 @@ const emiLoansRouter = router({
 const emiRepaymentsRouter = router({
   list: protectedProcedure
     .input(z.object({ loanId: textId.optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const d = await db();
-      return d.select().from(schema.emiRepayments).orderBy(desc(schema.emiRepayments.createdAt)).limit(input.limit);
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+      // Previously returned EVERY user's repayments (F8-12). Non-admins only
+      // ever see their own; platform admins may list across users.
+      const conds: any[] = [];
+      if (user.role !== "admin") conds.push(eq(schema.emiRepayments.userId, user.id));
+      if (input.loanId !== undefined) conds.push(eq(schema.emiRepayments.loanId, input.loanId));
+      // emi_repayments has no created_at column — order by paid_at.
+      let q = d.select().from(schema.emiRepayments).$dynamic();
+      if (conds.length) q = q.where(and(...conds));
+      return q.orderBy(desc(schema.emiRepayments.paidAt)).limit(input.limit);
     }),
   create: protectedProcedure
     .input(z.object({

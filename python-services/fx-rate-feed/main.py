@@ -19,11 +19,34 @@ from aiohttp import web
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("fx-rate-feed")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
+
 # ─── Configuration ─────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 FLUVIO_ENDPOINT = os.getenv("FLUVIO_ENDPOINT", "localhost:9003")
 SYNC_RELAY_URL = os.getenv("SYNC_RELAY_URL", "http://localhost:8090")
-SYNC_RELAY_KEY = os.getenv("SYNC_RELAY_KEY", "sync-relay-key-default")
+SYNC_RELAY_KEY = _require_secret_env("SYNC_RELAY_KEY")
 FX_PROVIDER_URL = os.getenv("FX_PROVIDER_URL", "https://api.exchangerate-api.com/v4/latest")
 FX_API_KEY = os.getenv("FX_API_KEY", "")
 POLL_INTERVAL_SECONDS = int(os.getenv("FX_POLL_INTERVAL", "30"))
@@ -43,20 +66,9 @@ TRACKED_PAIRS = [
     ("USD", "XAF"),  # Central African CFA
 ]
 
-# Fallback rates (used when provider is unavailable)
-FALLBACK_RATES: Dict[str, float] = {
-    "USD/NGN": 1580.0,
-    "EUR/NGN": 1720.0,
-    "GBP/NGN": 2010.0,
-    "USD/GHS": 15.8,
-    "USD/KES": 130.0,
-    "USD/ZAR": 18.5,
-    "USD/EGP": 48.5,
-    "EUR/GHS": 17.2,
-    "GBP/KES": 165.0,
-    "USD/XOF": 615.0,
-    "USD/XAF": 615.0,
-}
+# No fallback rates: publishing hardcoded rates as if live is fabrication.
+# On provider failure the publish cycle is skipped; previously published rates
+# expire via their Redis TTL (120s) and consumers must fail closed.
 
 
 class FXRateFeed:
@@ -85,8 +97,9 @@ class FXRateFeed:
         try:
             rates = await self._fetch_rates_from_provider()
         except Exception as e:
-            logger.warning(f"Provider fetch failed, using fallback rates: {e}")
-            rates = FALLBACK_RATES.copy()
+            # Fail closed: never publish fabricated rates.
+            logger.error(f"Provider fetch failed -- skipping publish cycle (no fallback rates served): {e}")
+            return
 
         now = datetime.now(timezone.utc).isoformat()
         published = 0
@@ -95,7 +108,8 @@ class FXRateFeed:
             pair = f"{from_ccy}/{to_ccy}"
             rate = rates.get(pair)
             if rate is None:
-                rate = FALLBACK_RATES.get(pair, 0.0)
+                logger.warning(f"Provider returned no rate for {pair} -- skipping (no fabricated fallback)")
+                continue
 
             if rate <= 0:
                 continue

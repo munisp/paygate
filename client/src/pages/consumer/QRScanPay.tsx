@@ -268,7 +268,7 @@ export default function QRScanPay() {
       <PinDialog
         open={step === "pin"}
         onClose={() => setStep("confirm")}
-        onConfirm={(pin) => payQR.mutate({ qrId: scannedData!.qrToken, amountKobo: finalAmount, pin })}
+        onConfirm={(pin) => payQR.mutate({ qrId: scannedData!.qrToken, amountKobo: finalAmount, pin, idempotencyKey: crypto.randomUUID() })}
         isPending={payQR.isPending}
         amount={finalAmount}
         merchantName={scannedData?.merchantName ?? "Merchant"}

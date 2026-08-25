@@ -305,12 +305,9 @@ func ScreenCrossBorderAML(ctx context.Context, params map[string]interface{}) (m
 
 	result, err := crossBorderHTTPPost(ctx, "/v1/aml/screen", params)
 	if err != nil {
-		// Default to pass if AML service unavailable
-		return map[string]interface{}{
-			"cleared":     true,
-			"risk_score":  0.1,
-			"screened_at": time.Now().UTC().Format(time.RFC3339),
-		}, nil
+		// FAIL CLOSED: an unreachable AML service must never auto-clear a
+		// cross-border money transfer. Return an error so Temporal retries.
+		return nil, fmt.Errorf("AML screening unavailable — refusing to auto-clear transfer (fail closed): %w", err)
 	}
 
 	if cleared, ok := result["cleared"].(bool); ok && !cleared {
@@ -329,11 +326,9 @@ func ScoreCrossBorderFraud(ctx context.Context, params map[string]interface{}) (
 
 	result, err := crossBorderHTTPPost(ctx, "/v1/fraud/score/crossborder", params)
 	if err != nil {
-		return map[string]interface{}{
-			"score":      0.15,
-			"risk_level": "low",
-			"scored_at":  time.Now().UTC().Format(time.RFC3339),
-		}, nil
+		// FAIL CLOSED: never fabricate a low-risk score when the fraud
+		// service is unreachable. Return an error so Temporal retries.
+		return nil, fmt.Errorf("fraud scoring unavailable — refusing to fabricate a low-risk score (fail closed): %w", err)
 	}
 
 	return result, nil
@@ -349,7 +344,10 @@ func PostCrossBorderLedgerEntry(ctx context.Context, params map[string]interface
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/ledger/crossborder", params)
 	if err != nil {
-		slog.Warn("ledger post failed (non-fatal)", "error", err)
+		// Money leg: the ledger write MUST NOT be swallowed. Return the error
+		// so Temporal retries per the activity retry policy.
+		slog.Error("cross-border ledger post failed — returning error for retry", "error", err, "transfer_id", params["transfer_id"])
+		return fmt.Errorf("PostCrossBorderLedgerEntry: ledger post failed: %w", err)
 	}
 
 	return nil
@@ -364,7 +362,7 @@ func PublishCrossBorderSettledEvent(ctx context.Context, params map[string]inter
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/events/crossborder/settled", params)
 	if err != nil {
-		slog.Warn("event publish failed (non-fatal)", "error", err)
+		slog.Error("settled-event publish failed after settlement — reconciliation required", "error", err, "transfer_id", params["transfer_id"])
 	}
 
 	return nil
@@ -430,7 +428,9 @@ func ExecuteDisputeRefund(ctx context.Context, params map[string]interface{}) er
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/disputes/refund", params)
 	if err != nil {
-		slog.Warn("dispute refund failed", "error", err)
+		// Money leg: a failed refund must not be reported as executed.
+		slog.Error("dispute refund failed — returning error for retry", "error", err, "dispute_id", params["dispute_id"])
+		return fmt.Errorf("ExecuteDisputeRefund: refund failed: %w", err)
 	}
 
 	return nil
@@ -445,7 +445,7 @@ func NotifyDisputeResolution(ctx context.Context, params map[string]interface{})
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/notifications/dispute-resolved", params)
 	if err != nil {
-		slog.Warn("dispute notification failed (non-fatal)", "error", err)
+		slog.Error("dispute notification failed — merchant not notified; reconciliation required", "error", err, "dispute_id", params["dispute_id"])
 	}
 
 	return nil

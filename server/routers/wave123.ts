@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { eq, and, desc, sql, like, gte, lte, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import {
@@ -93,7 +94,7 @@ export const aiModelAdminRouter = router({
         key: model.id,
         value: JSON.stringify({ modelId: model.id, name: model.name, modelType: model.modelType, version: model.version }),
         headers: { "event-source": "portal" },
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave123] ai.model.registered event publish failed", e));
       return model;
     }),
 

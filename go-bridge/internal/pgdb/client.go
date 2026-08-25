@@ -82,6 +82,15 @@ func Get() *DB {
 	return globalDB
 }
 
+// Ping reports whether the database is reachable. In disabled (noop) mode it
+// returns an error so readiness probes report the degraded state honestly.
+func (d *DB) Ping(ctx context.Context) error {
+	if !d.enabled || d.db == nil {
+		return fmt.Errorf("pgdb: disabled (DATABASE_URL not set)")
+	}
+	return d.db.PingContext(ctx)
+}
+
 // Close releases the connection pool.
 func Close() {
 	if globalDB != nil && globalDB.db != nil {

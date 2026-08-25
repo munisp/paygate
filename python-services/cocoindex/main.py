@@ -62,7 +62,7 @@ logging.basicConfig(
 logger = logging.getLogger("cocoindex")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 FALKORDB_URL = os.getenv("FALKORDB_URL", "redis://falkordb:6379")

@@ -15,6 +15,10 @@ export default function InvoiceFinancing() {
   const [page, setPage] = useState(1);
   const [applyOpen, setApplyOpen] = useState(false);
   const [form, setForm] = useState({ invoiceAmount: 0, requestedAmount: 0, interestRate: "3.5", tenorDays: 30 });
+  // Disbursement now requires an external funding reference (bank transfer
+  // ref / loan book journal id) — collected before the mutation fires.
+  const [disburseId, setDisburseId] = useState<string | null>(null);
+  const [fundingReference, setFundingReference] = useState("");
 
   const { data, isLoading, refetch } = trpc.invoiceFinV2.list.useQuery({ page, limit: 20, status }, { staleTime: 30_000 });
   const applyMutation = trpc.invoiceFinV2.submitApplication.useMutation({
@@ -145,7 +149,7 @@ export default function InvoiceFinancing() {
                             <Button size="sm" variant="ghost" className="text-green-600" onClick={() => approveMutation.mutate({ id: a.id, approvedAmount: a.requestedAmount })}>
                               <CheckCircle className="w-3 h-3" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => disburseMutation.mutate({ id: a.id })}>
+                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => { setFundingReference(""); setDisburseId(a.id); }}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>
@@ -159,6 +163,33 @@ export default function InvoiceFinancing() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={disburseId !== null} onOpenChange={(open) => { if (!open) setDisburseId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Disburse Funds</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Funding Reference</Label>
+              <Input
+                value={fundingReference}
+                onChange={e => setFundingReference(e.target.value)}
+                placeholder="Bank transfer ref / loan book journal id (min 8 chars)"
+              />
+            </div>
+            <Button
+              className="w-full"
+              disabled={disburseMutation.isPending || fundingReference.trim().length < 8}
+              onClick={() => {
+                if (!disburseId) return;
+                disburseMutation.mutate({ id: disburseId, fundingReference: fundingReference.trim() });
+                setDisburseId(null);
+              }}
+            >
+              {disburseMutation.isPending ? "Disbursing..." : "Confirm Disbursement"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

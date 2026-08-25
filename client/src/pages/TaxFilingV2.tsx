@@ -17,6 +17,10 @@ export default function TaxFilingV2() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ taxType: "vat", period: "", taxableAmount: "", taxAmount: "" });
+  // Filing/marking-paid now requires payment evidence (receiptNumber /
+  // paymentReference) — collected here before the mutation fires.
+  const [refDialog, setRefDialog] = useState<{ action: "file" | "markPaid"; id: string } | null>(null);
+  const [refValue, setRefValue] = useState("");
 
   const { data, isLoading } = trpc.taxFilingV2.list.useQuery({ page }, { staleTime: 30_000 });
 
@@ -34,6 +38,19 @@ export default function TaxFilingV2() {
     onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Marked as paid" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const submitReference = () => {
+    if (!refDialog) return;
+    const ref = refValue.trim();
+    if (ref.length < 8) {
+      toast({ title: "Reference required", description: "Enter the payment reference (min 8 characters).", variant: "destructive" });
+      return;
+    }
+    if (refDialog.action === "file") file.mutate({ id: refDialog.id, receiptNumber: ref });
+    else markPaid.mutate({ id: refDialog.id, paymentReference: ref });
+    setRefDialog(null);
+    setRefValue("");
+  };
 
   const filings = data?.records ?? [];
 
@@ -92,13 +109,34 @@ export default function TaxFilingV2() {
                 <p className="text-xs text-muted-foreground">Taxable: ₦{Number(f.taxableAmount ?? 0).toLocaleString()} · Tax: ₦{Number(f.taxAmount ?? 0).toLocaleString()}</p>
               </div>
               <div className="flex gap-2">
-                {f.status === "draft" && <Button size="sm" variant="outline" onClick={() => file.mutate({ id: f.id })}><FileCheck className="w-3.5 h-3.5 mr-1" />File</Button>}
-                {f.status === "filed" && <Button size="sm" onClick={() => markPaid.mutate({ id: f.id })}><DollarSign className="w-3.5 h-3.5 mr-1" />Mark Paid</Button>}
+                {f.status === "draft" && <Button size="sm" variant="outline" onClick={() => { setRefValue(""); setRefDialog({ action: "file", id: f.id }); }}><FileCheck className="w-3.5 h-3.5 mr-1" />File</Button>}
+                {f.status === "filed" && <Button size="sm" onClick={() => { setRefValue(""); setRefDialog({ action: "markPaid", id: f.id }); }}><DollarSign className="w-3.5 h-3.5 mr-1" />Mark Paid</Button>}
               </div>
             </CardContent></Card>
           ))}
         </div>
       }
+
+      <Dialog open={refDialog !== null} onOpenChange={(open) => { if (!open) setRefDialog(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{refDialog?.action === "file" ? "Submit Filing" : "Mark Filing as Paid"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label>{refDialog?.action === "file" ? "Receipt Number" : "Payment Reference"}</Label>
+              <Input
+                value={refValue}
+                onChange={e => setRefValue(e.target.value)}
+                placeholder="Payment evidence reference (min 8 chars)"
+              />
+            </div>
+            <Button className="w-full" disabled={file.isPending || markPaid.isPending || refValue.trim().length < 8} onClick={submitReference}>
+              {(file.isPending || markPaid.isPending) ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

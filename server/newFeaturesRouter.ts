@@ -22,10 +22,16 @@ import {
   onRemittanceInitiated, onSubscriptionV2Created, onReportReady,
 } from "./webhookEventHooks";
 
-const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
-const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
+const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+// R4 spec #16: no default/shared secret. When MIDDLEWARE_INTERNAL_KEY is
+// unset we fail closed instead of sending a well-known dev key.
+const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY;
 
 async function bridgeFetch(path: string, method: string, body?: unknown): Promise<unknown> {
+  if (!BRIDGE_KEY) {
+    logger.warn("[NewFeaturesBridge] MIDDLEWARE_INTERNAL_KEY is not configured — refusing bridge call (fail closed)");
+    return {};
+  }
   try {
     const res = await fetch(`${BRIDGE_URL}${path}`, {
       method,

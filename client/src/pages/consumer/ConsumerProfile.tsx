@@ -111,6 +111,9 @@ export default function ConsumerProfile() {
   const [editingEmail, setEditingEmail] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name ?? "");
   const [emailValue, setEmailValue] = useState(user?.email ?? "");
+  // Email changes are credential-gated server-side (required for
+  // password-backed accounts) — collected alongside the new email.
+  const [emailPassword, setEmailPassword] = useState("");
 
   const utils = trpc.useUtils();
   const updateProfile = trpc.auth.updateProfile.useMutation({
@@ -119,6 +122,7 @@ export default function ConsumerProfile() {
       utils.auth.me.invalidate();
       setEditingName(false);
       setEditingEmail(false);
+      setEmailPassword("");
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -172,26 +176,35 @@ export default function ConsumerProfile() {
 
           {/* Editable Email */}
           {editingEmail ? (
-            <div className="flex items-center gap-2 justify-center">
+            <div className="flex flex-col items-center gap-2 justify-center">
+              <div className="flex items-center gap-2 justify-center">
+                <input
+                  value={emailValue}
+                  onChange={e => setEmailValue(e.target.value)}
+                  className="text-sm text-center border-b border-primary bg-transparent focus:outline-none w-52"
+                  autoFocus
+                />
+                <button
+                  onClick={() => updateProfile.mutate({ email: emailValue, currentPassword: emailPassword })}
+                  disabled={updateProfile.isPending || !emailPassword}
+                  className="p-1 rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { setEditingEmail(false); setEmailValue(user?.email ?? ""); setEmailPassword(""); }}
+                  className="p-1 rounded-full bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
               <input
-                value={emailValue}
-                onChange={e => setEmailValue(e.target.value)}
-                className="text-sm text-center border-b border-primary bg-transparent focus:outline-none w-52"
-                autoFocus
+                type="password"
+                value={emailPassword}
+                onChange={e => setEmailPassword(e.target.value)}
+                placeholder="Current password (required to change email)"
+                className="text-xs text-center border-b border-primary bg-transparent focus:outline-none w-64"
               />
-              <button
-                onClick={() => updateProfile.mutate({ email: emailValue })}
-                disabled={updateProfile.isPending}
-                className="p-1 rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors"
-              >
-                <Check className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => { setEditingEmail(false); setEmailValue(user?.email ?? ""); }}
-                className="p-1 rounded-full bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
           ) : (
             <div className="flex items-center gap-2 justify-center">

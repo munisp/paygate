@@ -14,6 +14,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -77,6 +79,12 @@ func main() {
 		if os.Getenv(ev.key) == "" {
 			slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
 		}
+	}
+	// Webhook secrets: fail closed. The PTSP settlement webhook rejects all
+	// requests (503) while no secret is configured — never verifies with an
+	// empty/default key (spec #16).
+	if os.Getenv("NIBSS_WEBHOOK_SECRET") == "" && os.Getenv("NIP_WEBHOOK_SECRET") == "" {
+		slog.Error("FATAL: NIBSS_WEBHOOK_SECRET/NIP_WEBHOOK_SECRET unset — /v1/pos/settlement/confirm will reject all webhook requests (fail closed)")
 	}
 	slog.Info("env var validation complete")
 
@@ -148,16 +156,80 @@ func main() {
 		}
 	}()
 
-	// Ensure pgdb is used (suppress unused import)
-	_ = pgdb.Get
+	// PostgreSQL init (used by agent/loyalty/SDK handlers + Temporal activities).
+	// Degraded (noop) mode if unreachable — readiness probe at /health reports it.
+	if err := pgdb.Init(); err != nil {
+		slog.Error("PostgreSQL init failed — running in degraded (noop) mode", "err", err)
+		pgdb.InitNoop()
+	}
 
 	// ── HTTP router ──────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
-	// Health check
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	// Liveness probe (k8s): process is up. No dependency checks — always 200.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","service":"paygate-bridge","tigerbeetle":"%s"}`, tbAddress)
+		fmt.Fprintf(w, `{"status":"ok","service":"paygate-bridge"}`)
+	})
+
+	// Readiness probe: reports real dependency status (TigerBeetle ledger +
+	// PostgreSQL). Returns 503 when any dependency is degraded so k8s stops
+	// routing traffic to a bridge that cannot post to the ledger.
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		deps := map[string]string{}
+		degraded := false
+
+		// TigerBeetle reachability: real LookupAccounts round-trip (2s cap).
+		tbStatus := make(chan string, 1)
+		go func() {
+			client := tb.GetActive()
+			if client == nil {
+				tbStatus <- "unavailable"
+				return
+			}
+			if _, err := client.GetBalance(tb.FloatAccountID()); err != nil {
+				tbStatus <- "error: " + err.Error()
+				return
+			}
+			tbStatus <- "ok"
+		}()
+		select {
+		case s := <-tbStatus:
+			deps["tigerbeetle"] = s
+		case <-time.After(2 * time.Second):
+			deps["tigerbeetle"] = "timeout"
+		case <-r.Context().Done():
+			return
+		}
+		if deps["tigerbeetle"] != "ok" {
+			degraded = true
+		}
+
+		// PostgreSQL reachability.
+		dbCtx, dbCancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if err := pgdb.Get().Ping(dbCtx); err != nil {
+			deps["postgres"] = "error: " + err.Error()
+			degraded = true
+		} else {
+			deps["postgres"] = "ok"
+		}
+		dbCancel()
+
+		w.Header().Set("Content-Type", "application/json")
+		status := "ok"
+		code := http.StatusOK
+		if degraded {
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+		w.WriteHeader(code)
+		resp, _ := json.Marshal(map[string]interface{}{
+			"status":       status,
+			"service":      "paygate-bridge",
+			"tigerbeetle":  tbAddress,
+			"dependencies": deps,
+		})
+		w.Write(resp)
 	})
 
 	// Wallet operations
@@ -476,14 +548,14 @@ func main() {
 	mux.HandleFunc("GET /cashback/history", authMiddleware(handlers.GetCashbackTransactions))
 	mux.HandleFunc("POST /cashback/redeem", authMiddleware(handlers.RedeemCashback))
 	mux.HandleFunc("GET /cashback/merchant-config", authMiddleware(handlers.GetCashbackOffers))
-	mux.HandleFunc("POST /cashback/merchant-config/update", authMiddleware(handlers.RedeemCashback))
+	mux.HandleFunc("POST /cashback/merchant-config/update", authMiddleware(handlers.NotImplementedHandler("cashback merchant-config update")))
 	// Voice Payments (Soundbox)
 	mux.HandleFunc("POST /soundbox/register", authMiddleware(handlers.RegisterSoundboxDevice))
 	mux.HandleFunc("GET /soundbox/devices", authMiddleware(handlers.GetSoundboxDevices))
 	mux.HandleFunc("POST /soundbox/configure", authMiddleware(handlers.UpdateSoundboxSettings))
-	mux.HandleFunc("POST /soundbox/test-audio", authMiddleware(handlers.GetSoundboxPayments))
+	mux.HandleFunc("POST /soundbox/test-audio", authMiddleware(handlers.NotImplementedHandler("soundbox test-audio")))
 	mux.HandleFunc("GET /soundbox/stats", authMiddleware(handlers.GetSoundboxPayments))
-	mux.HandleFunc("GET /soundbox/alerts", authMiddleware(handlers.GetSoundboxDevices))
+	mux.HandleFunc("GET /soundbox/alerts", authMiddleware(handlers.NotImplementedHandler("soundbox alerts")))
 	// Wealth Management
 	mux.HandleFunc("GET /wealth/portfolio", authMiddleware(handlers.GetWealthPortfolio))
 	mux.HandleFunc("GET /wealth/recommendations", authMiddleware(handlers.GetWealthRecommendations))
@@ -790,30 +862,43 @@ func main() {
 	slog.Info("bridge stopped")
 }
 
-// authMiddleware validates the BRIDGE_INTERNAL_KEY bearer token.
-// Refusing to run unauthenticated: when BRIDGE_INTERNAL_KEY is unset the
-// bridge refuses to start unless BRIDGE_ALLOW_NOAUTH=true is explicitly set
-// (dev only); with ENV=production the bridge always refuses to start.
+// authMiddleware validates the internal service key on every request.
+// Callers may authenticate with EITHER `Authorization: Bearer <key>` OR
+// `X-Internal-Key: <key>`; both are compared with subtle.ConstantTimeCompare
+// against BRIDGE_INTERNAL_KEY (fallback: MIDDLEWARE_INTERNAL_KEY).
+//
+// Fail closed (spec #5/#16/#19): when no key is configured the bridge exits
+// in production and generates a per-boot random key in dev — the
+// BRIDGE_ALLOW_NOAUTH unauthenticated bypass has been removed.
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	key := os.Getenv("BRIDGE_INTERNAL_KEY")
 	if key == "" {
+		key = os.Getenv("MIDDLEWARE_INTERNAL_KEY")
+	}
+	if key == "" {
 		env := strings.ToLower(os.Getenv("ENV"))
-		allowNoAuth := os.Getenv("BRIDGE_ALLOW_NOAUTH") == "true"
-		if env == "production" || env == "prod" {
+		appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+		if env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod" {
 			slog.Error("FATAL: BRIDGE_INTERNAL_KEY must be set when ENV=production — refusing to serve unauthenticated money-movement endpoints")
 			os.Exit(1)
 		}
-		if !allowNoAuth {
-			slog.Error("FATAL: BRIDGE_INTERNAL_KEY unset and BRIDGE_ALLOW_NOAUTH != true — refusing to start unauthenticated")
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			slog.Error("FATAL: crypto/rand unavailable and BRIDGE_INTERNAL_KEY unset — refusing to start", "err", err)
 			os.Exit(1)
 		}
-		slog.Warn("bridge running WITHOUT authentication — BRIDGE_ALLOW_NOAUTH=true; NEVER use in production")
-		return next
+		key = fmt.Sprintf("dev-%x", b)
+		slog.Warn("BRIDGE_INTERNAL_KEY unset — generated per-boot random key; all endpoints remain authenticated (dev only)")
 	}
+	expected := []byte(key)
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		expected := "Bearer " + key
-		if auth != expected {
+		candidate := r.Header.Get("X-Internal-Key")
+		if candidate == "" {
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				candidate = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
+		if subtle.ConstantTimeCompare([]byte(candidate), expected) != 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			fmt.Fprintf(w, `{"error":"unauthorized","code":401}`)

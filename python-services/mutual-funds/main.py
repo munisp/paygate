@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mutual-funds")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 COWRYWISE_BASE_URL = os.getenv("COWRYWISE_BASE_URL", "https://api.cowrywise.com/v1").rstrip("/")
 COWRYWISE_API_KEY = os.getenv("COWRYWISE_API_KEY", "")
 NAV_CACHE_TTL_SECONDS = int(os.getenv("NAV_CACHE_TTL_SECONDS", "300"))

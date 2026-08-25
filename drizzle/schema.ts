@@ -1683,6 +1683,9 @@ export const consumerWalletTxns = pgTable("consumer_wallet_txns", {
   index("cwt_wallet_idx").on(t.walletId),
   index("cwt_user_idx").on(t.userId),
   index("cwt_created_idx").on(t.createdAt),
+  // Matches 0085_missing_prod_tables.sql: unique (wallet_id, reference) — idempotency
+  // guard so a retried wallet op can never record the same reference twice.
+  unique("consumer_wallet_txns_wallet_reference_unique").on(t.walletId, t.reference),
 ]);
 export type ConsumerWalletTxn = typeof consumerWalletTxns.$inferSelect;
 export type InsertConsumerWalletTxn = typeof consumerWalletTxns.$inferInsert;
@@ -1940,6 +1943,8 @@ export const usdcPayouts = pgTable("usdc_payouts", {
   index("up_status_idx").on(t.status),
   index("up_signature_idx").on(t.solanaSignature),
   index("up_workflow_idx").on(t.temporalWorkflowId),
+  // Matches 0087: merchant-supplied payout reference must not execute twice (partial — optional).
+  uniqueIndex("usdc_payouts_reference_unique").on(t.reference).where(sql`"reference" IS NOT NULL`),
 ]);
 export type USDCPayout = typeof usdcPayouts.$inferSelect;
 
@@ -3295,7 +3300,11 @@ export const usdcV2Transactions = pgTable("usdc_v2_transactions", {
   network: text("network").notNull().default("polygon"),
   status: text("status").notNull().default("confirmed"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [index("usdc_v2_tx_merchant_idx").on(t.merchantId)]);
+}, (t) => [
+  index("usdc_v2_tx_merchant_idx").on(t.merchantId),
+  // Matches 0087: on-chain tx hashes are globally unique (partial — NULL for off-chain rows).
+  uniqueIndex("usdc_v2_transactions_tx_hash_unique").on(t.txHash).where(sql`"tx_hash" IS NOT NULL`),
+]);
 export type UsdcV2Transaction = typeof usdcV2Transactions.$inferSelect;
 
 // ─── Wave 80: Multi-Currency Ledger ──────────────────────────────────────────
@@ -5344,6 +5353,8 @@ export const orders = pgTable("orders", {
   index("orders_consumer_idx").on(t.consumerId),
   index("orders_payment_intent_idx").on(t.paymentIntentId),
   index("orders_order_number_idx").on(t.orderNumber),
+  // Matches 0085:210 / 0087: idempotent checkout completion (ecommerce.ts).
+  uniqueIndex("orders_checkout_session_id_unique").on(t.checkoutSessionId),
 ]);
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("emi-service")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9029"))
 
 app = FastAPI(title="PayGate EMI Service", version="2.0.0")

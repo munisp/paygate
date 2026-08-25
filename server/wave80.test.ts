@@ -46,6 +46,9 @@ vi.mock("./db", () => {
   );
   db.insert = vi.fn().mockReturnValue(db);
   db.values = vi.fn().mockReturnValue(db);
+  // S15b: withIdempotency (now required on escrowV2.createContract) claims
+  // keys via INSERT ... ON CONFLICT DO NOTHING RETURNING — mock support.
+  db.onConflictDoNothing = vi.fn().mockReturnValue(db);
   db.returning = vi.fn().mockResolvedValue([MOCK_RECORD]);
   db.update = vi.fn().mockReturnValue(db);
   db.set = vi.fn().mockReturnValue(db);
@@ -190,10 +193,12 @@ describe("wave80.agentBankingV4", () => {
     expect(typeof result.active).toBe("number");
   });
 
-  it("topUpFloat throws NOT_FOUND when agent does not exist in mock DB", async () => {
+  // NEW CONTRACT (R4): topUpFloat requires an idempotencyKey and performs a
+  // guarded wallet debit + atomic float increment in one transaction — it no
+  // longer increments float out of thin air.
+  it("topUpFloat rejects when the required idempotencyKey is missing", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    // Mock DB returns empty array, so agent won't be found — expect NOT_FOUND
-    await expect(caller.agentBankingV4.topUpFloat({ agentId: "agent-1", amount: 50000 })).rejects.toThrow();
+    await expect(caller.agentBankingV4.topUpFloat({ agentId: "agent-1", amount: 50000 } as never)).rejects.toThrow();
   });
 });
 
@@ -243,14 +248,19 @@ describe("wave80.escrowV2", () => {
 
   it("createContract returns a contract", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.escrowV2.createContract({ title: "Laptop Purchase", amount: 500000 });
+    // S15b: createContract now REQUIRES an idempotencyKey (buyer-debit retry
+    // safety) — test input updated to the new contract; assertion unchanged.
+    const result = await caller.escrowV2.createContract({ title: "Laptop Purchase", amount: 500000, idempotencyKey: "escrow-create-test-0001" });
     expect(result).toHaveProperty("contract");
   });
 
-  it("releaseContract returns success", async () => {
+  // NEW CONTRACT (R4): release is a guarded funded->released flip followed by
+  // an awaited seller credit. The mock record has no seller, so the release
+  // must abort (PRECONDITION_FAILED) rather than strand funds — and repeat
+  // releases of an already-released contract get CONFLICT, never a re-credit.
+  it("releaseContract aborts when the contract has no seller to disburse to", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.escrowV2.releaseContract({ contractId: "contract-1" });
-    expect(result.success).toBe(true);
+    await expect(caller.escrowV2.releaseContract({ contractId: "contract-1" })).rejects.toThrow(/seller|funded/i);
   });
 
   it("disputeContract returns success", async () => {
@@ -284,9 +294,17 @@ describe("wave80.marketplacePay", () => {
     expect(result).toHaveProperty("order");
   });
 
-  it("updateOrderStatus returns success", async () => {
+  // NEW CONTRACT (R4): 'completed'/'paid' are money claims and cannot be
+  // self-declared (no payment-verification rail integrated). Merchants may
+  // only cancel their own pending orders.
+  it("updateOrderStatus rejects a self-declared 'completed' status", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.marketplacePay.updateOrderStatus({ orderId: "order-1", status: "completed" });
+    await expect(caller.marketplacePay.updateOrderStatus({ orderId: "order-1", status: "completed" })).rejects.toThrow(/payment verification/i);
+  });
+
+  it("updateOrderStatus allows cancelling a pending order", async () => {
+    const caller = wave80Router.createCaller(createCtx());
+    const result = await caller.marketplacePay.updateOrderStatus({ orderId: "order-1", status: "cancelled" });
     expect(result.success).toBe(true);
   });
 
@@ -329,9 +347,11 @@ describe("wave80.loyaltyV3", () => {
     await expect(caller.loyaltyV3.awardPoints({ customerId: "cust-1", customerEmail: "c@test.com", points: 100 })).rejects.toThrow();
   });
 
-  it("redeemPoints throws NOT_FOUND for missing member", async () => {
+  // NEW CONTRACT (R4): redeemPoints requires an idempotencyKey and uses a
+  // guarded atomic decrement — duplicate/concurrent redeems cannot double-spend.
+  it("redeemPoints rejects when the required idempotencyKey is missing", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    await expect(caller.loyaltyV3.redeemPoints({ memberId: "mem-1", points: 50 })).rejects.toThrow();
+    await expect(caller.loyaltyV3.redeemPoints({ memberId: "mem-1", points: 50 } as never)).rejects.toThrow();
   });
 });
 
@@ -349,7 +369,7 @@ describe("wave80.cryptoOfframpV2", () => {
   it("initiateOfframp fails loud when the ramp provider is unreachable", async () => {
     const caller = wave80Router.createCaller(createCtx());
     await expect(
-      caller.cryptoOfframpV2.initiateOfframp({ cryptoAsset: "USDT", cryptoAmount: "100", bankCode: "GTB", accountNumber: "0123456789", walletAddress: "0xabc123" })
+      caller.cryptoOfframpV2.initiateOfframp({ cryptoAsset: "USDT", cryptoAmount: "100", bankCode: "GTB", accountNumber: "0123456789", walletAddress: "0xabc123", idempotencyKey: "test-offramp-init-key" })
     ).rejects.toThrow(/ramp provider unreachable|unavailable/i);
   });
 
@@ -506,10 +526,25 @@ describe("wave80.payrollV3", () => {
     expect(result).toHaveProperty("run");
   });
 
-  it("processRun returns success", async () => {
+  // NEW CONTRACT (R4): no payroll disbursement rail is integrated — processRun
+  // must never stamp 'processed' in production. It is simulation-only.
+  it("processRun fails loud in production (disbursement rail not integrated)", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.payrollV3.processRun({ runId: "run-1" });
-    expect(result.success).toBe(true);
+    await expect(caller.payrollV3.processRun({ runId: "run-1" })).rejects.toThrow(/disbursement rail not integrated|unavailable/i);
+  });
+
+  it("processRun succeeds only in simulation mode and says so", async () => {
+    const prev = process.env.PAYGATE_SIMULATION_MODE;
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+    try {
+      const caller = wave80Router.createCaller(createCtx());
+      const result = await caller.payrollV3.processRun({ runId: "run-1" });
+      expect(result.success).toBe(true);
+      expect(result.simulation).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.PAYGATE_SIMULATION_MODE;
+      else process.env.PAYGATE_SIMULATION_MODE = prev;
+    }
   });
 
   it("listEmployees returns paginated employees", async () => {
@@ -541,11 +576,26 @@ describe("wave80.taxFiling", () => {
     expect(result).toHaveProperty("filing");
   });
 
-  it("submitFiling returns receipt number", async () => {
+  // NEW CONTRACT (R4): no tax-authority filing rail is integrated — a 'filed'
+  // stamp with a fabricated receipt number is forbidden in production.
+  it("submitFiling fails loud in production (filing rail not integrated)", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.taxFiling.submitFiling({ filingId: "filing-1" });
-    expect(result.success).toBe(true);
-    expect(result.receiptNumber).toMatch(/^TXR-/);
+    await expect(caller.taxFiling.submitFiling({ filingId: "filing-1" })).rejects.toThrow(/filing rail not integrated|unavailable/i);
+  });
+
+  it("submitFiling returns a clearly-labelled SIM receipt only in simulation mode", async () => {
+    const prev = process.env.PAYGATE_SIMULATION_MODE;
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+    try {
+      const caller = wave80Router.createCaller(createCtx());
+      const result = await caller.taxFiling.submitFiling({ filingId: "filing-1" });
+      expect(result.success).toBe(true);
+      expect(result.simulation).toBe(true);
+      expect(result.receiptNumber).toMatch(/^SIM-TXR-/);
+    } finally {
+      if (prev === undefined) delete process.env.PAYGATE_SIMULATION_MODE;
+      else process.env.PAYGATE_SIMULATION_MODE = prev;
+    }
   });
 
   it("getStats returns numeric stats", async () => {
@@ -578,10 +628,25 @@ describe("wave80.regulatoryReporting", () => {
     expect(result).toHaveProperty("report");
   });
 
-  it("submitReport returns success", async () => {
+  // NEW CONTRACT (R4): no regulator submission rail is integrated — stamping
+  // 'submitted' without a real submission is simulation-only.
+  it("submitReport fails loud in production (submission rail not integrated)", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.regulatoryReporting.submitReport({ reportId: "report-1" });
-    expect(result.success).toBe(true);
+    await expect(caller.regulatoryReporting.submitReport({ reportId: "report-1" })).rejects.toThrow(/submission rail not integrated|unavailable/i);
+  });
+
+  it("submitReport succeeds only in simulation mode and says so", async () => {
+    const prev = process.env.PAYGATE_SIMULATION_MODE;
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+    try {
+      const caller = wave80Router.createCaller(createCtx());
+      const result = await caller.regulatoryReporting.submitReport({ reportId: "report-1" });
+      expect(result.success).toBe(true);
+      expect(result.simulation).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.PAYGATE_SIMULATION_MODE;
+      else process.env.PAYGATE_SIMULATION_MODE = prev;
+    }
   });
 
   it("getStats returns numeric stats", async () => {
@@ -602,10 +667,12 @@ describe("wave80.regulatoryReporting", () => {
 
 // ─── 15. USDC V2 ─────────────────────────────────────────────────────────────
 describe("wave80.usdcV2", () => {
-  it("getWallet returns or creates a wallet", async () => {
+  // NEW CONTRACT (R4): getWallet NEVER fabricates a deposit address (a fake
+  // address burns real deposits). With no registered Solana address on file it
+  // must fail PRECONDITION_FAILED honestly.
+  it("getWallet fails honestly when no registered Solana address exists (never fabricates)", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.usdcV2.getWallet();
-    expect(result).toHaveProperty("wallet");
+    await expect(caller.usdcV2.getWallet()).rejects.toThrow(/No USDC deposit address|register a Solana wallet/i);
   });
 
   it("listTransactions returns paginated transactions", async () => {
@@ -762,12 +829,21 @@ describe("wave80.grpcHealthCheck", () => {
     expect(result.services[0]).toHaveProperty("latencyMs");
   });
 
-  it("getServiceMetrics returns uptime and latency stats", async () => {
+  // NEW CONTRACT (R4): fabricated SLO metrics were removed — only the measured
+  // live-probe status/latency is reported; uptime/percentiles/errorRate are
+  // honestly unavailable (null), never invented.
+  it("getServiceMetrics reports only measured data (no fabricated SLO metrics)", async () => {
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.grpcHealthCheck.getServiceMetrics({ serviceName: "PaymentService" });
-    expect(result.uptime).toBeGreaterThan(0);
-    expect(result.p50Latency).toBeGreaterThan(0);
-    expect(result.errorRate).toBeGreaterThanOrEqual(0);
+    expect(result).toHaveProperty("status");
+    expect(typeof result.measuredLatencyMs).toBe("number");
+    expect(result.measuredLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.uptime).toBeNull();
+    expect(result.p50Latency).toBeNull();
+    expect(result.p95Latency).toBeNull();
+    expect(result.p99Latency).toBeNull();
+    expect(result.errorRate).toBeNull();
+    expect(result.note).toContain("never simulated");
   });
 
   it("getGrpcConfig returns service proto definitions", async () => {

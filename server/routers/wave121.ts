@@ -11,9 +11,10 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import { desc, eq, and, gte, lte, like, sql } from "drizzle-orm";
+import { desc, eq, and, gte, lte, like, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
+import { logger } from "../logger";
 import { publishAuditEvent } from "../kafkaClient";
 import { startKybVerification } from "../temporalClient";
 import { getDb } from "../db";
@@ -27,7 +28,29 @@ import {
   loyaltyV3Programs,
   loyaltyV3Members,
   tenantConfig,
+  users,
 } from "../../drizzle/schema";
+
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB re-check, adminRouter pattern). */
+async function requirePlatformAdmin(db: any, openId: string): Promise<void> {
+  const [caller] = await db.select({ role: users.role }).from(users).where(eq(users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/**
+ * Chargeback lifecycle transition guard (terminal states are not re-enterable):
+ * open → under_review/won/lost/withdrawn; under_review → won/lost/withdrawn.
+ * Nothing transitions back INTO open.
+ */
+const CHARGEBACK_ALLOWED_FROM: Record<string, readonly string[]> = {
+  open: [],
+  under_review: ["open"],
+  won: ["open", "under_review"],
+  lost: ["open", "under_review"],
+  withdrawn: ["open", "under_review"],
+};
 import {
   provisionTenantViaMiddleware,
   searchAuditTrailViaOpenSearch,
@@ -211,8 +234,20 @@ export const chargebackMgmtRouter = router({
       };
       if (input.notes) setData.notes = input.notes;
       if (input.status === "won" || input.status === "lost") setData.resolvedAt = new Date();
-      await db.update(chargebacks).set(setData)
-        .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.tenantId ?? "")));
+      // Transition guard (open/under_review → won/lost/withdrawn; open →
+      // under_review; terminal states not re-enterable), enforced atomically
+      // in the UPDATE's WHERE clause — an empty result means the chargeback
+      // does not exist for this merchant OR is in a terminal/invalid state.
+      const flipped = await db.update(chargebacks).set(setData)
+        .where(and(
+          eq(chargebacks.id, input.id),
+          eq(chargebacks.merchantId, ctx.user.tenantId ?? ""),
+          inArray(chargebacks.status, [...(CHARGEBACK_ALLOWED_FROM[input.status] ?? [])]),
+        ))
+        .returning({ id: chargebacks.id });
+      if (flipped.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: `Chargeback not found or cannot transition to '${input.status}' from its current (possibly terminal) state` });
+      }
       return { success: true };
     }),
 
@@ -423,7 +458,7 @@ export const kybMgmtRouter = router({
       await db.update(kybVerifications).set(setData)
         .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.tenantId ?? "")));
       if (input.status === 'approved' || input.status === 'rejected') {
-        publishAuditEvent({ action: 'kyb.status.updated', userId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch(() => {});
+        publishAuditEvent({ action: 'kyb.status.updated', userId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[wave121] audit event kyb.status.updated failed", e));
       }
       return { success: true };
     }),
@@ -513,7 +548,7 @@ export const kybMgmtRouter = router({
           targetId: input.verificationId,
           metadata: { note },
           timestamp: new Date().toISOString(),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave121] audit event kyb.geo_velocity.flagged failed", e));
       }
       return { flagged, note };
     }),
@@ -566,7 +601,7 @@ export const kybMgmtRouter = router({
         targetId: input.verificationId,
         metadata: { stepId: step.id, stepName: input.stepName },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave121] audit event kyb.director_kyc.submitted failed", e));
       return { stepId: step.id, status: "pending" };
     }),
 });
@@ -633,25 +668,69 @@ export const invoiceFinV2Router = router({
     .input(z.object({ id: z.string(), approvedAmount: z.number().int().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      await db.update(invoiceFinancingV2Applications).set({
+      // Approving financing is a PLATFORM credit decision (F1-14): a merchant
+      // must never approve its own application (maker-checker). Merchant
+      // scoping is replaced by the platform-admin gate.
+      await requirePlatformAdmin(db, ctx.user.openId);
+      // Guarded flip: only a pending application can be approved.
+      const flipped = await db.update(invoiceFinancingV2Applications).set({
         status: "approved",
         approvedAmount: input.approvedAmount,
         updatedAt: new Date(),
-      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
-      publishAuditEvent({ action: 'invoice_financing.approved', userId: ctx.user.openId, targetId: input.id, metadata: { approvedAmount: input.approvedAmount }, timestamp: new Date().toISOString() }).catch(() => {});
+      }).where(and(
+        eq(invoiceFinancingV2Applications.id, input.id),
+        eq(invoiceFinancingV2Applications.status, "pending"),
+      )).returning({ id: invoiceFinancingV2Applications.id });
+      if (flipped.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "Application is not pending" });
+      }
+      publishAuditEvent({ action: 'invoice_financing.approved', userId: ctx.user.openId, targetId: input.id, metadata: { approvedAmount: input.approvedAmount }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error("[wave121] audit event invoice_financing.approved failed", e));
       return { success: true };
     }),
 
   disburse: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({
+      id: z.string(),
+      // No disbursement rail is integrated, so the funding leg is attested by
+      // the platform admin with an external reference (bank transfer ref, loan
+      // book journal id, ...). REQUIRED — disbursement is never self-service
+      // and never unreferenced (F1-14).
+      fundingReference: z.string().min(8).max(128),
+    }))
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      await db.update(invoiceFinancingV2Applications).set({
+      await requirePlatformAdmin(db, ctx.user.openId);
+      // Guarded flip approved → disbursed (terminal transitions not re-enterable).
+      const flipped = await db.update(invoiceFinancingV2Applications).set({
         status: "disbursed",
         disbursedAt: new Date(),
         updatedAt: new Date(),
-      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
-      return { success: true };
+      }).where(and(
+        eq(invoiceFinancingV2Applications.id, input.id),
+        eq(invoiceFinancingV2Applications.status, "approved"),
+      )).returning({
+        id: invoiceFinancingV2Applications.id,
+        merchantId: invoiceFinancingV2Applications.merchantId,
+        approvedAmount: invoiceFinancingV2Applications.approvedAmount,
+      });
+      if (flipped.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "Application is not in 'approved' state" });
+      }
+      // Honest audit trail: who attested the funding leg and under which
+      // external reference (no money movement happens inside this codebase).
+      publishAuditEvent({
+        action: 'invoice_financing.disbursed',
+        userId: ctx.user.openId,
+        targetId: input.id,
+        metadata: {
+          fundingReference: input.fundingReference,
+          merchantId: flipped[0].merchantId,
+          approvedAmount: flipped[0].approvedAmount,
+        },
+        timestamp: new Date().toISOString(),
+      }).catch((e) => logger.error("[wave121] audit event invoice_financing.disbursed failed", e));
+      return { success: true, fundingReference: input.fundingReference };
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {

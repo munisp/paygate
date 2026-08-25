@@ -147,7 +147,7 @@ func (a *ActivitySet) ExecutePayout(ctx context.Context, payoutID string) error 
 	}
 
 	if err := db.UpdatePayoutStatus(ctx, payoutID, "completed", ""); err != nil {
-		slog.Warn("[activity] ExecutePayout: mark completed failed (non-fatal)", "err", err)
+		slog.Error("[activity] ExecutePayout: ledger debit succeeded but status update failed — reconciliation required", "err", err, "payout_id", payoutID)
 	}
 
 	producer := kafka.GetProducer()

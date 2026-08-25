@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -310,7 +311,8 @@ func (s *Server) internalKeyMiddleware(key string) func(http.Handler) http.Handl
 				return
 			}
 			auth := r.Header.Get("Authorization")
-			if auth != "Bearer "+key {
+			candidate := strings.TrimPrefix(auth, "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(candidate), []byte(key)) != 1 {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}

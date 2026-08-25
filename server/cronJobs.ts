@@ -202,7 +202,7 @@ async function executeDueSipPlans() {
                 <p>Visit <a href="https://paygate.ng/consumer/sip">paygate.ng/consumer/sip</a> to manage your SIP plans.</p>
               </div>
             `,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[SIP] customer failure-notification email failed — SIP debit failure NOT communicated", { error: e instanceof Error ? e.message : String(e) }));
         }
       }
     }
@@ -212,7 +212,7 @@ async function executeDueSipPlans() {
       notifyOwner({
         title: `SIP Batch: ${executed} executed, ${failed} failed`,
         content: `Daily SIP execution batch completed. ${executed} plans executed successfully, ${failed} failed. Total plans processed: ${due.rows.length}.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[SIP] batch summary owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err)) {
@@ -258,7 +258,7 @@ async function autoFreezeEscalatedRings() {
       notifyOwner({
         title: `Fraud Ring Auto-Frozen: ${ringId}`,
         content: `Fraud ring ${ringId} was automatically frozen after 48 hours without resolution following escalation to compliance.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[FraudRing] auto-freeze owner alert failed — compliance alert lost", { ringId, error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err)) {
@@ -274,10 +274,14 @@ async function checkSettlementSLA() {
   if (!db) return;
 
   try {
-    // Mark settlements overdue by > 24h as SLA breached (PostgreSQL syntax)
+    // Mark settlements overdue by > 24h as SLA breached (PostgreSQL syntax).
+    // R4 F15 (spec #15): also flip status to 'sla_breached' (valid
+    // settlement_status enum value) — previously only the marker timestamp
+    // was set, so breached settlements still looked 'pending'/'processing'
+    // to every status-based query.
     const result = await db.execute(sql`
       UPDATE settlements
-      SET sla_breached_at = NOW(), updated_at = NOW()
+      SET sla_breached_at = NOW(), status = 'sla_breached', updated_at = NOW()
       WHERE status IN ('pending', 'processing')
         AND sla_breached_at IS NULL
         AND sla_deadline_at IS NOT NULL
@@ -289,7 +293,7 @@ async function checkSettlementSLA() {
       notifyOwner({
         title: `SLA Breach: ${result.rows.length} settlements overdue`,
         content: `${result.rows.length} settlements have exceeded their SLA deadline and have been marked as breached.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[SLA] breach owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     // Settlements table may not have sla_breached column — non-fatal
@@ -329,7 +333,7 @@ async function runLoyaltyTierPromotion(): Promise<void> {
       notifyOwner({
         title: `Loyalty Tier Update: ${promoted} accounts changed`,
         content: `${promoted} consumer loyalty accounts were promoted or demoted based on lifetime points.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[LoyaltyTier] tier update owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('consumer_loyalty_accounts')) {
@@ -360,7 +364,7 @@ async function runBnplOverdueAlerts(): Promise<void> {
       notifyOwner({
         title: `BNPL Overdue: ${overdue} instalments past due`,
         content: `${overdue} BNPL repayment instalments are now overdue. A 2% late fee has been applied.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[BNPL] overdue owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('bnpl_repayment_schedules')) {
@@ -468,7 +472,7 @@ async function monitorStrDeadlines(): Promise<void> {
           SET submission_attempts = submission_attempts + 1,
               last_attempt_at = NOW()
           WHERE id = ${str.id}
-        `).catch(() => {});
+        `).catch((e) => logger.error(`[STR] attempt-counter persistence failed for ${str.id}: ${e instanceof Error ? e.message : String(e)}`));
         logger.error(`[STR] Auto-retry error for ${str.id}: ${retryErr.message}`);
       }
     }
@@ -579,6 +583,96 @@ async function calculatePendingInterchangeFees(): Promise<void> {
   }
 }
 
+// ─── Red Envelope Expiry Sweeper ─────────────────────────────────────────────
+// R4 (spec #14): an expired red envelope must not strand the unclaimed
+// remainder. For each active envelope past expires_at: guarded flip to
+// 'expired' + refund (total - claimed) to the sender wallet + ledger row, all
+// in ONE transaction per envelope. The ledger reference '<id>_EXPIRY_REFUND'
+// is protected by the unique (wallet_id, reference) index, so even a crash
+// between flip and ledger insert can never double-refund.
+
+async function sweepExpiredRedEnvelopes() {
+  const db = await getDb();
+  if (!db) return;
+
+  const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+
+  try {
+    const due = await db.execute(sql`
+      SELECT id, sender_id, sender_wallet_id, total_amount_kobo, currency
+      FROM red_envelopes
+      WHERE status = 'active' AND expires_at < NOW()
+      ORDER BY expires_at
+      LIMIT 100
+    `);
+
+    if (!due.rows.length) return;
+
+    let swept = 0;
+    for (const env of due.rows as any[]) {
+      try {
+        await db.transaction(async (tx) => {
+          // Guarded status flip — exactly one sweeper/claim path can win.
+          const flipped = rowsOf(await tx.execute(sql`
+            UPDATE red_envelopes
+            SET status = 'expired', updated_at = NOW()
+            WHERE id = ${env.id} AND status = 'active'
+            RETURNING id
+          `));
+          if (!flipped.length) return; // already handled concurrently
+
+          // remaining = total - SUM(actual claim rows) (claims table is the
+          // source of truth — there is no claimed_amount column).
+          const sumRows = rowsOf(await tx.execute(sql`
+            SELECT COALESCE(SUM(amount_kobo), 0)::bigint AS claimed
+            FROM red_envelope_claims
+            WHERE envelope_id = ${env.id}
+          `));
+          const claimedSum = Number(sumRows[0]?.claimed ?? 0);
+          const remaining = Number(env.total_amount_kobo) - claimedSum;
+          if (remaining <= 0) return; // fully claimed — flip only
+
+          // Guarded credit: blind increment on the sender wallet; a missing
+          // wallet throws and rolls back the status flip so the envelope is
+          // retried next tick instead of silently losing the refund.
+          const credited = rowsOf(await tx.execute(sql`
+            UPDATE consumer_wallets
+            SET balance_kobo = balance_kobo + ${remaining}, updated_at = NOW()
+            WHERE id = ${env.sender_wallet_id}
+            RETURNING balance_kobo
+          `));
+          if (!credited.length) {
+            throw new Error(`sender wallet ${env.sender_wallet_id} missing — refund aborted, flip rolled back`);
+          }
+          const newBalance = Number(credited[0].balance_kobo);
+
+          await tx.execute(sql`
+            INSERT INTO consumer_wallet_txns
+              (id, wallet_id, user_id, type, amount_kobo, currency,
+               balance_after_kobo, description, reference, status)
+            VALUES
+              (${`wt_${crypto.randomUUID()}`}, ${env.sender_wallet_id}, ${env.sender_id},
+               'refund', ${remaining}, ${env.currency}, ${newBalance},
+               ${'Red envelope expired — unclaimed remainder refunded'},
+               ${`${env.id}_EXPIRY_REFUND`}, 'completed')
+          `);
+        });
+        swept++;
+      } catch (envErr: any) {
+        logger.error(`[RedEnvelope] Expiry sweep failed for envelope ${env.id}: ${envErr.message}`);
+      }
+    }
+
+    if (swept > 0) {
+      logger.info(`[RedEnvelope] Expired ${swept} red envelopes and refunded unclaimed remainders`);
+    }
+  } catch (err: any) {
+    if (!isSuppressedWorkerError(err)) {
+      logger.error(`[RedEnvelope] Expiry sweep cron error: ${err.message}`);
+    }
+  }
+}
+
 // ─── Cron Scheduler ──────────────────────────────────────────────────────────
 let cronStarted = false;
 
@@ -609,6 +703,9 @@ export function startCronJobs() {
   // Interchange fee auto-calculation — every 5 minutes
   setInterval(calculatePendingInterchangeFees, 5 * 60 * 1000);
 
+  // Red envelope expiry sweeper — every 15 minutes (spec #14)
+  setInterval(sweepExpiredRedEnvelopes, 15 * 60 * 1000);
+
   // Run immediately on startup (after a short delay to let DB connect)
   setTimeout(() => {
     executeDueSipPlans().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SIP initial run: ${e.message}`); });
@@ -618,7 +715,8 @@ export function startCronJobs() {
     runBnplOverdueAlerts().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] BNPL initial run: ${e.message}`); });
     monitorStrDeadlines().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] STR initial run: ${e.message}`); });
     calculatePendingInterchangeFees().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] Interchange initial run: ${e.message}`); });
+    sweepExpiredRedEnvelopes().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] RedEnvelope initial run: ${e.message}`); });
   }, 15_000);
 
-  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), STRDeadline(15m), InterchangeFee(5m)");
+  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), STRDeadline(15m), InterchangeFee(5m), RedEnvelopeExpiry(15m)");
 }

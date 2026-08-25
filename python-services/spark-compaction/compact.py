@@ -15,6 +15,31 @@ logging.basicConfig(
 )
 log = logging.getLogger("delta-compaction")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name, fallback_env=None):
+    """Fail closed: no hardcoded default credentials (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default (e.g. minioadmin/minioadmin).
+    """
+    value = os.getenv(var_name, "")
+    if not value and fallback_env:
+        value = os.getenv(fallback_env, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        log.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    log.warning("%s unset -- generated per-boot dev value; set %s to real credentials", var_name, var_name)
+    return value
+
 TABLES = [
     "audit_events",
     "transactions",
@@ -26,8 +51,8 @@ TABLES = [
 
 S3_BUCKET = os.getenv("S3_BUCKET", "paygate-lakehouse")
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+AWS_ACCESS_KEY_ID = _require_secret_env("MINIO_ACCESS_KEY", fallback_env="AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = _require_secret_env("MINIO_SECRET_KEY", fallback_env="AWS_SECRET_ACCESS_KEY")
 VACUUM_RETAIN_HOURS = int(os.getenv("VACUUM_RETAIN_HOURS", "168"))  # 7 days
 COMPACT_TARGET_SIZE_MB = int(os.getenv("COMPACT_TARGET_SIZE_MB", "128"))
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"

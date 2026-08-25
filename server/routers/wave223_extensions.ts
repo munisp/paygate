@@ -11,6 +11,7 @@ import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { demoOrFail } from "../_core/demoData";
 import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 import { sql, eq, desc, and, gte, lte } from "drizzle-orm";
 import {
   auditLogs,
@@ -524,12 +525,12 @@ const merchantVerificationRouter = router({
         },
         row?.merchantId ?? input.id,
         { "x-event-type": "kyb.approved" },
-      ).catch(() => {});
+      ).catch((e) => logger.error("[wave223] kyb.approved event publish failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
       // ── Webhook: kyb.approved (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
           buildWebhookPayload("kyc.approved", row.merchantId, "", { verificationId: input.id, reviewerId, notes: input.notes ?? null }),
-        ).catch(() => {});
+        ).catch((e) => logger.error("[wave223] kyc.approved webhook dispatch failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
         // ── Push notification: kyb.approved (Fix 2) ─────────────────────────
         notifyMerchant({
           merchantId: row.merchantId,
@@ -539,7 +540,7 @@ const merchantVerificationRouter = router({
           },
           type: "kyc_approved",
           data: { verificationId: input.id },
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave223] kyc_approved push notification failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
       }
       return row;
     }),
@@ -572,12 +573,12 @@ const merchantVerificationRouter = router({
         },
         row?.merchantId ?? input.id,
         { "x-event-type": "kyb.rejected" },
-      ).catch(() => {});
+      ).catch((e) => logger.error("[wave223] kyb.rejected event publish failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
       // ── Webhook: kyb.rejected (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
           buildWebhookPayload("kyc.rejected", row.merchantId, "", { verificationId: input.id, reviewerId, reason: input.reason }),
-        ).catch(() => {});
+        ).catch((e) => logger.error("[wave223] kyc.rejected webhook dispatch failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
         // ── Push notification: kyb.rejected (Fix 2) ─────────────────────────
         notifyMerchant({
           merchantId: row.merchantId,
@@ -587,7 +588,7 @@ const merchantVerificationRouter = router({
           },
           type: "kyc_rejected",
           data: { verificationId: input.id, reason: input.reason },
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave223] kyc_rejected push notification failed", { verificationId: input.id, error: e instanceof Error ? e.message : String(e) }));
       }
       return row;
     }),

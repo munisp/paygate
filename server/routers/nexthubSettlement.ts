@@ -247,14 +247,17 @@ export const nexthubSettlementRouter = router({
 
       if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Window settlement was already triggered by another request" });
 
-      // In production: publish nexthub.settlement.window.settle event to Fluvio
-      // The Rust nexthub-settlement service will:
-      // 1. lookup_accounts for all DFSP positions
-      // 2. create_transfers for all net positions (linked chain)
-      // 3. publish nexthub.settlement.window.settled when complete
-      // 4. tRPC webhook updates status to SETTLED
-
-      return { window: updated, message: "Settlement initiated — TigerBeetle batch posting in progress" };
+      // R4 F15: HONEST STATUS — there is NO Fluvio publish and NO Rust
+      // nexthub-settlement worker integrated in this deployment, so no
+      // TigerBeetle batch posting has been triggered. The window is parked in
+      // SETTLING (guard prevents duplicate triggers); it transitions to
+      // SETTLED only when a real settlement worker calls the settled webhook.
+      // Previously this returned "batch posting in progress", which was a lie.
+      return {
+        window: updated,
+        message:
+          "Window marked SETTLING. No settlement worker is integrated in this deployment — TigerBeetle batch posting has NOT been triggered. The window settles when the nexthub-settlement service is integrated and reports completion via the settled webhook.",
+      };
     }),
 
   /** Get settlement statistics for the dashboard */

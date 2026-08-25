@@ -9,6 +9,12 @@ import { randomUUID } from "crypto";
 
 const { Pool } = pg;
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 // Fallbacks below target the LOCAL embedded dev DB (127.0.0.1) only — safe for dev/test seeds.
 function resolveDbUrl() {
   const url = process.env.DATABASE_URL;
@@ -19,7 +25,7 @@ function resolveDbUrl() {
 
 const pool = new Pool({
   connectionString: resolveDbUrl(),
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DATABASE_URL ? SEED_SSL : false,
 });
 
 const MERCHANT_ID = "demo-merchant-001";

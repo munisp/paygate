@@ -188,7 +188,11 @@ export async function blacklistToken(jti: string, expiresAt: number): Promise<vo
   if (!redis) return;
   const ttl = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   if (ttl > 0) {
-    await redis.set(`blacklist:${jti}`, "1", "EX", ttl).catch(() => {});
+    // JWT revocation persistence must never fail silently — a lost blacklist
+    // entry means a logged-out token stays valid.
+    await redis.set(`blacklist:${jti}`, "1", "EX", ttl).catch((e: unknown) => {
+      console.error("[redis] blacklistToken persistence FAILED — token NOT revoked:", e instanceof Error ? e.message : String(e));
+    });
   }
 }
 

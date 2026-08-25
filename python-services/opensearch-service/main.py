@@ -25,7 +25,7 @@ Environment variables:
   PORT                  — HTTP port (default: 8300)
   OPENSEARCH_URL        — OpenSearch endpoint (default: http://opensearch:9200)
   OPENSEARCH_USER       — OpenSearch username (default: admin)
-  OPENSEARCH_PASSWORD   — OpenSearch password (default: admin)
+  OPENSEARCH_PASSWORD   — OpenSearch password (required; no default)
   DATABASE_URL          — PostgreSQL connection string
   KAFKA_BROKERS         — Kafka bootstrap servers (optional)
   LOG_LEVEL             — Logging level (default: INFO)
@@ -55,12 +55,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger("opensearch-service")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "admin")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+OPENSEARCH_PASSWORD = _require_secret_env("OPENSEARCH_PASSWORD")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")
 PORT = int(os.getenv("PORT", "8300"))
 

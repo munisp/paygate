@@ -20,6 +20,13 @@ import crypto from "crypto";
 import "dotenv/config";
 
 const DRY_RUN = process.argv.includes("--dry-run");
+
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 const DB_URL = process.env.DATABASE_URL;
 
 if (!DB_URL) {
@@ -27,7 +34,7 @@ if (!DB_URL) {
   process.exit(1);
 }
 
-const pool = new pg.Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
+const pool = new pg.Pool({ connectionString: DB_URL, ssl: SEED_SSL });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const uid = () => crypto.randomUUID();

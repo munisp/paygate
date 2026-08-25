@@ -32,6 +32,17 @@ struct ErrorResponse {
     error: String,
 }
 
+/// Constant-time byte comparison — no early exit on length or content mismatch.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        let x = if i < a.len() { a[i] } else { 0 };
+        let y = if i < b.len() { b[i] } else { 0 };
+        diff |= (x ^ y) as usize;
+    }
+    diff == 0
+}
+
 #[tokio::main]
 async fn main() {
     let port: u16 = env::var("PORT")
@@ -70,17 +81,18 @@ async fn main() {
         .and(warp::header::optional::<String>("x-internal-key"))
         .and(warp::body::json::<SignUSDCTransferHttpRequest>())
         .map(move |req_key: Option<String>, body: SignUSDCTransferHttpRequest| {
-            // Authenticate
-            if !key_clone.is_empty() {
-                match req_key {
-                    Some(k) if k == *key_clone => {}
-                    _ => {
-                        let resp = warp::reply::json(&ErrorResponse {
-                            error: "Unauthorized".to_string(),
-                        });
-                        return warp::reply::with_status(resp, warp::http::StatusCode::UNAUTHORIZED);
-                    }
+            // Authenticate (constant-time; empty presented key always rejected).
+            let authenticated = match req_key {
+                Some(k) if !k.is_empty() => {
+                    constant_time_eq(k.as_bytes(), key_clone.as_bytes())
                 }
+                _ => false,
+            };
+            if !authenticated {
+                let resp = warp::reply::json(&ErrorResponse {
+                    error: "Unauthorized".to_string(),
+                });
+                return warp::reply::with_status(resp, warp::http::StatusCode::UNAUTHORIZED);
             }
             // Sign
             match sign_usdc_transfer_http(body) {

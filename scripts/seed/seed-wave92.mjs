@@ -7,6 +7,11 @@ import { createConnection } from "mysql2/promise";
 import dotenv from "dotenv";
 dotenv.config();
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+
 const DB_URL = process.env.DATABASE_URL || process.env.PG_DATABASE_URL;
 if (!DB_URL) { console.error("DATABASE_URL not set"); process.exit(1); }
 
@@ -21,7 +26,7 @@ async function seed() {
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
-    ssl: { rejectUnauthorized: false },
+    ssl: SEED_TLS_INSECURE ? { rejectUnauthorized: false } : {},
   });
 
   try {

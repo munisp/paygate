@@ -12,6 +12,12 @@ dotenv.config();
 
 const { Pool } = pg;
 
+// TLS: DB certificate verification is ON by default (secure). Set
+// SEED_TLS_INSECURE=true to disable verification for self-signed dev DBs only.
+const SEED_TLS_INSECURE = process.env.SEED_TLS_INSECURE === 'true';
+if (SEED_TLS_INSECURE) console.warn('⚠️  SEED_TLS_INSECURE=true — DB TLS certificate verification DISABLED (dev only)');
+const SEED_SSL = SEED_TLS_INSECURE ? { rejectUnauthorized: false } : true;
+
 const DB_URL = process.env.DATABASE_URL || process.env.PG_DATABASE_URL;
 if (!DB_URL) {
   console.error("❌ DATABASE_URL not set");
@@ -20,7 +26,7 @@ if (!DB_URL) {
 
 const pool = new Pool({
   connectionString: DB_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: SEED_SSL,
 });
 
 console.log("✅ Connected to PostgreSQL database\n");

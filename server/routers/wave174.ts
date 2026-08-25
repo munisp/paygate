@@ -80,7 +80,7 @@ export const uboMgmtRouter = router({
         targetId: row.id,
         metadata: { verificationId: input.verificationId, fullName: input.fullName, ownershipPct: input.ownershipPct },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave174] audit event kyb.ubo.added failed", e));
       return row;
     }),
 
@@ -217,7 +217,7 @@ Respond with JSON only.`,
           targetId: input.entityId,
           metadata: { entityType: input.entityType, name: input.name, reason: flagReason },
           timestamp: new Date().toISOString(),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave174] audit event compliance.adverse_media.flagged failed", e));
       }
 
       return { id: row.id, flagged, flagReason, query };
@@ -446,7 +446,7 @@ export const kybRiskScoreRouter = router({
         targetId: input.verificationId,
         metadata: { compositeScore, riskBand },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave174] audit event kyb.risk_score.computed failed", e));
 
       return row;
     }),

@@ -160,7 +160,7 @@ services:
     ports: ["5432:5432"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-paygate}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_prod_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed}
       POSTGRES_DB: ${POSTGRES_DB:-paygate}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -1413,8 +1413,8 @@ services:
       - "9000:9000"   # S3 API
       - "9001:9001"   # MinIO Console UI
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}"
       MINIO_SITE_NAME: paygate-lakehouse
     volumes:
       - minio-data:/data
@@ -1442,7 +1442,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin} &&
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed} $${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed} &&
         mc mb --ignore-existing local/paygate-lakehouse &&
         mc mb --ignore-existing local/paygate-exports &&
         mc anonymous set download local/paygate-exports &&
@@ -1561,8 +1561,8 @@ services:
       # S3/MinIO object store
       S3_ENDPOINT: "http://minio:9000"
       S3_BUCKET: "paygate-lakehouse"
-      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
-      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}"
       AWS_REGION: "us-east-1"
       # Spark
       SPARK_MASTER: "spark://spark-master:7077"
@@ -2395,8 +2395,8 @@ services:
     environment:
       S3_BUCKET: "paygate-lakehouse"
       S3_ENDPOINT: "http://minio:9000"
-      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
-      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}"
       AWS_REGION: "us-east-1"
       SPARK_MASTER: "spark://spark-master:7077"
       VACUUM_RETAIN_HOURS: "168"
@@ -2440,9 +2440,9 @@ volumes:
       PORT: "9040"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
       OPEN_BANKING_V2_CLIENT_ID: ${OPEN_BANKING_V2_CLIENT_ID:-paygate-ob-client}
-      OPEN_BANKING_V2_CLIENT_SECRET: ${OPEN_BANKING_V2_CLIENT_SECRET:-ob-secret-2026}
+      OPEN_BANKING_V2_CLIENT_SECRET: ${OPEN_BANKING_V2_CLIENT_SECRET:?must be set — no default client secret allowed}
     ports: ["9040:9040"]
     networks: [paygate-net]
     healthcheck:
@@ -2459,7 +2459,7 @@ volumes:
       PORT: "9042"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9042:9042"]
     networks: [paygate-net]
     healthcheck:
@@ -2476,7 +2476,7 @@ volumes:
       PORT: "9043"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9043:9043"]
     networks: [paygate-net]
     healthcheck:
@@ -2493,7 +2493,7 @@ volumes:
       PORT: "9044"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9044:9044"]
     networks: [paygate-net]
     healthcheck:
@@ -2510,7 +2510,7 @@ volumes:
       PORT: "9045"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9045:9045"]
     networks: [paygate-net]
     healthcheck:
@@ -2527,7 +2527,7 @@ volumes:
       PORT: "9046"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9046:9046"]
     networks: [paygate-net]
     healthcheck:
@@ -2544,8 +2544,8 @@ volumes:
       PORT: "9047"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
-      CRYPTO_OFFRAMP_V2_API_KEY: ${CRYPTO_OFFRAMP_V2_API_KEY:-crypto-offramp-key-2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
+      CRYPTO_OFFRAMP_V2_API_KEY: ${CRYPTO_OFFRAMP_V2_API_KEY:?must be set — no default API key allowed}
     ports: ["9047:9047"]
     networks: [paygate-net]
     healthcheck:
@@ -2562,7 +2562,7 @@ volumes:
       PORT: "9048"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9048:9048"]
     networks: [paygate-net]
     healthcheck:
@@ -2579,7 +2579,7 @@ volumes:
       PORT: "9049"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9049:9049"]
     networks: [paygate-net]
     healthcheck:
@@ -2596,8 +2596,8 @@ volumes:
       PORT: "9050"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
-      INVOICE_FINANCING_V2_API_KEY: ${INVOICE_FINANCING_V2_API_KEY:-inv-finance-key-2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
+      INVOICE_FINANCING_V2_API_KEY: ${INVOICE_FINANCING_V2_API_KEY:?must be set — no default API key allowed}
     ports: ["9050:9050"]
     networks: [paygate-net]
     healthcheck:
@@ -2614,7 +2614,7 @@ volumes:
       PORT: "9051"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9051:9051"]
     networks: [paygate-net]
     healthcheck:
@@ -2631,8 +2631,8 @@ volumes:
       PORT: "9052"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
-      TAX_FILING_API_KEY: ${TAX_FILING_API_KEY:-tax-filing-key-2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
+      TAX_FILING_API_KEY: ${TAX_FILING_API_KEY:?must be set — no default API key allowed}
     ports: ["9052:9052"]
     networks: [paygate-net]
     healthcheck:
@@ -2649,8 +2649,8 @@ volumes:
       PORT: "9053"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
-      REGULATORY_REPORTING_API_KEY: ${REGULATORY_REPORTING_API_KEY:-reg-reporting-key-2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
+      REGULATORY_REPORTING_API_KEY: ${REGULATORY_REPORTING_API_KEY:?must be set — no default API key allowed}
     ports: ["9053:9053"]
     networks: [paygate-net]
     healthcheck:
@@ -2667,7 +2667,7 @@ volumes:
       PORT: "9054"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9054:9054"]
     networks: [paygate-net]
     healthcheck:
@@ -2684,7 +2684,7 @@ volumes:
       PORT: "9055"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9055:9055"]
     networks: [paygate-net]
     healthcheck:
@@ -2701,7 +2701,7 @@ volumes:
       PORT: "9056"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9056:9056"]
     networks: [paygate-net]
     healthcheck:
@@ -2718,7 +2718,7 @@ volumes:
       PORT: "9057"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9057:9057"]
     networks: [paygate-net]
     healthcheck:
@@ -2735,7 +2735,7 @@ volumes:
       PORT: "9058"
       PG_DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed}
     ports: ["9058:9058"]
     networks: [paygate-net]
     healthcheck:
@@ -2861,7 +2861,7 @@ networks:
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASS:-Admin@PayGate1}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASS:?must be set — no default OpenSearch admin password allowed}
       DISABLE_SECURITY_PLUGIN: "false"
       plugins.security.ssl.http.enabled: "true"
     volumes:

@@ -21,6 +21,8 @@ import { creditWalletViaMiddleware, debitWalletViaMiddleware } from "../middlewa
 import { timingSafeStringEqual } from "../securityUtils";
 import { mobileMoneyTransactions, mobileMoneyProviders } from "../../drizzle/schema";
 import type { Merchant } from "../../drizzle/schema";
+import { demoOrFail } from "../_core/demoData";
+import { logger } from "../logger";
 
 
 function genRef(prefix = "MMT"): string {
@@ -93,9 +95,13 @@ async function callMobileMoneyBridge(action: "collection" | "disbursement", opts
   description?: string;
 }): Promise<{ externalReference: string; status: string; ussdCode?: string } | null> {
   const url = process.env.MIDDLEWARE_BRIDGE_URL;
+  // R4 F1 (spec #3/#13): NEVER fabricate an EXT_* provider reference when the
+  // provider cannot be reached — a phantom external reference could later be
+  // "confirmed" and credit a real wallet for money that never moved. Fail
+  // loud (SERVICE_UNAVAILABLE) unless the explicit simulation switch is on.
+  const simPayload = () => ({ externalReference: `SIM_${genRef()}`, status: "pending" });
   if (!url) {
-    // Graceful fallback — simulate a pending state
-    return { externalReference: `EXT_${genRef()}`, status: "pending" };
+    return demoOrFail(simPayload(), "mobile-money bridge (MIDDLEWARE_BRIDGE_URL unset)");
   }
   try {
     const res = await fetch(`${url}/mobile-money/${action}`, {
@@ -107,10 +113,17 @@ async function callMobileMoneyBridge(action: "collection" | "disbursement", opts
       body: JSON.stringify(opts),
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return { externalReference: `EXT_${genRef()}`, status: "pending" };
-    return await res.json() as { externalReference: string; status: string; ussdCode?: string };
-  } catch {
-    return { externalReference: `EXT_${genRef()}`, status: "pending" };
+    if (!res.ok) {
+      return demoOrFail(simPayload(), `mobile-money bridge HTTP ${res.status} (${action})`);
+    }
+    const body = await res.json() as { externalReference?: string; status?: string; ussdCode?: string };
+    if (!body || typeof body.externalReference !== "string" || typeof body.status !== "string") {
+      return demoOrFail(simPayload(), `mobile-money bridge malformed response (${action})`);
+    }
+    return body as { externalReference: string; status: string; ussdCode?: string };
+  } catch (err) {
+    if (err instanceof TRPCError) throw err; // demoOrFail already failed loud
+    return demoOrFail(simPayload(), `mobile-money bridge unreachable (${action}: ${err instanceof Error ? err.message : String(err)})`);
   }
 }
 
@@ -273,15 +286,25 @@ export const mobileMoneyRouter = router({
       const tenantId = merchant.tenantId;
       const reference = input.clientReference ? `MMD_${input.clientReference}` : genRef("MMD");
 
-      const bridgeResult = await callMobileMoneyBridge("disbursement", {
-        providerCode: input.providerCode,
-        msisdn: input.recipientMsisdn,
-        amountKobo: input.amountKobo,
-        currency: input.currency,
-        reference,
-        merchantId,
-        description: input.description,
-      });
+      // S15b: REORDERED money flow. Previously the provider bridge was called
+      // BEFORE the local claim/debit — two concurrent calls with the same
+      // clientReference both reached the provider (double disbursement).
+      // Now: (1) claim the unique reference FIRST (the insert IS the dedupe —
+      // the unique index on mobileMoneyTransactions.reference serializes
+      // concurrent same-reference attempts; the SELECT below is a fast-path
+      // replay check, the 23505 catch is the race-safe path), (2) debit the
+      // wallet, (3) only then call the provider bridge, with an honest
+      // compensating credit if the bridge fails after the debit.
+      if (input.clientReference) {
+        const [prior] = await db.select().from(mobileMoneyTransactions)
+          .where(eq(mobileMoneyTransactions.reference, reference));
+        if (prior) {
+          if (prior.merchantId !== merchantId) {
+            throw new TRPCError({ code: "CONFLICT", message: "clientReference already used by another merchant" });
+          }
+          return { ...prior, idempotentReplay: true };
+        }
+      }
 
       let txn;
       try {
@@ -291,12 +314,11 @@ export const mobileMoneyRouter = router({
           providerCode: input.providerCode,
           type: "disbursement",
           reference,
-          externalReference: bridgeResult?.externalReference ?? null,
           customerMsisdn: input.recipientMsisdn,
           customerName: input.recipientName ?? null,
           amountKobo: input.amountKobo,
           currency: input.currency,
-          status: bridgeResult?.status ?? "pending",
+          status: "pending",
           metadata: input.metadata ? JSON.stringify(input.metadata) : null,
         }).returning();
       } catch (err: any) {
@@ -315,8 +337,9 @@ export const mobileMoneyRouter = router({
       }
 
       // Guarded debit at the middleware boundary (Permify wallet:debit check +
-      // TigerBeetle insufficient-funds rejection) — AWAITED and fail-loud.
-      // A silent catch here would pay out money that was never debited.
+      // TigerBeetle insufficient-funds rejection) — AWAITED and fail-loud,
+      // BEFORE the provider bridge is called. A silent catch here would pay
+      // out money that was never debited.
       try {
         await debitWalletViaMiddleware({
           walletId: `wallet_${merchantId}`,
@@ -335,6 +358,54 @@ export const mobileMoneyRouter = router({
         throw err instanceof TRPCError
           ? err
           : new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Wallet debit failed — disbursement aborted: ${err?.message ?? "unknown error"}` });
+      }
+
+      // Debit committed — NOW call the provider bridge. On bridge failure,
+      // compensate honestly: credit the wallet back and mark the txn failed.
+      let bridgeResult;
+      try {
+        bridgeResult = await callMobileMoneyBridge("disbursement", {
+          providerCode: input.providerCode,
+          msisdn: input.recipientMsisdn,
+          amountKobo: input.amountKobo,
+          currency: input.currency,
+          reference,
+          merchantId,
+          description: input.description,
+        });
+      } catch (bridgeErr: any) {
+        try {
+          await creditWalletViaMiddleware({
+            walletId: `wallet_${merchantId}`,
+            userId: merchantId,
+            amount: input.amountKobo,
+            currency: input.currency,
+            reference: `${reference}_REVERSAL`,
+            description: `Disbursement reversal (provider bridge failed) for ${input.recipientMsisdn}`,
+          });
+        } catch (creditErr: any) {
+          logger.error("[mobileMoney] RECONCILIATION REQUIRED: disbursement debit committed but provider bridge failed AND the compensating credit also failed", {
+            reference, merchantId, amountKobo: input.amountKobo, currency: input.currency,
+            bridgeError: bridgeErr?.message ?? String(bridgeErr),
+            creditError: creditErr?.message ?? String(creditErr),
+          });
+        }
+        await db.update(mobileMoneyTransactions)
+          .set({ status: "failed", completedAt: new Date(), updatedAt: new Date() } as any)
+          .where(eq(mobileMoneyTransactions.id, txn.id));
+        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Disbursement provider unavailable — wallet debit was reversed: ${bridgeErr?.message ?? "unknown error"}` });
+      }
+
+      // Record the provider's external reference / status on the claimed row.
+      if (bridgeResult?.externalReference || bridgeResult?.status) {
+        await db.update(mobileMoneyTransactions)
+          .set({
+            externalReference: bridgeResult?.externalReference ?? null,
+            status: bridgeResult?.status ?? "pending",
+            updatedAt: new Date(),
+          } as any)
+          .where(eq(mobileMoneyTransactions.id, txn.id));
+        txn = { ...txn, externalReference: bridgeResult?.externalReference ?? null, status: bridgeResult?.status ?? txn.status };
       }
 
       await publishKafka("paygate.mobile_money.disbursement_initiated", {
@@ -496,38 +567,63 @@ export const mobileMoneyRouter = router({
         return { ok: true, status: txn.status, ignored: `Transition ${txn.status} -> ${normalizedStatus} not allowed` };
       }
 
-      // Money effects — AWAITED and fail-loud, performed BEFORE the status flip
-      // so a ledger failure leaves the transaction non-final and the provider's
-      // webhook retry can complete it idempotently.
-      if (txn.type === "collection" && normalizedStatus === "successful") {
-        // Customer paid — credit the merchant wallet (merchantId taken from the
-        // server-side transaction row, never from the webhook payload).
-        await creditWalletViaMiddleware({
-          walletId: `wallet_${txn.merchantId}`,
-          userId: txn.merchantId,
-          amount: txn.amountKobo,
-          currency: txn.currency,
-          reference: txn.reference,
-          description: `Mobile Money Collection from ${txn.customerMsisdn ?? "customer"}`,
-        });
-      } else if (txn.type === "disbursement" && normalizedStatus === "failed") {
-        // Provider failed the payout — compensating re-credit of the debit made
-        // at initiation.
-        await creditWalletViaMiddleware({
-          walletId: `wallet_${txn.merchantId}`,
-          userId: txn.merchantId,
-          amount: txn.amountKobo,
-          currency: txn.currency,
-          reference: `${txn.reference}_COMP`,
-          description: `Compensating refund for failed Mobile Money Disbursement ${txn.reference}`,
-        });
-      }
-
-      await db.update(mobileMoneyTransactions).set({
+      // R4 F1/F4 (mutualFund.redeem pattern): claim the transition with a
+      // GUARDED status flip FIRST — the eq(status, txn.status) predicate means
+      // exactly one concurrent webhook delivery wins the flip; losers no-op.
+      // The money leg (external middleware call, cannot join the DB tx) then
+      // runs AWAITED; on failure a compensating flip-back restores the prior
+      // status so the provider's retry can complete the transaction
+      // idempotently. This kills the credit-before-flip double-credit race.
+      const flipped = await db.update(mobileMoneyTransactions).set({
         status: normalizedStatus as any,
         ...(["successful", "failed"].includes(normalizedStatus) ? { completedAt: new Date() } : {}),
         updatedAt: new Date(),
-      }).where(eq(mobileMoneyTransactions.id, txn.id));
+      }).where(and(
+        eq(mobileMoneyTransactions.id, txn.id),
+        eq(mobileMoneyTransactions.status, txn.status),
+      )).returning({ id: mobileMoneyTransactions.id });
+
+      if (flipped.length === 0) {
+        // Lost the race — a concurrent delivery already transitioned this row.
+        return { ok: true, status: txn.status, idempotent: true };
+      }
+
+      // Money effects — AWAITED and fail-loud, with compensation on failure.
+      try {
+        if (txn.type === "collection" && normalizedStatus === "successful") {
+          // Customer paid — credit the merchant wallet (merchantId taken from the
+          // server-side transaction row, never from the webhook payload).
+          await creditWalletViaMiddleware({
+            walletId: `wallet_${txn.merchantId}`,
+            userId: txn.merchantId,
+            amount: txn.amountKobo,
+            currency: txn.currency,
+            reference: txn.reference,
+            description: `Mobile Money Collection from ${txn.customerMsisdn ?? "customer"}`,
+          });
+        } else if (txn.type === "disbursement" && normalizedStatus === "failed") {
+          // Provider failed the payout — compensating re-credit of the debit made
+          // at initiation.
+          await creditWalletViaMiddleware({
+            walletId: `wallet_${txn.merchantId}`,
+            userId: txn.merchantId,
+            amount: txn.amountKobo,
+            currency: txn.currency,
+            reference: `${txn.reference}_COMP`,
+            description: `Compensating refund for failed Mobile Money Disbursement ${txn.reference}`,
+          });
+        }
+      } catch (moneyErr) {
+        // Compensating flip-back so a provider webhook retry can complete the
+        // transaction (and its money leg) idempotently.
+        await db.update(mobileMoneyTransactions)
+          .set({ status: txn.status as any, completedAt: null, updatedAt: new Date() })
+          .where(and(
+            eq(mobileMoneyTransactions.id, txn.id),
+            eq(mobileMoneyTransactions.status, normalizedStatus as any),
+          ));
+        throw moneyErr;
+      }
 
       await publishKafka(`paygate.mobile_money.${normalizedStatus}`, {
         txnId: txn.id, reference: txn.reference, externalReference: input.externalReference,

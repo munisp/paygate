@@ -331,6 +331,8 @@ export default function MakePayment() {
           recipientName: resolvedName!,
           narration: note || undefined,
           saveBeneficiary,
+          // Consumer transaction PIN — required step-up for any p2p.send debit.
+          pin,
           idempotencyKey: sendKey.getKey(),
         })}
         isPending={send.isPending}
