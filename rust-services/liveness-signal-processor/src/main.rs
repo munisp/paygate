@@ -1,3 +1,5 @@
+mod telemetry;
+
 mod extensions;
 
 /// PayGate Liveness Signal Processor (Rust)
@@ -531,13 +533,7 @@ async fn health() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "liveness_signal_processor=info,tower_http=warn".into()),
-        )
-        .json()
-        .init();
+    telemetry::init_tracing("liveness-signal-processor");
 
     let internal_key = resolve_internal_key();
     let node_callback_url = std::env::var("NODE_CALLBACK_URL")

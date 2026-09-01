@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/paygate/pbac-engine/internal/permify"
 	"github.com/paygate/pbac-engine/internal/policy"
+	"github.com/paygate/pbac-engine/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -332,12 +333,16 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-pbac-engine")
+	defer otelShutdown(context.Background())
+
 	s := newServer(logger)
 
 	port := getEnv("PBAC_ENGINE_PORT", "8090")
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      s.router,
+		Handler:      telemetry.Middleware(s.router),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,

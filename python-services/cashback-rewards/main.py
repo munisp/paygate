@@ -12,7 +12,11 @@ logger = logging.getLogger("cashback-rewards")
 DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9028"))
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Cashback Rewards Service", version="2.0.0")
+setup_telemetry("cashback-rewards", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _pool = None

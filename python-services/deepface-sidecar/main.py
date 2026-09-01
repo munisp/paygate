@@ -46,11 +46,15 @@ INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
 PORT: int = int(os.getenv("PORT", "8001"))
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate DeepFace Sidecar",
     version="1.0.0",
     description="Neural face analysis: liveness, verification, search, analysis",
 )
+setup_telemetry("deepface-sidecar", app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

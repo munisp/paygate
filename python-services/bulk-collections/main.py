@@ -22,7 +22,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credent
 PORT = int(os.getenv("PORT", "9027"))
 MAX_DEBTORS = 10000
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Bulk Collections Service", version="2.0.0")
+setup_telemetry("bulk-collections", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _pool: Optional[asyncpg.Pool] = None

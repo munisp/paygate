@@ -33,11 +33,15 @@ logger = logging.getLogger("gnn-fraud")
 
 PORT = int(os.getenv("PORT", "8141"))
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate GNN Fraud Detection",
     description="Graph Neural Network fraud detection service",
     version="3.2.1",
 )
+setup_telemetry("gnn-fraud", app)
 
 # ─── In-memory fraud graph state ─────────────────────────────────────────────
 _graph_nodes: Dict[str, Dict] = {}

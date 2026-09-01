@@ -1,14 +1,81 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
+import { trace, context as otelContext, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { TrpcContext } from "./context";
+import { setTenantAttrs } from "../tracing";
+import { recordTrpcCall } from "../metrics";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
+// ─── Telemetry middleware ─────────────────────────────────────────────────────
+// Applied to EVERY procedure (public/protected/admin/pbac). Creates a span
+// `trpc.<path>` (SERVER kind), stamps tenant attributes when known, and
+// records the call in Prometheus on completion. Telemetry is wrapped so a
+// tracing/metrics failure can never break a request, and original errors are
+// always re-thrown unchanged (never swallowed).
+
+const telemetryMiddleware = t.middleware(async ({ ctx, next, path }) => {
+  const start = Date.now();
+  let span: ReturnType<ReturnType<typeof trace.getTracer>["startSpan"]> | undefined;
+  try {
+    span = trace
+      .getTracer("paygate-trpc")
+      .startSpan(`trpc.${path}`, { kind: SpanKind.SERVER });
+    setTenantAttrs(span, ctx);
+  } catch (err) {
+    console.warn("[otel] trpc span start failed:", err instanceof Error ? err.message : err);
+    span = undefined;
+  }
+
+  const finish = (ok: boolean) => {
+    try {
+      recordTrpcCall(path, ok ? "success" : "error", Date.now() - start);
+    } catch (err) {
+      console.warn("[metrics] recordTrpcCall failed:", err instanceof Error ? err.message : err);
+    }
+    try {
+      span?.end();
+    } catch {
+      // ignore — span.end must never break a request
+    }
+  };
+
+  const run = async () => {
+    try {
+      const result = await next();
+      if (!result.ok) throw result.error;
+      finish(true);
+      return result;
+    } catch (err) {
+      // Mark the span, record the failure metric, then re-throw the original
+      // error unchanged — telemetry must never swallow or alter errors.
+      try {
+        if (err instanceof TRPCError) {
+          span?.setStatus({ code: SpanStatusCode.ERROR, message: err.code });
+          span?.setAttribute("paygate.trpc_error_code", err.code);
+        } else {
+          span?.setStatus({ code: SpanStatusCode.ERROR });
+        }
+        span?.recordException?.(err as Error);
+      } catch {
+        // ignore — telemetry must never break a request
+      }
+      finish(false);
+      throw err;
+    }
+  };
+
+  if (!span) return run();
+  return otelContext.with(trace.setSpan(otelContext.active(), span), run);
+});
+
+const baseProcedure = t.procedure.use(telemetryMiddleware);
+
 export const router = t.router;
-export const publicProcedure = t.procedure;
+export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -25,9 +92,9 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = baseProcedure.use(requireUser);
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = baseProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

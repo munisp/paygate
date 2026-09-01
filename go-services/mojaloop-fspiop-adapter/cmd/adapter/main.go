@@ -26,6 +26,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/paygate/mojaloop-fspiop-adapter/internal/telemetry"
 )
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
@@ -926,12 +928,16 @@ func generateJWSSignature(privateKeyPEM []byte, payload []byte) (string, error) 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-mojaloop-fspiop-adapter")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 	srv := NewServer(cfg)
 
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      srv.mux,
+		Handler:      telemetry.Middleware(srv.mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

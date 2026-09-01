@@ -1,152 +1,113 @@
 // Package telemetry provides OpenTelemetry initialisation and HTTP middleware
-// for the PayGate Go bridge service.
+// for PayGate Go services.
 //
 // Usage in main.go:
 //
-//	shutdown := telemetry.Init(ctx, "go-bridge")
+//	shutdown := telemetry.Init(ctx, "paygate-bridge")
 //	defer shutdown()
-//	mux.Handle("/", telemetry.Middleware(mux))
+//	handler := telemetry.Middleware(mux)
 package telemetry
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// Shutdown is a function that flushes and shuts down the OTEL SDK.
-type Shutdown func()
+// Shutdown flushes and shuts down the OTEL SDK.
+type Shutdown func(ctx context.Context)
 
-// Init initialises the OpenTelemetry SDK.
-// Returns a no-op shutdown function if OTEL_EXPORTER_OTLP_ENDPOINT is not set.
+// enabled reports whether OTEL_EXPORTER_OTLP_ENDPOINT is configured.
+func enabled() bool {
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
+}
+
+// Init initialises the OpenTelemetry SDK with an OTLP/HTTP trace exporter.
+// It is env-gated: when OTEL_EXPORTER_OTLP_ENDPOINT is unset, tracing is a
+// no-op (otelhttp still injects a non-recording span, keeping context
+// propagation code paths uniform) and Middleware is effectively passthrough.
 func Init(ctx context.Context, serviceName string) Shutdown {
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if endpoint == "" {
-		slog.Info("[otel] tracing disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable")
-		return func() {}
+	if !enabled() {
+		slog.Info("[otel] tracing disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable",
+			"service", serviceName)
+		return func(context.Context) {}
 	}
 
-	// Dynamic OTEL initialisation — only runs when endpoint is configured.
-	// We use a simple HTTP span exporter without importing the full OTEL SDK
-	// to keep the binary lean. Full SDK can be added via go get if needed.
-	slog.Info("[otel] tracing enabled",
-		"service", serviceName,
-		"endpoint", endpoint,
-	)
-
-	return func() {
-		slog.Info("[otel] tracing shutdown")
+	exp, err := otlptracehttp.New(ctx)
+	if err != nil {
+		// Fail-loud per spec: do not silently degrade a misconfigured endpoint.
+		slog.Error("[otel] failed to create OTLP trace exporter", "error", err)
+		return func(context.Context) {}
 	}
-}
 
-// Middleware wraps an http.Handler with OpenTelemetry tracing and metrics.
-// Records: method, path, status, duration, trace_id.
-func Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		// Propagate trace context from incoming headers (W3C TraceContext)
-		traceID := r.Header.Get("traceparent")
-		if traceID == "" {
-			traceID = r.Header.Get("x-trace-id")
-		}
-
-		next.ServeHTTP(wrapped, r)
-
-		duration := time.Since(start)
-		slog.Info("[otel] request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", wrapped.statusCode,
-			"duration_ms", duration.Milliseconds(),
-			"trace_id", traceID,
-			"service", os.Getenv("OTEL_SERVICE_NAME"),
-		)
-
-		// Emit span to OTLP endpoint if configured
-		if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
-			go emitSpan(endpoint, r.Method, r.URL.Path, wrapped.statusCode, duration, traceID)
-		}
-	})
-}
-
-// responseWriter wraps http.ResponseWriter to capture the status code.
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// emitSpan sends a minimal OTLP JSON span to the configured endpoint.
-// This is a lightweight implementation — replace with go.opentelemetry.io/otel
-// for full SDK support including sampling, batching, and retries.
-func emitSpan(endpoint, method, path string, status int, duration time.Duration, traceID string) {
-	// Build a minimal OTLP/HTTP JSON span
-	spanJSON := fmt.Sprintf(`{
-		"resourceSpans": [{
-			"resource": {
-				"attributes": [
-					{"key": "service.name", "value": {"stringValue": "%s"}},
-					{"key": "deployment.environment", "value": {"stringValue": "%s"}}
-				]
-			},
-			"scopeSpans": [{
-				"scope": {"name": "go-bridge"},
-				"spans": [{
-					"traceId": "%s",
-					"spanId": "%s",
-					"name": "%s %s",
-					"kind": 2,
-					"startTimeUnixNano": %d,
-					"endTimeUnixNano": %d,
-					"attributes": [
-						{"key": "http.method", "value": {"stringValue": "%s"}},
-						{"key": "http.route", "value": {"stringValue": "%s"}},
-						{"key": "http.status_code", "value": {"intValue": %d}}
-					],
-					"status": {"code": %d}
-				}]
-			}]
-		}]
-	}`,
-		getEnv("OTEL_SERVICE_NAME", "go-bridge"),
-		getEnv("NODE_ENV", "production"),
-		padOrTrunc(traceID, 32),
-		generateSpanID(),
-		method, path,
-		time.Now().Add(-duration).UnixNano(),
-		time.Now().UnixNano(),
-		method, path, status,
-		statusToOtelCode(status),
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		endpoint+"/v1/traces",
-		nil,
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(serviceName),
+			attribute.String("service.namespace", "paygate"),
+			attribute.String("deployment.environment", getEnv("NODE_ENV", "production")),
+		),
 	)
 	if err != nil {
-		return
+		slog.Error("[otel] failed to build resource", "error", err)
+		return func(context.Context) {}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	_ = spanJSON // In full implementation, set as body
 
-	// Fire-and-forget — errors are non-fatal for tracing
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil && resp != nil {
-		resp.Body.Close()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	slog.Info("[otel] tracing enabled",
+		"service", serviceName,
+		"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+	)
+
+	return func(shutdownCtx context.Context) {
+		ctx, cancel := context.WithTimeout(shutdownCtx, 5*time.Second)
+		defer cancel()
+		if err := tp.Shutdown(ctx); err != nil {
+			slog.Error("[otel] tracer provider shutdown failed", "error", err)
+		}
+	}
+}
+
+// Middleware wraps an http.Handler with otelhttp tracing. When OTEL is not
+// configured the spans are non-recording, making this effectively passthrough.
+func Middleware(next http.Handler) http.Handler {
+	return otelhttp.NewHandler(next, "http.server",
+		otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+	)
+}
+
+// TenantAttrs sets the mandatory PayGate tenant attributes
+// (paygate.tenant_id / paygate.merchant_id) on the span in ctx.
+// Empty values are skipped.
+func TenantAttrs(ctx context.Context, tenantID, merchantID string) {
+	span := trace.SpanFromContext(ctx)
+	if tenantID != "" {
+		span.SetAttributes(attribute.String("paygate.tenant_id", tenantID))
+	}
+	if merchantID != "" {
+		span.SetAttributes(attribute.String("paygate.merchant_id", merchantID))
 	}
 }
 
@@ -155,25 +116,4 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func padOrTrunc(s string, n int) string {
-	if len(s) >= n {
-		return s[:n]
-	}
-	for len(s) < n {
-		s += "0"
-	}
-	return s
-}
-
-func generateSpanID() string {
-	return strconv.FormatInt(time.Now().UnixNano()&0x7FFFFFFFFFFFFFFF, 16)
-}
-
-func statusToOtelCode(status int) int {
-	if status >= 400 {
-		return 2 // ERROR
-	}
-	return 1 // OK
 }

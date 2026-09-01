@@ -8,6 +8,8 @@
 //! - POST /nonce/generate    — Generate cryptographically secure nonces
 //! - GET  /health            — Health check
 
+mod telemetry;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -206,13 +208,8 @@ async fn generate_csrf_token_handler() -> Json<NonceResponse> {
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-        ))
-        .with(tracing_subscriber::fmt::layer().json())
-        .init();
+    // Initialize tracing (fmt layer + OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set)
+    telemetry::init_tracing("crypto-guard");
 
     // Connect to Redis (optional — service works without it)
     let redis_url = std::env::var("REDIS_URL")

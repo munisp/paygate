@@ -36,6 +36,8 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 	"go.uber.org/zap"
+
+	"github.com/paygate/liveness-gateway/internal/telemetry"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -530,6 +532,10 @@ func main() {
 	log, _ := zap.NewProduction()
 	defer log.Sync()
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-liveness-gateway")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 
 	client := &http.Client{
@@ -595,7 +601,7 @@ func main() {
 
 	addr := "0.0.0.0:" + cfg.Port
 	log.Info("liveness-gateway starting", zap.String("addr", addr))
-	if err := http.ListenAndServe(addr, r); err != nil {
+	if err := http.ListenAndServe(addr, telemetry.Middleware(r)); err != nil {
 		log.Fatal("server error", zap.Error(err))
 	}
 }

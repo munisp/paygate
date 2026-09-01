@@ -385,7 +385,11 @@ async def generate_settlement_forecast(merchant_id: str, forecast_days: int) -> 
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate AI Insights", version="1.0.0")
+setup_telemetry("ai-insights", app)
 
 
 @app.post("/insights")

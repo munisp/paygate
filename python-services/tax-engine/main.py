@@ -18,7 +18,11 @@ from flask import Flask, jsonify, request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("tax-engine")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = Flask(__name__)
+setup_telemetry("tax-engine", app)
 
 # ─── Mandatory internal service-to-service auth (fail closed) ───────────────
 # INTERNAL_API_KEY must be configured; every request other than /health and

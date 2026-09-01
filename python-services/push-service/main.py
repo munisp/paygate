@@ -51,6 +51,8 @@ try:
     from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
     PUSH_REQUESTS = Counter("paygate_push_requests_total", "Total push requests", ["channel", "result"])
     PUSH_LATENCY = Histogram("paygate_push_duration_seconds", "Push request duration")
+    ALERT_DISPATCH = Counter("paygate_alert_dispatch_total", "Alertmanager alerts dispatched to Novu", ["channel", "severity"])
+    ALERT_DISPATCH_FAILURES = Counter("paygate_alert_dispatch_failures_total", "Alertmanager alert dispatches that failed", ["channel", "severity"])
     METRICS_ENABLED = True
 except ImportError:
     METRICS_ENABLED = False
@@ -312,11 +314,15 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Push service shutting down")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Push Notification Service",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("push-service", app)
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/health")
@@ -468,6 +474,94 @@ async def _require_internal_api_key(request: _AuthRequest, call_next):
     ):
         return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
+
+
+# ─── Novu alert bridge (Alertmanager webhook receiver) ──────────────────────
+# POST /alerts/webhook accepts an Alertmanager v4 webhook payload and, for each
+# alert, triggers the Novu workflow "paygate-alert" to a subscriber whose id is
+# the merchant/tenant resolved from alert labels. FAIL-LOUD: any Novu error or
+# missing configuration results in HTTP 502 — no fabricated delivery.
+NOVU_API_URL = os.getenv("NOVU_API_URL", "http://novu-api:3000").rstrip("/")
+NOVU_API_KEY = os.getenv("NOVU_API_KEY", "")
+NOVU_WORKFLOW_ID = "paygate-alert"
+
+
+def resolve_alert_tenant(labels: dict) -> Optional[str]:
+    """Resolve tenant/merchant identity from alert labels."""
+    return labels.get("tenant_id") or labels.get("merchant_id")
+
+
+async def dispatch_alert_to_novu(tenant_id: str, alert: dict) -> None:
+    """Trigger the paygate-alert Novu workflow for one alert. Raises on failure."""
+    import httpx
+    labels = alert.get("labels", {}) or {}
+    annotations = alert.get("annotations", {}) or {}
+    severity = labels.get("severity", "warning")
+    channel = labels.get("channel", "in_app")
+    payload = {
+        "alertname": labels.get("alertname", "unknown"),
+        "severity": severity,
+        "summary": annotations.get("summary", labels.get("alertname", "")),
+        "startsAt": alert.get("startsAt", ""),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{NOVU_API_URL}/v1/events/trigger",
+                headers={
+                    "Authorization": f"ApiKey {NOVU_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "name": NOVU_WORKFLOW_ID,
+                    "to": {"subscriberId": tenant_id},
+                    "payload": payload,
+                },
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Novu trigger returned HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception:
+        if METRICS_ENABLED:
+            ALERT_DISPATCH_FAILURES.labels(channel=channel, severity=severity).inc()
+        raise
+    if METRICS_ENABLED:
+        ALERT_DISPATCH.labels(channel=channel, severity=severity).inc()
+
+
+@app.post("/alerts/webhook")
+async def alerts_webhook(request: Request):
+    if not NOVU_API_KEY:
+        logger.error("[alerts] NOVU_API_KEY not configured — refusing to fabricate delivery")
+        raise HTTPException(status_code=502, detail="Novu API key not configured; alert NOT dispatched")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    alerts = body.get("alerts", [])
+    if not isinstance(alerts, list):
+        raise HTTPException(status_code=400, detail="'alerts' must be a list")
+    dispatched = 0
+    errors = []
+    for alert in alerts:
+        labels = alert.get("labels", {}) or {}
+        tenant_id = resolve_alert_tenant(labels)
+        if not tenant_id:
+            logger.warning(f"[alerts] alert without tenant label skipped: {labels.get('alertname')}")
+            errors.append("missing tenant label")
+            continue
+        try:
+            await dispatch_alert_to_novu(str(tenant_id), alert)
+            dispatched += 1
+        except Exception as e:
+            logger.error(f"[alerts] Novu dispatch failed for tenant {tenant_id}: {e}")
+            errors.append(str(e))
+    if errors:
+        # FAIL LOUD: at least one alert was NOT delivered — Alertmanager must retry.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Novu dispatch failed for {len(errors)}/{len(alerts)} alerts: {errors[0]}",
+        )
+    return {"dispatched": dispatched}
 
 
 if __name__ == "__main__":

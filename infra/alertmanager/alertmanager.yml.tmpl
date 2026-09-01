@@ -1,0 +1,65 @@
+# =============================================================================
+# PayGate Alertmanager — standalone config (spec §6)
+# SMTP receivers: paygate-ops / paygate-critical
+# Webhook receiver: novu-bridge → push-service (Novu fan-out, spec §7)
+# =============================================================================
+
+global:
+  smtp_smarthost: 'smtp.paygate.internal:587'
+  smtp_from: 'alerts@paygate.ng'
+  smtp_auth_username: 'alerts@paygate.ng'
+  smtp_auth_password: '${SMTP_PASS}'
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'severity', 'tenant']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'paygate-ops'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'paygate-critical'
+      repeat_interval: 1h
+      continue: true
+    # Fan every alert into the Novu bridge for tenant-scoped in-app/sms dispatch
+    - receiver: 'novu-bridge'
+      group_by: ['alertname', 'severity', 'tenant']
+      continue: true
+      routes:
+        - match:
+            severity: critical
+          repeat_interval: 1h
+        - match:
+            severity: warning
+          repeat_interval: 4h
+
+receivers:
+  - name: 'paygate-ops'
+    email_configs:
+      - to: 'ops@paygate.ng'
+        send_resolved: true
+
+  - name: 'paygate-critical'
+    email_configs:
+      - to: 'cto@paygate.ng,security@paygate.ng'
+        send_resolved: true
+
+  - name: 'novu-bridge'
+    webhook_configs:
+      - url: 'http://push-service:8096/alerts/webhook'
+        send_resolved: true
+        max_alerts: 100
+        http_config:
+          headers:
+            X-Internal-Key: "__INTERNAL_API_KEY__"
+          tls_config:
+            insecure_skip_verify: false
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'tenant']

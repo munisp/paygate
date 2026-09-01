@@ -387,6 +387,9 @@ services:
       APNS_KEY_ID: ${APNS_KEY_ID:-}
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
       APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
+      # Novu alert fan-out (spec §6/§7) — fail-closed, no default API key
+      NOVU_API_URL: ${NOVU_API_URL:-http://novu-api:3000}
+      NOVU_API_KEY: ${NOVU_API_KEY:?must be set — no default Novu API key allowed}
     ports:
       - "8096:8096"
     networks:
@@ -720,12 +723,17 @@ services:
     container_name: paygate-otel-collector
     restart: unless-stopped
     command: ["--config=/etc/otel/config.yaml"]
+    environment:
+      PG_MONITOR_USER: ${PG_MONITOR_USER:-paygate_monitor}
+      PG_MONITOR_PASSWORD: ${PG_MONITOR_PASSWORD:?must be set — no default DB monitor password allowed}
     volumes:
-      - ./otel/collector-config.yaml:/etc/otel/config.yaml:ro
+      # Consolidated single collector config (spec §6)
+      - ./otel-collector/otel-collector.yml:/etc/otel/config.yaml:ro
+      - /var/log/paygate:/var/log/paygate:ro
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
-      - "9411:9411"   # Zipkin
+      - "8889:8889"   # Prometheus exporter (scraped by prometheus)
     networks:
       - paygate-net
     deploy:

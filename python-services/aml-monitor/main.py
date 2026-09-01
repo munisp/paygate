@@ -323,7 +323,11 @@ async def save_alert(alert: AMLAlert):
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate AML Monitor", version="1.0.0")
+setup_telemetry("aml-monitor", app)
 
 
 @app.get("/alerts")

@@ -504,7 +504,11 @@ async def lookup_jurisdiction(country_code: str) -> dict:
     return {"matched": False, "country_code": country_code, "risk_level": "clean", "reason": None}
 
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate FATF/Sanctions Sync", version="1.0.0")
+setup_telemetry("fatf-sanctions-sync", app)
 
 @app.on_event("startup")
 async def startup():

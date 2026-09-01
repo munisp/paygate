@@ -1,3 +1,9 @@
+# =============================================================================
+# PayGate OpenTelemetry Collector — CONSOLIDATED single config (spec §6)
+# Supersedes infra/otel/collector-config.yaml (which now points here).
+# Traces → Tempo | Metrics → Prometheus exporter :8889 | Logs → Loki
+# =============================================================================
+
 receivers:
   otlp:
     protocols:
@@ -6,6 +12,35 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  # Kafka cluster metrics (kafka-1:9092)
+  kafkametrics:
+    brokers:
+      - kafka-1:9092
+    protocol_version: 2.0.0
+    scrapers:
+      - brokers
+      - topics
+      - consumers
+    collection_interval: 30s
+
+  # PostgreSQL metrics via dedicated monitor role (env-injected, no hardcoded secrets)
+  postgresql:
+    endpoint: postgres:5432
+    transport: tcp
+    username: ${env:PG_MONITOR_USER}
+    password: ${env:PG_MONITOR_PASSWORD}
+    databases:
+      - paygate_monitor
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+  # Redis metrics
+  redis:
+    endpoint: redis:6379
+    collection_interval: 30s
+
+  # Prometheus-style scrape endpoints (middleware + data-plane)
   prometheus:
     config:
       scrape_configs:
@@ -13,6 +48,70 @@ receivers:
           scrape_interval: 10s
           static_configs:
             - targets: [0.0.0.0:8888]
+
+        - job_name: keycloak
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [keycloak:8080]
+
+        - job_name: permify
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [permify:3476]
+
+        - job_name: apisix
+          scrape_interval: 15s
+          static_configs:
+            - targets: [apisix:9091]
+
+        - job_name: opensearch
+          scrape_interval: 30s
+          static_configs:
+            - targets: [opensearch:9600]
+
+        - job_name: openappsec
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [openappsec:8090]
+
+        - job_name: temporal
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [temporal:8000]
+
+        - job_name: tigerbeetle-ledger
+          scrape_interval: 15s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [tigerbeetle-ledger:3000]
+
+        - job_name: spark
+          scrape_interval: 30s
+          static_configs:
+            - targets: [spark:4040]
+
+        - job_name: trino
+          scrape_interval: 30s
+          static_configs:
+            - targets: [trino:8080]
+
+  # File logs → Loki pipeline
+  filelog:
+    include:
+      - /var/log/paygate/*.log
+    start_at: end
+    operators:
+      - type: regex_parser
+        regex: '^(?P<timestamp>\S+)\s+(?P<severity>\w+)\s+(?P<body>.*)$'
+        if: 'attributes != nil'
+      - type: time_parser
+        parse_from: attributes.timestamp
+        layout: '%Y-%m-%dT%H:%M:%S'
+        if: 'attributes.timestamp != nil'
 
 processors:
   batch:
@@ -33,6 +132,14 @@ processors:
         key: cluster
         value: paygate-prod
 
+  # Deployment-env upsert (spec §6) — tenant grouping deliberately NOT
+  # enabled by default (high cardinality; see spec §1).
+  attributes/tenant:
+    actions:
+      - action: upsert
+        key: deployment.environment
+        value: production
+
   filter/drop_health:
     traces:
       span:
@@ -48,6 +155,11 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
     namespace: paygate
+
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    tls:
+      insecure: true
 
   logging:
     loglevel: warn
@@ -65,9 +177,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, filter/drop_health, resource, batch]
+      processors: [memory_limiter, filter/drop_health, resource, attributes/tenant, batch]
       exporters: [otlp/tempo, logging]
     metrics:
-      receivers: [otlp, prometheus]
-      processors: [memory_limiter, resource, batch]
+      receivers: [otlp, prometheus, kafkametrics, postgresql, redis]
+      processors: [memory_limiter, resource, attributes/tenant, batch]
       exporters: [prometheus, logging]
+    logs:
+      receivers: [filelog, otlp]
+      processors: [memory_limiter, resource, attributes/tenant, batch]
+      exporters: [loki, logging]

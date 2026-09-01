@@ -26,7 +26,11 @@ from pydantic import BaseModel
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "info").upper())
 log = logging.getLogger("spark-compaction")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Spark Compaction Service", version="1.1.0")
+setup_telemetry("spark-compaction", app)
 
 S3_ENDPOINT = os.getenv("S3_ENDPOINT") or os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
 S3_BUCKET = os.getenv("S3_BUCKET") or os.getenv("LAKEHOUSE_BUCKET", "paygate-lakehouse")

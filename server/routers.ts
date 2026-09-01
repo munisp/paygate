@@ -247,6 +247,7 @@ import { apRecurringRouter } from './routers/apRecurring';
 import { apVendorCardsRouter } from './routers/apVendorCards';
 import { apAssistantRouter } from './routers/apAssistant';
 import { syndicationApRouter } from './routers/syndicationAp';
+import { alertSubscriptionsRouter } from './routers/alertSubscriptions';
 import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -10895,6 +10896,7 @@ export const appRouter = router({
   apVendorCards: apVendorCardsRouter,
   apAssistant: apAssistantRouter,
   syndicationAp: syndicationApRouter,
+  alertSubscriptions: alertSubscriptionsRouter,
   // Wave 228 — PDF Export, Cashback/Rewards, API Docs
   pdfExport: pdfExportRouter,
   cashbackRewards: cashbackRewardsRouter,

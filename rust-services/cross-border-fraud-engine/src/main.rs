@@ -12,6 +12,8 @@
 /// - Rail-specific rules (CIPS CNAPS validation, UPI VPA format, PIX CPF validation)
 /// - Behavioral patterns (first-time corridor, large amount, round numbers)
 
+mod telemetry;
+
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, middleware};
 use chrono::{DateTime, Utc, Timelike};
 use serde::{Deserialize, Serialize};
@@ -593,14 +595,7 @@ async fn handle_rules() -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info".to_string())
-                .as_str()
-        )
-        .json()
-        .init();
+    telemetry::init_tracing("cross-border-fraud-engine");
 
     let config = Config::from_env();
     let port = config.port;

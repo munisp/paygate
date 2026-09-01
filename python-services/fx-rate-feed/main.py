@@ -19,6 +19,11 @@ from aiohttp import web
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("fx-rate-feed")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
+setup_telemetry("fx-rate-feed")
+
 
 import secrets as _secrets_mod
 import sys as _sys_mod

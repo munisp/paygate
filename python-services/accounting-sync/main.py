@@ -35,7 +35,11 @@ from providers import PROVIDERS, ProviderHttpError, ProviderNotConfigured
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("accounting-sync")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Accounting Sync", version="1.0.0")
+setup_telemetry("accounting-sync", app)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

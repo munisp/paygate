@@ -18,7 +18,11 @@ import uvicorn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cohort-analytics")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Cohort Analytics", version="1.0.0")
+setup_telemetry("cohort-analytics", app)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5)
