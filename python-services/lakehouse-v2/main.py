@@ -638,12 +638,16 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Lakehouse v2 shutting down")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Analytics Lakehouse v2",
     version="2.0.0",
     description="DuckDB + Apache Iceberg + S3 analytics query service",
     lifespan=lifespan,
 )
+setup_telemetry("lakehouse-v2", app)
 
 @app.get("/health")
 def health():

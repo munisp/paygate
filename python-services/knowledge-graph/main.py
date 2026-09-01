@@ -342,12 +342,16 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] Knowledge Graph service stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Knowledge Graph",
     description="FalkorDB graph intelligence with EPR-KGQA",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("knowledge-graph", app)
 
 @app.get("/health")
 async def health():

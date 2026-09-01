@@ -45,6 +45,7 @@ async function getPromClient() {
 
 let httpRequestDuration: any;
 let trpcCallCounter: any;
+let trpcCallDuration: any;
 let activeConnections: any;
 let dbQueryDuration: any;
 let cacheHitCounter: any;
@@ -64,6 +65,14 @@ function initCustomMetrics() {
     name: "paygate_trpc_calls_total",
     help: "Total number of tRPC procedure calls",
     labelNames: ["procedure", "status"],
+    registers: [registry],
+  });
+
+  trpcCallDuration = new promClient.Histogram({
+    name: "paygate_trpc_call_duration_seconds",
+    help: "tRPC procedure call duration in seconds",
+    labelNames: ["procedure", "status"],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
     registers: [registry],
   });
 
@@ -123,9 +132,12 @@ export async function metricsHandler(req: Request, res: Response) {
 
 // ─── Helper functions for other modules ──────────────────────────────────────
 
-/** Record a tRPC procedure call. */
-export function recordTrpcCall(procedure: string, status: "success" | "error") {
+/** Record a tRPC procedure call (count + optional duration in ms). */
+export function recordTrpcCall(procedure: string, status: "success" | "error", durationMs?: number) {
   trpcCallCounter?.inc({ procedure, status });
+  if (durationMs !== undefined) {
+    trpcCallDuration?.observe({ procedure, status }, durationMs / 1000);
+  }
 }
 
 /** Record a database query duration. */

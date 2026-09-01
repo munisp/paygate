@@ -327,7 +327,11 @@ async def lifespan(app: FastAPI):
     logger.info("USSD gateway shutting down")
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate USSD Gateway", version="2.0.0", lifespan=lifespan)
+setup_telemetry("ussd-gateway", app)
 
 
 @app.get("/health")

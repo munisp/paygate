@@ -664,12 +664,16 @@ async def lifespan(app: FastAPI):
     logger.info("Merchant USSD Fallback Service shutting down")
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Merchant USSD Fallback",
     version="2.0.0",
     description="USSD/SMS fallback for merchants in low-connectivity environments. Supports EN/HA/YO/IG/FR.",
     lifespan=lifespan,
 )
+setup_telemetry("merchant-ussd-fallback", app)
 
 
 def _check_internal_key(x_internal_key: Optional[str]) -> None:

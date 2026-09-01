@@ -24,7 +24,11 @@ COWRYWISE_BASE_URL = os.getenv("COWRYWISE_BASE_URL", "https://api.cowrywise.com/
 COWRYWISE_API_KEY = os.getenv("COWRYWISE_API_KEY", "")
 NAV_CACHE_TTL_SECONDS = int(os.getenv("NAV_CACHE_TTL_SECONDS", "300"))
 PORT = int(os.getenv("PORT", "9031"))
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Mutual Funds Service", version="2.1.0")
+setup_telemetry("mutual-funds", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 _pool = None
 async def get_pool():

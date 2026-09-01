@@ -154,23 +154,6 @@ routes:
         key: remote_addr
         rejected_code: 429
 
-# ─── Global plugins ────────────────────────────────────────────────────────────
-global_rules:
-  - id: global-prometheus
-    plugins:
-      prometheus:
-        prefer_name: true
-
-  - id: global-security-headers
-    plugins:
-      response-rewrite:
-        headers:
-          set:
-            X-Content-Type-Options: "nosniff"
-            X-Frame-Options: "DENY"
-            X-XSS-Protection: "1; mode=block"
-            Referrer-Policy: "strict-origin-when-cross-origin"
-            Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
 
 # =============================================================================
 # Tier 1-5 New Microservice Routes
@@ -359,766 +342,800 @@ global_rules:
 
 # ─── Tier 6-8 Routes ────────────────────────────────────────────────────────
 
-- id: insurance-service
-  uri: /api/insurance/*
-  name: insurance-service
-  upstream:
-    type: roundrobin
-    nodes:
-      insurance-service:8110: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 15
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: insurance-service
+    uri: /api/insurance/*
+    name: insurance-service
+    upstream:
+      type: roundrobin
+      nodes:
+        insurance-service:8110: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: carbon-credit-service
-  uri: /api/carbon/*
-  name: carbon-credit-service
-  upstream:
-    type: roundrobin
-    nodes:
-      carbon-credit-service:8111: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 20
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: carbon-credit-service
+    uri: /api/carbon/*
+    name: carbon-credit-service
+    upstream:
+      type: roundrobin
+      nodes:
+        carbon-credit-service:8111: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: nft-service
-  uri: /api/nft/*
-  name: nft-service
-  upstream:
-    type: roundrobin
-    nodes:
-      nft-service:8112: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 20
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: nft-service
+    uri: /api/nft/*
+    name: nft-service
+    upstream:
+      type: roundrobin
+      nodes:
+        nft-service:8112: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: bnpl-v2-service
-  uri: /api/bnpl/v2/*
-  name: bnpl-v2-service
-  upstream:
-    type: roundrobin
-    nodes:
-      bnpl-v2-service:8113: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 25
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: bnpl-v2-service
+    uri: /api/bnpl/v2/*
+    name: bnpl-v2-service
+    upstream:
+      type: roundrobin
+      nodes:
+        bnpl-v2-service:8113: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 25
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: crypto-ramp-service
-  uri: /api/crypto/*
-  name: crypto-ramp-service
-  upstream:
-    type: roundrobin
-    nodes:
-      crypto-ramp-service:8114: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 20
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: crypto-ramp-service
+    uri: /api/crypto/*
+    name: crypto-ramp-service
+    upstream:
+      type: roundrobin
+      nodes:
+        crypto-ramp-service:8114: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: escrow-service
-  uri: /api/escrow/*
-  name: escrow-service
-  upstream:
-    type: roundrobin
-    nodes:
-      escrow-service:8115: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 15
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: escrow-service
+    uri: /api/escrow/*
+    name: escrow-service
+    upstream:
+      type: roundrobin
+      nodes:
+        escrow-service:8115: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: bulk-scheduler-service
-  uri: /api/bulk-scheduler/*
-  name: bulk-scheduler-service
-  upstream:
-    type: roundrobin
-    nodes:
-      bulk-scheduler-service:8116: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 10
-      burst: 5
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: bulk-scheduler-service
+    uri: /api/bulk-scheduler/*
+    name: bulk-scheduler-service
+    upstream:
+      type: roundrobin
+      nodes:
+        bulk-scheduler-service:8116: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: tax-withholding-service
-  uri: /api/tax/*
-  name: tax-withholding-service
-  upstream:
-    type: roundrobin
-    nodes:
-      tax-withholding-service:8117: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 15
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: tax-withholding-service
+    uri: /api/tax/*
+    name: tax-withholding-service
+    upstream:
+      type: roundrobin
+      nodes:
+        tax-withholding-service:8117: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: regulatory-sandbox-service
-  uri: /api/reg-sandbox/*
-  name: regulatory-sandbox-service
-  upstream:
-    type: roundrobin
-    nodes:
-      regulatory-sandbox-service:8118: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 10
-      burst: 5
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: regulatory-sandbox-service
+    uri: /api/reg-sandbox/*
+    name: regulatory-sandbox-service
+    upstream:
+      type: roundrobin
+      nodes:
+        regulatory-sandbox-service:8118: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: multi-currency-wallet-service
-  uri: /api/multi-currency/*
-  name: multi-currency-wallet-service
-  upstream:
-    type: roundrobin
-    nodes:
-      multi-currency-wallet-service:8119: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 25
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: multi-currency-wallet-service
+    uri: /api/multi-currency/*
+    name: multi-currency-wallet-service
+    upstream:
+      type: roundrobin
+      nodes:
+        multi-currency-wallet-service:8119: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 25
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: rtgs-service
-  uri: /api/rtgs/*
-  name: rtgs-service
-  upstream:
-    type: roundrobin
-    nodes:
-      rtgs-service:8120: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: rtgs-service
+    uri: /api/rtgs/*
+    name: rtgs-service
+    upstream:
+      type: roundrobin
+      nodes:
+        rtgs-service:8120: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: iso20022-service
-  uri: /api/iso20022/*
-  name: iso20022-service
-  upstream:
-    type: roundrobin
-    nodes:
-      iso20022-service:8121: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: iso20022-service
+    uri: /api/iso20022/*
+    name: iso20022-service
+    upstream:
+      type: roundrobin
+      nodes:
+        iso20022-service:8121: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
 
-- id: open-finance-hub
-  uri: /api/open-finance/*
-  name: open-finance-hub
-  upstream:
-    type: roundrobin
-    nodes:
-      open-finance-hub:8122: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 15
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: open-finance-hub
+    uri: /api/open-finance/*
+    name: open-finance-hub
+    upstream:
+      type: roundrobin
+      nodes:
+        open-finance-hub:8122: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: white-label-sdk-service
-  uri: /api/white-label/*
-  name: white-label-sdk-service
-  upstream:
-    type: roundrobin
-    nodes:
-      white-label-sdk-service:8123: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 20
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: white-label-sdk-service
+    uri: /api/white-label/*
+    name: white-label-sdk-service
+    upstream:
+      type: roundrobin
+      nodes:
+        white-label-sdk-service:8123: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: super-app-service
-  uri: /api/super-app/*
-  name: super-app-service
-  upstream:
-    type: roundrobin
-    nodes:
-      super-app-service:8124: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: super-app-service
+    uri: /api/super-app/*
+    name: super-app-service
+    upstream:
+      type: roundrobin
+      nodes:
+        super-app-service:8124: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: lakehouse-v2-service
-  uri: /api/lakehouse/v2/*
-  name: lakehouse-v2-service
-  upstream:
-    type: roundrobin
-    nodes:
-      lakehouse-v2-service:8125: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 20
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: lakehouse-v2-service
+    uri: /api/lakehouse/v2/*
+    name: lakehouse-v2-service
+    upstream:
+      type: roundrobin
+      nodes:
+        lakehouse-v2-service:8125: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
-- id: payroll-v2-service
-  uri: /api/payroll/v2/*
-  name: payroll-v2-service
-  upstream:
-    type: roundrobin
-    nodes:
-      payroll-v2-service:8126: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 15
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-    opentelemetry:
-      sampler:
-        name: always_on
-- id: settlement-forecast
-  uri: /api/v1/settlement-forecast/*
-  name: settlement-forecast
-  upstream:
-    type: roundrobin
-    nodes:
-      settlement-forecast:9010: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 20
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-- id: carbon-oracle
-  uri: /api/v1/carbon/*
-  name: carbon-oracle
-  upstream:
-    type: roundrobin
-    nodes:
-      carbon-oracle:9011: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-- id: insurance-pricing
-  uri: /api/v1/insurance/*
-  name: insurance-pricing
-  upstream:
-    type: roundrobin
-    nodes:
-      insurance-pricing:9012: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 20
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-- id: tax-engine
-  uri: /api/v1/tax/*
-  name: tax-engine
-  upstream:
-    type: roundrobin
-    nodes:
-      tax-engine:9013: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 200
-      burst: 100
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
-- id: iso20022-parser
-  uri: /api/v1/iso20022/*
-  name: iso20022-parser
-  upstream:
-    type: roundrobin
-    nodes:
-      iso20022-parser:9014: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 20
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: payroll-v2-service
+    uri: /api/payroll/v2/*
+    name: payroll-v2-service
+    upstream:
+      type: roundrobin
+      nodes:
+        payroll-v2-service:8126: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+  - id: settlement-forecast
+    uri: /api/v1/settlement-forecast/*
+    name: settlement-forecast
+    upstream:
+      type: roundrobin
+      nodes:
+        settlement-forecast:9010: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+  - id: carbon-oracle
+    uri: /api/v1/carbon/*
+    name: carbon-oracle
+    upstream:
+      type: roundrobin
+      nodes:
+        carbon-oracle:9011: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+  - id: insurance-pricing
+    uri: /api/v1/insurance/*
+    name: insurance-pricing
+    upstream:
+      type: roundrobin
+      nodes:
+        insurance-pricing:9012: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+  - id: tax-engine
+    uri: /api/v1/tax/*
+    name: tax-engine
+    upstream:
+      type: roundrobin
+      nodes:
+        tax-engine:9013: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 200
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+  - id: iso20022-parser
+    uri: /api/v1/iso20022/*
+    name: iso20022-parser
+    upstream:
+      type: roundrobin
+      nodes:
+        iso20022-parser:9014: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
 # ─── Wave 76/77 New Feature Routes ───────────────────────────────────────────
-- id: digital-gold
-  uri: /api/digital-gold/*
-  upstream:
-    type: roundrobin
-    nodes:
-      digital-gold-service:9020: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/digital-gold/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
+  - id: digital-gold
+    uri: /api/digital-gold/*
+    upstream:
+      type: roundrobin
+      nodes:
+        digital-gold-service:9020: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/digital-gold/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
 
-- id: mutual-funds
-  uri: /api/mutual-funds/*
-  upstream:
-    type: roundrobin
-    nodes:
-      mutual-funds-service:9021: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/mutual-funds/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 50
-      key: consumer_name
+  - id: mutual-funds
+    uri: /api/mutual-funds/*
+    upstream:
+      type: roundrobin
+      nodes:
+        mutual-funds-service:9021: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/mutual-funds/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: consumer_name
 
-- id: consumer-insurance
-  uri: /api/consumer-insurance/*
-  upstream:
-    type: roundrobin
-    nodes:
-      insurance-service:9022: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/consumer-insurance/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: consumer-insurance
+    uri: /api/consumer-insurance/*
+    upstream:
+      type: roundrobin
+      nodes:
+        insurance-service:9022: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/consumer-insurance/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: pension
-  uri: /api/pension/*
-  upstream:
-    type: roundrobin
-    nodes:
-      pension-service:9023: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/pension/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: pension
+    uri: /api/pension/*
+    upstream:
+      type: roundrobin
+      nodes:
+        pension-service:9023: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/pension/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: cashback
-  uri: /api/cashback/*
-  upstream:
-    type: roundrobin
-    nodes:
-      cashback-service:9024: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/cashback/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: cashback
+    uri: /api/cashback/*
+    upstream:
+      type: roundrobin
+      nodes:
+        cashback-service:9024: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/cashback/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: voice-payments
-  uri: /api/voice-payments/*
-  upstream:
-    type: roundrobin
-    nodes:
-      voice-payments-service:9025: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/voice-payments/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: voice-payments
+    uri: /api/voice-payments/*
+    upstream:
+      type: roundrobin
+      nodes:
+        voice-payments-service:9025: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/voice-payments/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: wealth
-  uri: /api/wealth/*
-  upstream:
-    type: roundrobin
-    nodes:
-      wealth-service:9026: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/wealth/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: wealth
+    uri: /api/wealth/*
+    upstream:
+      type: roundrobin
+      nodes:
+        wealth-service:9026: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/wealth/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: emi
-  uri: /api/emi/*
-  upstream:
-    type: roundrobin
-    nodes:
-      emi-service:9027: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/emi/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: emi
+    uri: /api/emi/*
+    upstream:
+      type: roundrobin
+      nodes:
+        emi-service:9027: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/emi/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: bulk-collections
-  uri: /api/bulk-collections/*
-  upstream:
-    type: roundrobin
-    nodes:
-      bulk-collections-service:9028: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/bulk-collections/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: bulk-collections
+    uri: /api/bulk-collections/*
+    upstream:
+      type: roundrobin
+      nodes:
+        bulk-collections-service:9028: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/bulk-collections/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: salary
-  uri: /api/salary/*
-  upstream:
-    type: roundrobin
-    nodes:
-      salary-service:9029: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/salary/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: salary
+    uri: /api/salary/*
+    upstream:
+      type: roundrobin
+      nodes:
+        salary-service:9029: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/salary/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: privacy-payments
-  uri: /api/privacy-payments/*
-  upstream:
-    type: roundrobin
-    nodes:
-      privacy-payments-service:9030: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/privacy-payments/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: privacy-payments
+    uri: /api/privacy-payments/*
+    upstream:
+      type: roundrobin
+      nodes:
+        privacy-payments-service:9030: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/privacy-payments/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: reports
-  uri: /api/reports/*
-  upstream:
-    type: roundrobin
-    nodes:
-      reports-service:9031: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/reports/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: reports
+    uri: /api/reports/*
+    upstream:
+      type: roundrobin
+      nodes:
+        reports-service:9031: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/reports/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: ai-insights-v2
-  uri: /api/ai-insights-v2/*
-  upstream:
-    type: roundrobin
-    nodes:
-      ai-insights-v2-service:9032: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/ai-insights-v2/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: ai-insights-v2
+    uri: /api/ai-insights-v2/*
+    upstream:
+      type: roundrobin
+      nodes:
+        ai-insights-v2-service:9032: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/ai-insights-v2/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: nodal-accounts
-  uri: /api/nodal-accounts/*
-  upstream:
-    type: roundrobin
-    nodes:
-      nodal-accounts-service:9033: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/nodal-accounts/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: nodal-accounts
+    uri: /api/nodal-accounts/*
+    upstream:
+      type: roundrobin
+      nodes:
+        nodal-accounts-service:9033: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/nodal-accounts/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: smart-retail-pos
-  uri: /api/smart-retail-pos/*
-  upstream:
-    type: roundrobin
-    nodes:
-      smart-retail-pos-service:9034: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/smart-retail-pos/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: smart-retail-pos
+    uri: /api/smart-retail-pos/*
+    upstream:
+      type: roundrobin
+      nodes:
+        smart-retail-pos-service:9034: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/smart-retail-pos/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: intl-remittance
-  uri: /api/intl-remittance/*
-  upstream:
-    type: roundrobin
-    nodes:
-      intl-remittance-service:9035: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/intl-remittance/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: intl-remittance
+    uri: /api/intl-remittance/*
+    upstream:
+      type: roundrobin
+      nodes:
+        intl-remittance-service:9035: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/intl-remittance/(.*)", "/$1"]
+      jwt-auth: {}
 
-- id: subscription-billing-v2
-  uri: /api/subscription-billing-v2/*
-  upstream:
-    type: roundrobin
-    nodes:
-      subscription-billing-v2-service:9036: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/subscription-billing-v2/(.*)", "/$1"]
-    jwt-auth: {}
+  - id: subscription-billing-v2
+    uri: /api/subscription-billing-v2/*
+    upstream:
+      type: roundrobin
+      nodes:
+        subscription-billing-v2-service:9036: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/subscription-billing-v2/(.*)", "/$1"]
+      jwt-auth: {}
 
 # ─── MinIO S3 API (internal only — no jwt-auth) ──────────────────────────────
-- id: minio-s3-api
-  uri: /internal/minio/*
-  name: minio-s3-api
-  upstream:
-    type: roundrobin
-    nodes:
-      minio:9000: 1
-  plugins:
-    ip-restriction:
-      whitelist:
-        - 172.20.0.0/16
-    proxy-rewrite:
-      regex_uri: ["^/internal/minio/(.*)", "/$1"]
+  - id: minio-s3-api
+    uri: /internal/minio/*
+    name: minio-s3-api
+    upstream:
+      type: roundrobin
+      nodes:
+        minio:9000: 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 172.20.0.0/16
+      proxy-rewrite:
+        regex_uri: ["^/internal/minio/(.*)", "/$1"]
 
 # ─── MinIO Console UI (ops team only) ────────────────────────────────────────
-- id: minio-console
-  uri: /ops/minio/*
-  name: minio-console
-  upstream:
-    type: roundrobin
-    nodes:
-      minio:9001: 1
-  plugins:
-    ip-restriction:
-      whitelist:
-        - 172.20.0.0/16
-    proxy-rewrite:
-      regex_uri: ["^/ops/minio/(.*)", "/$1"]
+  - id: minio-console
+    uri: /ops/minio/*
+    name: minio-console
+    upstream:
+      type: roundrobin
+      nodes:
+        minio:9001: 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 172.20.0.0/16
+      proxy-rewrite:
+        regex_uri: ["^/ops/minio/(.*)", "/$1"]
 
 # ─── Apache Spark Master Web UI (ops team only) ───────────────────────────────
-- id: spark-master-ui
-  uri: /ops/spark/*
-  name: spark-master-ui
-  upstream:
-    type: roundrobin
-    nodes:
-      spark-master:8080: 1
-  plugins:
-    ip-restriction:
-      whitelist:
-        - 172.20.0.0/16
-    proxy-rewrite:
-      regex_uri: ["^/ops/spark/(.*)", "/$1"]
+  - id: spark-master-ui
+    uri: /ops/spark/*
+    name: spark-master-ui
+    upstream:
+      type: roundrobin
+      nodes:
+        spark-master:8080: 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 172.20.0.0/16
+      proxy-rewrite:
+        regex_uri: ["^/ops/spark/(.*)", "/$1"]
 
 # ─── Trino Web UI + REST API (ops team only) ─────────────────────────────────
-- id: trino-api
-  uri: /ops/trino/*
-  name: trino-api
-  upstream:
-    type: roundrobin
-    nodes:
-      trino:8080: 1
-  plugins:
-    ip-restriction:
-      whitelist:
-        - 172.20.0.0/16
-    proxy-rewrite:
-      regex_uri: ["^/ops/trino/(.*)", "/$1"]
+  - id: trino-api
+    uri: /ops/trino/*
+    name: trino-api
+    upstream:
+      type: roundrobin
+      nodes:
+        trino:8080: 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 172.20.0.0/16
+      proxy-rewrite:
+        regex_uri: ["^/ops/trino/(.*)", "/$1"]
 
 # ─── DataFusion credit-scoring service ───────────────────────────────────────
-- id: credit-scoring-datafusion
-  uri: /api/v1/credit-scoring/datafusion/*
-  name: credit-scoring-datafusion
-  upstream:
-    type: roundrobin
-    nodes:
-      credit-scoring:8100: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/v1/credit-scoring/datafusion/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 10
-      burst: 5
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: credit-scoring-datafusion
+    uri: /api/v1/credit-scoring/datafusion/*
+    name: credit-scoring-datafusion
+    upstream:
+      type: roundrobin
+      nodes:
+        credit-scoring:8100: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/v1/credit-scoring/datafusion/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
 # ─── Fraud Heatmap Sedona/H3 geospatial endpoint ─────────────────────────────
-- id: fraud-heatmap-geo
-  uri: /api/v1/fraud-heatmap/geo
-  name: fraud-heatmap-geo
-  upstream:
-    type: roundrobin
-    nodes:
-      fraud-heatmap:8105: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 5
-      burst: 3
-      key: consumer_name
-      rejected_code: 429
-    prometheus: {}
+  - id: fraud-heatmap-geo
+    uri: /api/v1/fraud-heatmap/geo
+    name: fraud-heatmap-geo
+    upstream:
+      type: roundrobin
+      nodes:
+        fraud-heatmap:8105: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 5
+        burst: 3
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
 
 # ─── Insider Threat Engine (Rust) ─────────────────────────────────────────────
-- id: insider-threat-engine
-  uri: /api/v1/insider/*
-  name: insider-threat-engine
-  upstream:
-    type: roundrobin
-    nodes:
-      insider-threat-engine:8200: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/v1/insider/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 100
-      burst: 30
-      key: consumer_name
-      rejected_code: 429
-    prometheus:
-      prefer_name: true
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: insider-threat-engine
+    uri: /api/v1/insider/*
+    name: insider-threat-engine
+    upstream:
+      type: roundrobin
+      nodes:
+        insider-threat-engine:8200: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/v1/insider/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 30
+        key: consumer_name
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
 
 # ─── UEBA Service (Python) ────────────────────────────────────────────────────
-- id: ueba-service
-  uri: /api/v1/ueba/*
-  name: ueba-service
-  upstream:
-    type: roundrobin
-    nodes:
-      ueba-service:8300: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/v1/ueba/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 50
-      burst: 20
-      key: consumer_name
-      rejected_code: 429
-    prometheus:
-      prefer_name: true
+  - id: ueba-service
+    uri: /api/v1/ueba/*
+    name: ueba-service
+    upstream:
+      type: roundrobin
+      nodes:
+        ueba-service:8300: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/v1/ueba/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
 
 # ─── OpenSearch Indexer (Python) ──────────────────────────────────────────────
-- id: opensearch-indexer
-  uri: /api/v1/opensearch/*
-  name: opensearch-indexer
-  upstream:
-    type: roundrobin
-    nodes:
-      opensearch-indexer:8400: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/v1/opensearch/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 200
-      burst: 50
-      key: consumer_name
-      rejected_code: 429
-    prometheus:
-      prefer_name: true
+  - id: opensearch-indexer
+    uri: /api/v1/opensearch/*
+    name: opensearch-indexer
+    upstream:
+      type: roundrobin
+      nodes:
+        opensearch-indexer:8400: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/v1/opensearch/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 200
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
 
 # ─── OpenAppSec WAF Manager (Python) ──────────────────────────────────────────
-- id: openappsec-waf-mgmt
-  uri: /api/v1/waf/*
-  name: openappsec-waf-mgmt
-  upstream:
-    type: roundrobin
-    nodes:
-      openappsec-waf:8500: 1
-  plugins:
-    proxy-rewrite:
-      regex_uri: ["^/api/v1/waf/(.*)", "/$1"]
-    jwt-auth: {}
-    limit-req:
-      rate: 30
-      burst: 10
-      key: consumer_name
-      rejected_code: 429
-    prometheus:
-      prefer_name: true
+  - id: openappsec-waf-mgmt
+    uri: /api/v1/waf/*
+    name: openappsec-waf-mgmt
+    upstream:
+      type: roundrobin
+      nodes:
+        openappsec-waf:8500: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/api/v1/waf/(.*)", "/$1"]
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
 
 # ─── Go Bridge — Insider Threat endpoints ─────────────────────────────────────
-- id: go-bridge-insider
-  uri: /v1/insider/*
-  name: go-bridge-insider
-  upstream:
-    type: roundrobin
-    nodes:
-      go-bridge:8080: 1
-  plugins:
-    jwt-auth: {}
-    limit-req:
-      rate: 200
-      burst: 60
-      key: consumer_name
-      rejected_code: 429
-    prometheus:
-      prefer_name: true
-    opentelemetry:
-      sampler:
-        name: always_on
+  - id: go-bridge-insider
+    uri: /v1/insider/*
+    name: go-bridge-insider
+    upstream:
+      type: roundrobin
+      nodes:
+        go-bridge:8080: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 200
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+
+
+# ─── Global plugins ────────────────────────────────────────────────────────────
+global_rules:
+  - id: global-prometheus
+    plugins:
+      prometheus:
+        prefer_name: true
+
+  # Spec §6 — global OTel tracing → collector (10% head sampling)
+  - id: global-opentelemetry
+    plugins:
+      opentelemetry:
+        sampler:
+          name: trace_id_ratio
+          options:
+            fraction: 0.1
+        collector:
+          address: otel-collector:4318
+          request_timeout: 3
+        batch_span_processor:
+          inactive_timeout: 2
+          max_export_batch_size: 64
+
+  - id: global-security-headers
+    plugins:
+      response-rewrite:
+        headers:
+          set:
+            X-Content-Type-Options: "nosniff"
+            X-Frame-Options: "DENY"
+            X-XSS-Protection: "1; mode=block"
+            Referrer-Policy: "strict-origin-when-cross-origin"
+            Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"

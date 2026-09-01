@@ -98,6 +98,10 @@ export const ENV = {
   loyaltyLedgerUrl: process.env.LOYALTY_LEDGER_URL ?? "",
   payrollServiceUrl: process.env.PAYROLL_SERVICE_URL ?? "",
 
+  // ── Novu (alert notifications — OTEL spec §7) ────────────────────────────
+  novuApiUrl: process.env.NOVU_API_URL ?? "http://novu-api:3000",
+  novuApiKey: process.env.NOVU_API_KEY ?? "",
+
   // ── AP/AR suite services (Melio wave) ────────────────────────────────────
   accountingSyncUrl: process.env.ACCOUNTING_SYNC_URL ?? "http://accounting-sync:8107",
   billInboxUrl: process.env.BILL_INBOX_URL ?? "http://bill-inbox:8108",

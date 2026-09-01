@@ -104,6 +104,9 @@ plugins:
   - limit-conn
   - traffic-split
   # Observability
+  # NOTE (spec §6): the global opentelemetry plugin rule (sampler 0.1, collector
+  # http://otel-collector:4318) is configured as global_rules in routes.yaml
+  # (declarative config mode); it must stay enabled in this list.
   - prometheus
   - opentelemetry
   - zipkin

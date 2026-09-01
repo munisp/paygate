@@ -15,11 +15,15 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wealth-advisor")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Wealth Advisor Service",
     version="1.0.0",
     description="ML-based wealth advisory, risk profiling, and portfolio recommendations",
 )
+setup_telemetry("wealth-advisor", app)
 
 app.add_middleware(
     CORSMiddleware,

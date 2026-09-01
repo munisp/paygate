@@ -220,11 +220,15 @@ def _get_iso_forest():
     return _iso_forest
 
 # ─── FastAPI App ───────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Threat Intelligence Engine",
     version="2.0.0",
     description="Real-time threat detection: anomaly analysis, brute-force detection, DDoS recognition, GeoIP velocity",
 )
+setup_telemetry("threat-intel", app)
 
 app.add_middleware(
     CORSMiddleware,

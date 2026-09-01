@@ -38,6 +38,7 @@ import (
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/redis"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	"github.com/paygate/go-bridge/internal/telemetry"
 )
 
 func main() {
@@ -45,6 +46,11 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// ── OpenTelemetry ───────────────────────────────────────────────────────
+	// Env-gated: no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-bridge")
+	defer otelShutdown(context.Background())
 
 	// ── Startup env var validation ──────────────────────────────────────────
 	// Warn (not fatal) for optional but recommended env vars so the bridge
@@ -832,7 +838,9 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           loggingMiddleware(mux),
+		// telemetry.Middleware wraps the mux OUTSIDE authMiddleware (auth is
+		// applied per-route inside the mux) so every request gets a span.
+		Handler:           telemetry.Middleware(loggingMiddleware(mux)),
 		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,  // mitigate Slowloris attacks
 		WriteTimeout:      60 * time.Second, // allow long-running Temporal starts

@@ -6,6 +6,8 @@
 //!   GET  /health            — liveness probe
 //!   GET  /metrics           — engine statistics
 
+mod telemetry;
+
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use insider_threat_engine::{BaselineUpdateRequest, BehaviouralEngine, ScoreRequest};
 use serde_json::json;
@@ -44,6 +46,7 @@ async fn metrics(engine: EngineData) -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    telemetry::init_tracing("insider-threat-engine");
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
 
     let port: u16 = env::var("INSIDER_THREAT_ENGINE_PORT")

@@ -1,3 +1,5 @@
+mod telemetry;
+
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use chrono::Utc;
 use deadpool_postgres::{Config as PgConfig, ManagerConfig, Pool, RecyclingMethod, Runtime};
@@ -403,10 +405,7 @@ async fn metrics_handler(state: web::Data<AppState>) -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let _ = dotenvy::dotenv();
-    tracing_subscriber::fmt().json()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env()
-            .add_directive("loyalty_ledger=info".parse().unwrap()))
-        .init();
+    telemetry::init_tracing("loyalty-ledger");
 
     let port: u16 = std::env::var("PORT").unwrap_or_else(|_| "8092".to_string()).parse().unwrap_or(8092);
     let internal_key = resolve_internal_key();

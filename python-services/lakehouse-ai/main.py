@@ -574,12 +574,16 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] Lakehouse AI service stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Lakehouse AI",
     description="Central AI orchestration: Feature Store + Model Registry + Audit Trail",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("lakehouse-ai", app)
 
 
 @app.exception_handler(FraudScoringUnavailable)

@@ -265,12 +265,16 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] PayGate Vector Store stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Vector Store",
     description="Semantic search and similarity service backed by Qdrant",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("vector-store", app)
 
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/health")

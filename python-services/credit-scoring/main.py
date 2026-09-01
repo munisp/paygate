@@ -134,11 +134,15 @@ def _python_fallback_score(features: dict) -> dict:
     }
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Credit Scoring Service",
     version="1.0.0",
     description="ML-based merchant credit scoring for the PayGate lending engine",
 )
+setup_telemetry("credit-scoring", app)
 
 app.add_middleware(
     CORSMiddleware,

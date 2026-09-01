@@ -21,6 +21,8 @@
 //   - Ledger codes: USD (840), EUR (978), CNY (156), INR (356), BRL (986), NGN (566)
 //   - Each cross-border transfer: DEBIT escrow → CREDIT settlement + CREDIT fee
 
+mod telemetry;
+
 mod mem;
 mod model;
 mod pg;
@@ -280,7 +282,7 @@ async fn list_accounts(
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    telemetry::init_tracing("tigerbeetle-ledger");
 
     let in_memory = env::var("LEDGER_ALLOW_IN_MEMORY")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))

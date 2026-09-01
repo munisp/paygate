@@ -10,6 +10,8 @@
  *   5. Write a summary row to Postgres `recon_runs` table.
  */
 
+mod telemetry;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use log::{error, info, warn};
@@ -405,6 +407,7 @@ async fn run_reconciliation(cfg: &Config) -> Result<ReconRun> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    telemetry::init_tracing("tigerbeetle-recon");
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info"),
     )

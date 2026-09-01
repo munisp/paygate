@@ -1,0 +1,15 @@
+# Dapr global configuration — tracing to consolidated OTel collector (spec §6)
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: paygate-dapr-config
+  namespace: paygate
+spec:
+  tracing:
+    samplingRate: "0.1"
+    otel:
+      endpointAddress: otel-collector:4318
+      isSecure: false
+      protocol: http
+  metric:
+    enabled: true

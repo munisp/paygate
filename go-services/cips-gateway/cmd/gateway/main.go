@@ -22,6 +22,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/paygate/cips-gateway/internal/telemetry"
 )
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
@@ -574,6 +576,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-cips-gateway")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 	srv := NewServer(cfg)
 	mux := http.NewServeMux()
@@ -581,7 +587,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      telemetry.Middleware(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}

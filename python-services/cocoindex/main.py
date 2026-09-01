@@ -422,12 +422,16 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] CocoIndex ETL pipeline stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate CocoIndex ETL",
     description="Incremental multi-source data indexing pipeline",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("cocoindex", app)
 
 @app.get("/health")
 async def health():

@@ -463,12 +463,16 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] ART Reasoning service stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate ART Reasoning",
     description="Adaptive Reasoning and Thinking engine for fintech decisions",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("art-reasoning", app)
 
 
 @app.exception_handler(UpstreamServiceUnavailable)

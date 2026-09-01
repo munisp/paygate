@@ -597,11 +597,15 @@ def publish_event(event_type: str, payload: dict) -> None:
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Liveness Detection ML Service",
     version="3.0.0",
     description="ML inference for passive liveness, active challenge, face detection, landmarks, and embedding extraction",
 )
+setup_telemetry("liveness-detection", app)
 
 app.add_middleware(
     CORSMiddleware,

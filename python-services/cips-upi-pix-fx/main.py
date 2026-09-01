@@ -29,7 +29,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("cips-upi-pix-fx")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = Flask(__name__)
+setup_telemetry("cips-upi-pix-fx", app)
 
 import secrets as _secrets_mod
 import sys as _sys_mod

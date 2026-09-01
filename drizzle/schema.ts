@@ -7485,3 +7485,21 @@ export const whtRemittances = pgTable("wht_remittances", {
 ]);
 export type WhtRemittance = typeof whtRemittances.$inferSelect;
 export type InsertWhtRemittance = typeof whtRemittances.$inferInsert;
+
+// ─── Alert Subscriptions (0093) — Novu alert bridge (OTEL spec §7) ───────────
+export const alertSubscriptions = pgTable("alert_subscriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id"),
+  channel: varchar("channel", { length: 16 }).notNull(), // email|sms|in_app
+  minSeverity: varchar("min_severity", { length: 16 }).default("warning").notNull(), // info|warning|critical
+  target: varchar("target", { length: 255 }).notNull(), // email address or phone
+  novuSubscriberId: varchar("novu_subscriber_id", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("alert_subscriptions_merchant_channel_target_uniq").on(t.merchantId, t.channel, t.target),
+  index("alert_subscriptions_merchant_idx").on(t.merchantId),
+]);
+export type AlertSubscription = typeof alertSubscriptions.$inferSelect;
+export type InsertAlertSubscription = typeof alertSubscriptions.$inferInsert;

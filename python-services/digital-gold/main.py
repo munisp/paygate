@@ -39,7 +39,11 @@ INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 PORT = int(os.getenv("PORT", "9020"))
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Digital Gold Service", version="1.1.0")
+setup_telemetry("digital-gold", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ─── Database pool ─────────────────────────────────────────────────────────────

@@ -10,6 +10,12 @@ name = "cross-border-fraud-engine"
 path = "src/main.rs"
 
 [dependencies]
+
+# OpenTelemetry (OTEL_IMPLEMENTATION_SPEC §5)
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.28"
 # HTTP server
 actix-web = "4"
 actix-rt = "2"

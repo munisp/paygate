@@ -419,11 +419,15 @@ async def lifespan(app: FastAPI):
     logger.info("OpenSearch Service shutting down...")
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate OpenSearch Service",
     version="v97",
     lifespan=lifespan,
 )
+setup_telemetry("opensearch-service", app)
 
 
 def _seed_demo_data():

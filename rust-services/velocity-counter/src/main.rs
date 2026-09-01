@@ -1,3 +1,5 @@
+mod telemetry;
+
 use actix_web::{web, App, HttpServer, HttpResponse, middleware::Logger};
 use redis::Client;
 use serde::{Deserialize, Serialize};
@@ -63,9 +65,7 @@ async fn health() -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    telemetry::init_tracing("velocity-counter");
 
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     let redis_client = Client::open(redis_url.as_str()).expect("Failed to connect to Redis");

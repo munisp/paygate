@@ -41,11 +41,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Regulatory Reporting Service",
     version="1.0.0",
     description="CBN/NFIU regulatory report generation and submission",
 )
+setup_telemetry("regulatory-reporting", app)
 
 INTERNAL_KEY = os.getenv("REGULATORY_REPORTING_API_KEY", "")
 PORT = int(os.getenv("REGULATORY_REPORTING_PORT", "9053"))
