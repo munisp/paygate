@@ -30,7 +30,7 @@ use tracing::{error, info, warn};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct OcrRequest {
     submission_id: String,
     image_base64: Option<String>,
@@ -73,7 +73,7 @@ struct MrzData {
     check_digit_valid: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BulkOcrRequest {
     documents: Vec<OcrRequest>,
 }
