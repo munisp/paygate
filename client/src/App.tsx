@@ -131,6 +131,15 @@ const ApPayOverTime = lz(() => import("./pages/ap/PayOverTime"));
 const ApTaxCompliance = lz(() => import("./pages/ap/TaxCompliance"));
 const ApAssistant = lz(() => import("./pages/ap/Assistant"));
 
+// ── Paystack-parity payments suite ────────────────────────────────────────────
+const RefundsCenter = lz(() => import("./pages/payments/RefundsCenter"));
+const SplitGroups = lz(() => import("./pages/payments/SplitGroups"));
+const DirectDebitMandates = lz(() => import("./pages/payments/DirectDebitMandates"));
+const PaymentRequests = lz(() => import("./pages/payments/PaymentRequests"));
+const TransferRecipients = lz(() => import("./pages/payments/TransferRecipients"));
+const WalletDomains = lz(() => import("./pages/payments/WalletDomains"));
+const DedicatedAccounts = lz(() => import("./pages/payments/DedicatedAccounts"));
+
 // ── Tier 1-5 pages ────────────────────────────────────────────────────────────
 const RecurringBilling = lz(() => import("./pages/tier1to5/RecurringBilling"));
 const DCCDashboard = lz(() => import("./pages/tier1to5/DCCDashboard"));
@@ -694,6 +703,13 @@ function Router() {
           <Route path="/ap/pay-over-time" component={ApPayOverTime} />
           <Route path="/ap/tax" component={ApTaxCompliance} />
           <Route path="/ap/assistant" component={ApAssistant} />
+          <Route path="/payments/refunds" component={RefundsCenter} />
+          <Route path="/payments/splits" component={SplitGroups} />
+          <Route path="/payments/direct-debit" component={DirectDebitMandates} />
+          <Route path="/payments/requests" component={PaymentRequests} />
+          <Route path="/payments/recipients" component={TransferRecipients} />
+          <Route path="/payments/wallets" component={WalletDomains} />
+          <Route path="/payments/virtual-accounts" component={DedicatedAccounts} />
           <Route path="/refunds" component={RefundWorkflow} />
           <Route path="/payout-batching" component={PayoutBatching} />
           <Route path="/receipt/:txId" component={TransactionReceipt} />

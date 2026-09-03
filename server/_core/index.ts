@@ -26,6 +26,7 @@ import { stripeWebhookHandler } from "../stripe";
 import { getBridgeHealth } from "../middlewareBridge";
 import { expressRateLimit, trpcApiRateLimit } from "../rateLimit";
 import { csrfOriginGuard } from "./csrf";
+import { publicRestRouter } from "../routers/publicRest";
 
 // ─── Real infrastructure probes (raw RESP — no new dependencies) ─────────────
 
@@ -300,6 +301,12 @@ async function startServer() {
   // ── Heartbeat: nightly security audit (02:00 UTC) + compliance scorecard (01:00 UTC) ──
   app.post("/api/scheduled/security-audit", securityAuditJobHandler);
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
+
+  // ── Public REST v1 API (Paystack-parity) — secret-key auth, mounted next to
+  //    /api/trpc. JSON body (1 MB cap) is already parsed above; the Stripe raw
+  //    body mount earlier in the chain is unaffected. The router applies its
+  //    own rate limiting (X-RateLimit-* headers) and Bearer-key auth.
+  app.use("/api/v1", publicRestRouter);
 
   // tRPC API — every procedure throttled by the classifier (read / mutation /
   // financial / payout / export buckets; see server/rateLimit.ts).
