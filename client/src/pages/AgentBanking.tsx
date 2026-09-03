@@ -192,6 +192,10 @@ export default function AgentBanking() {
 
   const disburseMutation = trpc.agentBanking.disburseCommissions.useMutation({
     onSuccess: (res: any) => {
+      if (res?.status === "not_implemented") {
+        toast.error(res?.message ?? "Commission payout rail is not integrated");
+        return;
+      }
       toast.success(`Disbursed ₦${((res?.totalDisbursedKobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 0 })} to ${res?.count ?? 0} agents`);
       utils.agentBanking.listSubAgents.invalidate();
     },

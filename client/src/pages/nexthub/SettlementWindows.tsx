@@ -31,8 +31,8 @@ export default function SettlementWindows() {
   const { data: stats, refetch: refetchStats } = trpc.nexthubSettlement.getStats.useQuery();
 
   const { data, isLoading, refetch } = trpc.nexthubSettlement.listWindows.useQuery({
-    page,
-    pageSize: 20,
+    limit: 20,
+    offset: (page - 1) * 20,
     status: statusFilter as any,
     windowType: typeFilter as any,
   });

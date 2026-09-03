@@ -32,8 +32,8 @@ Environment variables:
   DUCKDB_THREADS        — DuckDB thread count (default: 4)
   S3_ENDPOINT           — S3/MinIO endpoint (default: http://minio:9000)
   S3_BUCKET             — S3 bucket for lakehouse data (default: paygate-lakehouse)
-  AWS_ACCESS_KEY_ID     — S3 access key (default: minioadmin)
-  AWS_SECRET_ACCESS_KEY — S3 secret key (default: minioadmin)
+  MINIO_ACCESS_KEY      — S3 access key (required; AWS_ACCESS_KEY_ID accepted as fallback)
+  MINIO_SECRET_KEY      — S3 secret key (required; AWS_SECRET_ACCESS_KEY accepted as fallback)
   AWS_REGION            — S3 region (default: us-east-1)
   ICEBERG_REST_URL      — Iceberg REST catalog URL (optional)
   KAFKA_BROKERS         — Kafka bootstrap servers (optional)
@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -65,14 +66,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger("lakehouse-v2")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name, fallback_env=None):
+    """Fail closed: no hardcoded default credentials (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default (e.g. minioadmin/minioadmin).
+    """
+    value = os.getenv(var_name, "")
+    if not value and fallback_env:
+        value = os.getenv(fallback_env, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to real credentials", var_name, var_name)
+    return value
+
 # ─── Config ───────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 DUCKDB_MEMORY_LIMIT = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
 DUCKDB_THREADS = int(os.getenv("DUCKDB_THREADS", "4"))
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
 S3_BUCKET = os.getenv("S3_BUCKET", "paygate-lakehouse")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+AWS_ACCESS_KEY_ID = _require_secret_env("MINIO_ACCESS_KEY", fallback_env="AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = _require_secret_env("MINIO_SECRET_KEY", fallback_env="AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 ICEBERG_REST_URL = os.getenv("ICEBERG_REST_URL", "")
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")
@@ -290,6 +316,105 @@ def _get_dataset_stats(name: str, info: Dict) -> Dict[str, Any]:
             "s3Path": info["path"],
         }
 
+# ─── SQL allowlist validation (replaces bypassable keyword blocklist) ────────
+# The previous blocklist only rejected DDL/DML keywords at statement start or
+# after a newline — bypassable via stacked statements ("; DROP ..."), comments,
+# SELECT ... INTO, COPY, ATTACH, PRAGMA and file-reading table functions.
+# The allowlist below permits exactly ONE read-only SELECT (or WITH...SELECT)
+# statement whose FROM/JOIN targets are registered lakehouse datasets only.
+
+# DDL/DML/statement keywords that must never appear as standalone words.
+# (Word boundaries avoid false positives on columns like created_at/updated_at.)
+_FORBIDDEN_SQL_WORDS = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|GRANT|REVOKE|INTO|"
+    r"COPY|ATTACH|DETACH|PRAGMA|INSTALL|LOAD|VACUUM|CHECKPOINT|CALL|EXEC|EXECUTE|"
+    r"BEGIN|COMMIT|ROLLBACK|IMPORT|EXPORT|MERGE|SET|USE)\b",
+    re.IGNORECASE,
+)
+# Table functions that can read arbitrary files/URLs/credentials must not be
+# callable from user SQL (the service rewrites dataset names to these AFTER
+# validation, so they never need to appear in user input).
+_FORBIDDEN_SQL_FUNCS = re.compile(
+    r"\b(read_csv|read_csv_auto|read_json|read_json_auto|read_text|read_blob|"
+    r"read_parquet|parquet_scan|parquet_schema|parquet_metadata|"
+    r"parquet_file_metadata|csv_scan|json_scan|iceberg_scan|iceberg_metadata|"
+    r"delta_scan|sqlite_scan|sqlite_attach|postgres_scan|postgres_attach|"
+    r"mysql_scan|mysql_attach|glob|query|query_table|which_secret|"
+    r"load_extension|install_extension)\b",
+    re.IGNORECASE,
+)
+
+def _allowed_table_identifiers() -> set:
+    allowed = set(DATASET_REGISTRY.keys())
+    for info in DATASET_REGISTRY.values():
+        pg_table = info.get("pg_table")
+        if pg_table:
+            allowed.add(f"pg.{pg_table}")
+    return allowed
+
+def _validate_readonly_select(sql: str) -> str:
+    """
+    Allowlist validation for the /v2/query endpoint.
+    Permits exactly one read-only SELECT (or WITH...SELECT) statement that only
+    references registered lakehouse datasets. Returns the normalized SQL.
+    Raises HTTPException(400) on any violation.
+    """
+    cleaned = sql.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="SQL query cannot be empty")
+    # At most one trailing semicolon; no stacked statements.
+    if cleaned.endswith(";"):
+        cleaned = cleaned[:-1].strip()
+    if ";" in cleaned:
+        raise HTTPException(status_code=400, detail="Multiple SQL statements are not allowed")
+    # No comments — prevents keyword smuggling via -- or /* */ tricks.
+    if "--" in cleaned or "/*" in cleaned:
+        raise HTTPException(status_code=400, detail="SQL comments are not allowed")
+    if not re.match(r"^(SELECT|WITH)\b", cleaned, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Only read-only SELECT queries are allowed")
+    m = _FORBIDDEN_SQL_WORDS.search(cleaned)
+    if m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Keyword not allowed in read-only query: {m.group(0).upper()}",
+        )
+    m = _FORBIDDEN_SQL_FUNCS.search(cleaned)
+    if m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Table function not allowed in user queries: {m.group(0)}",
+        )
+    # Identifier allowlist: every FROM/JOIN target must be a registered dataset,
+    # a registered pg.<table> reference, a locally-defined CTE, or a subquery.
+    cte_names = {
+        m.group(1).lower()
+        for m in re.finditer(r"(\w+)\s+AS\s*\(", cleaned, re.IGNORECASE)
+    }
+    allowed = {t.lower() for t in _allowed_table_identifiers()} | cte_names
+    for m in re.finditer(r"\b(?:FROM|JOIN)\s+(\(|[\w.]+)", cleaned, re.IGNORECASE):
+        ref = m.group(1)
+        if ref == "(":
+            continue
+        if ref.lower() not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Table '{ref}' is not an allowed lakehouse dataset",
+            )
+    return cleaned
+
+# Merchant IDs flow into SQL text and S3 object keys — restrict to a safe
+# identifier charset (blocks SQL quote-breakout and S3 key path traversal).
+_MERCHANT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+def _validate_merchant_id(merchant_id: str, *, required: bool = True) -> str:
+    if not merchant_id:
+        if required:
+            raise HTTPException(status_code=400, detail="merchantId is required")
+        return merchant_id
+    if not _MERCHANT_ID_RE.match(merchant_id):
+        raise HTTPException(status_code=400, detail="merchantId contains invalid characters")
+    return merchant_id
+
 # ─── Query execution ──────────────────────────────────────────────────────────
 
 def _resolve_table_refs(sql: str) -> str:
@@ -426,15 +551,21 @@ def _run_export_job(job_id: str, merchant_id: str, dataset_name: str, fmt: str):
         pg_table = info.get("pg_table")
         source = f"pg.{pg_table}" if pg_table else f"read_parquet('{info['path']}*.parquet')"
 
+        # Defense in depth: merchant_id was validated at the endpoint AND is
+        # bound as a parameter — never interpolated into SQL text.
+        if not _MERCHANT_ID_RE.match(merchant_id):
+            raise ValueError("merchant_id failed identifier validation")
+
         s3_key = f"exports/{merchant_id}/{dataset_name}/{job_id}.{fmt}"
         s3_path = f"s3://{S3_BUCKET}/{s3_key}"
 
+        select_sql = f"SELECT * FROM {source} WHERE merchant_id = ? LIMIT 1000000"
         if fmt == "csv":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT CSV, HEADER)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT CSV, HEADER)", [merchant_id])
         elif fmt == "parquet":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)", [merchant_id])
         elif fmt == "json":
-            conn.execute(f"COPY (SELECT * FROM {source} WHERE merchant_id = '{merchant_id}' LIMIT 1000000) TO '{s3_path}' (FORMAT JSON)")
+            conn.execute(f"COPY ({select_sql}) TO '{s3_path}' (FORMAT JSON)", [merchant_id])
 
         download_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{s3_key}"
 
@@ -507,12 +638,16 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Lakehouse v2 shutting down")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Analytics Lakehouse v2",
     version="2.0.0",
     description="DuckDB + Apache Iceberg + S3 analytics query service",
     lifespan=lifespan,
 )
+setup_telemetry("lakehouse-v2", app)
 
 @app.get("/health")
 def health():
@@ -556,15 +691,9 @@ def list_datasets(merchantId: str = QParam(default="")):
 @app.post("/v2/query")
 def execute_query(req: QueryRequest):
     """Execute a SQL query against the lakehouse."""
-    if not req.sql.strip():
-        raise HTTPException(status_code=400, detail="SQL query cannot be empty")
-    # Basic SQL injection guard — block DDL and DML in query endpoint
-    sql_upper = req.sql.strip().upper()
-    forbidden = ("DROP ", "TRUNCATE ", "DELETE ", "INSERT ", "UPDATE ", "CREATE ", "ALTER ", "GRANT ", "REVOKE ")
-    for kw in forbidden:
-        if sql_upper.startswith(kw) or f"\n{kw}" in sql_upper:
-            raise HTTPException(status_code=400, detail=f"DDL/DML not allowed in query endpoint: {kw.strip()}")
-    return _execute_query(req.sql, req.parameters, req.maxRows, req.merchantId)
+    # Allowlist guard: exactly one read-only SELECT over registered datasets.
+    validated_sql = _validate_readonly_select(req.sql)
+    return _execute_query(validated_sql, req.parameters, req.maxRows, req.merchantId)
 
 @app.get("/v2/sample")
 def sample_dataset(
@@ -587,6 +716,8 @@ def sample_dataset(
 def create_export(req: ExportRequest):
     """Kick off an async export job for a dataset."""
     import sqlalchemy as sa
+    # merchantId flows into SQL and S3 keys — enforce safe identifier charset.
+    _validate_merchant_id(req.merchantId, required=True)
     info = DATASET_REGISTRY.get(req.datasetName)
     if not info:
         raise HTTPException(status_code=404, detail=f"Dataset '{req.datasetName}' not found")
@@ -757,6 +888,8 @@ def ingest_records(req: IngestRequest):
         raise HTTPException(status_code=404, detail=f"Dataset '{req.dataset}' not found")
     if not req.records:
         raise HTTPException(status_code=400, detail="No records provided")
+    # merchantId is embedded in the S3 key / COPY TO path — validate charset.
+    _validate_merchant_id(req.merchantId, required=False)
 
     try:
         import pyarrow as pa
@@ -811,6 +944,34 @@ def query_history(
         except Exception as e:
             logger.warning("Could not fetch query history: %s", e)
     return {"history": []}
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, workers=4, log_level="warning")

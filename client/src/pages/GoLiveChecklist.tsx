@@ -60,11 +60,18 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
 
 export default function GoLiveChecklist() {
   const goLiveInterval = useAdaptiveInterval(60000);
-  const { data, isLoading, isError, refetch, error } = trpc.system.goLiveChecklist.useQuery(undefined, {
+  const { data, isLoading, isError, refetch, error } = trpc.portalHealth.getGoLiveChecklist.useQuery(undefined, {
     refetchInterval: goLiveInterval,
-  }, { staleTime: 30_000 });
+    staleTime: 30_000,
+  });
 
-  const items = data?.items ?? [];
+  // Server returns { goLive: [{ id, label, category, required, status: "ok"|"fail"|"warn" }] }.
+  // Map to the checklist item shape this page renders.
+  const items = (data?.goLive ?? []).map((i: any) => ({
+    ...i,
+    detail: i.detail ?? i.category,
+    status: i.status === "fail" ? "pending" : i.status === "warn" ? "warning" : i.status,
+  }));
   const okCount = items.filter((i: any) => i.status === "ok").length;
   const blockers = items.filter((i: any) => i.status === "pending").length;
   const warnings = items.filter((i: any) => i.status === "warning").length;

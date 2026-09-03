@@ -9,10 +9,14 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("emi-service")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9029"))
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate EMI Service", version="2.0.0")
+setup_telemetry("emi-service", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _pool = None
@@ -205,6 +209,34 @@ async def update_emi_merchant_config(merchant_id: str, enabled: bool = True, max
                 await c.execute("INSERT INTO emi_merchant_configs (id, merchant_id, enabled, max_tenure_months, updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (merchant_id) DO UPDATE SET enabled=$3, max_tenure_months=$4, updated_at=$5", str(uuid.uuid4()), merchant_id, enabled, max_tenure_months, now)
         except Exception as e: logger.warning(f"DB: {e}")
     return {"success": True, "merchant_id": merchant_id, "enabled": enabled, "max_tenure_months": max_tenure_months, "updated_at": now.isoformat()}
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     import uvicorn

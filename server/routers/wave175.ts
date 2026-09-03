@@ -11,6 +11,7 @@ import { getDb } from "../db";
 import { z } from "zod";
 import { eq, and, desc, lt, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 import {
   scumlChecks,
   accessibilityFallbackSessions,
@@ -102,14 +103,14 @@ For most legitimate businesses, cleared should be true. Only flag obvious red fl
         await notifyOwner({
           title: `SCUML Flag: ${input.entityName}`,
           content: `SCUML check flagged ${input.entityName} (RC: ${input.rcNumber ?? "N/A"}). Reason: ${flagReason}. Requires manual review.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave175] SCUML flag owner alert failed — compliance alert lost", { entityName: input.entityName, error: e instanceof Error ? e.message : String(e) }));
         publishAuditEvent({
           action: "compliance.scuml.flagged",
           actorId: ctx.user.openId,
           targetId: row.id,
           metadata: { entityName: input.entityName, flagReason },
           timestamp: new Date().toISOString(),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave175] audit event compliance.scuml.flagged failed", e));
       }
 
       return row;
@@ -171,7 +172,7 @@ export const accessibilityRouter = router({
       await notifyOwner({
         title: `Accessibility Fallback Request`,
         content: `Merchant ${ctx.user.tenantId} requested manual liveness review. Reason: ${input.reason}. Session ID: ${row.id}.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave175] accessibility fallback owner alert failed", { sessionId: row.id, error: e instanceof Error ? e.message : String(e) }));
 
       return { id: row.id, reviewStatus: "pending", message: "Your request has been submitted for manual review. You will be notified within 24 hours." };
     }),
@@ -206,7 +207,7 @@ export const accessibilityRouter = router({
         targetId: input.id,
         metadata: { notes: input.notes },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave175] audit event accessibility.fallback failed", e));
       return { success: true };
     }),
 

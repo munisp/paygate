@@ -31,7 +31,7 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
     .from(velocityLimitConfigs)
     .where(
       and(
-        eq(velocityLimitConfigs.isActive, 1),
+        eq(velocityLimitConfigs.isActive, true),
         or(
           eq(velocityLimitConfigs.merchantId, merchantId),
           isNull(velocityLimitConfigs.merchantId)
@@ -61,15 +61,15 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
         console.error(`[VelocityEnforcer] Counter service error ${res.status} for ${merchantId}`);
         continue;
       }
-      counterResult = await res.json();
+      counterResult = (await res.json()) as { count: number; amount_kobo: number };
     } catch (err) {
       console.error(`[VelocityEnforcer] Counter service unreachable:`, err);
       continue;
     }
 
-    const maxValue = limit.maxValue;
-    const countBreached = limit.limitType === "count" && counterResult.count > maxValue;
-    const amountBreached = limit.limitType === "amount" && counterResult.amount_kobo > maxValue;
+    const countBreached = limit.maxCount != null && counterResult.count > limit.maxCount;
+    const amountBreached = limit.maxAmountKobo != null && counterResult.amount_kobo > limit.maxAmountKobo;
+    const maxValue = countBreached ? limit.maxCount : limit.maxAmountKobo;
 
     if (countBreached || amountBreached) {
       db.insert(velocityBreaches).values({

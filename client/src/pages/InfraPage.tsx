@@ -94,7 +94,7 @@ const PRESET_RANGES = [
   { label: "30d", hours: 720 },
 ];
 
-function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | null; onClose: () => void; forceMock: boolean }) {
+function TopicDetailModal({ topic, onClose }: { topic: TopicRow | null; onClose: () => void }) {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [calOpen, setCalOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<number>(24);
@@ -106,7 +106,6 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
   const { data, isLoading } = trpc.paygate.topicHistory.useQuery(
     {
       topicName: topic?.name ?? "",
-      forceMock,
       from: fromDate.toISOString(),
       to:   toDate.toISOString(),
     },
@@ -255,7 +254,7 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
 
 type RedisNode = { id: string; role: string; host: string; status: string; memUsedMb: number; memMaxMb: number; connectedClients: number; opsPerSec: number };
 
-function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | null; onClose: () => void; forceMock: boolean }) {
+function RedisNodeDetailModal({ node, onClose }: { node: RedisNode | null; onClose: () => void }) {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [calOpen, setCalOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<number>(24);
@@ -265,7 +264,7 @@ function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | 
   const toDate   = dateRange?.to   ?? new Date();
 
   const { data, isLoading } = trpc.paygate.redisNodeHistory.useQuery(
-    { nodeId: node?.id ?? "", forceMock, from: fromDate.toISOString(), to: toDate.toISOString() },
+    { nodeId: node?.id ?? "", from: fromDate.toISOString(), to: toDate.toISOString() },
     { enabled: !!node }
   );
 
@@ -451,12 +450,12 @@ function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | 
 
 // ─── Consumer Group Detail Modal ─────────────────────────────────────────────
 
-function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName: string | null; onClose: () => void; forceMock: boolean }) {
+function ConsumerGroupDetailModal({ groupName, onClose }: { groupName: string | null; onClose: () => void }) {
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
   const { lagSeverity: ctxLagSev } = useThresholds();
 
   const { data, isLoading } = trpc.paygate.consumerGroupDetail.useQuery(
-    { groupName: groupName ?? "", forceMock },
+    { groupName: groupName ?? "" },
     { enabled: !!groupName }
   );
 
@@ -636,7 +635,7 @@ function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName
 }
 
 export default function InfraPage() {
-  const { tick, forceMock } = useRefresh();
+  const { tick } = useRefresh();
   const { lagSeverity: ctxLagSev, memSeverity: ctxMemSev } = useThresholds();
   const utils = trpc.useUtils();
   const [selectedTopic, setSelectedTopic] = useState<TopicRow | null>(null);
@@ -673,9 +672,9 @@ export default function InfraPage() {
 
   return (
     <div className="space-y-5">
-      <TopicDetailModal topic={selectedTopic} onClose={() => setSelectedTopic(null)} forceMock={forceMock} />
-      <RedisNodeDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} forceMock={forceMock} />
-      <ConsumerGroupDetailModal groupName={selectedGroup} onClose={() => setSelectedGroup(null)} forceMock={forceMock} />
+      <TopicDetailModal topic={selectedTopic} onClose={() => setSelectedTopic(null)} />
+      <RedisNodeDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} />
+      <ConsumerGroupDetailModal groupName={selectedGroup} onClose={() => setSelectedGroup(null)} />
 
       <div className="flex items-center justify-between">
         <div>

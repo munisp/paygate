@@ -60,6 +60,22 @@ class BreakStatus(str, Enum):
     CLOSED = "CLOSED"
 
 
+class SourceUnavailableError(Exception):
+    """
+    Raised when a reconciliation source (hub ledger or external rail) cannot
+    be genuinely fetched. The pipeline must NEVER emit a clean/zero-breaks
+    report when a source was unavailable — that would fabricate a successful
+    settlement reconciliation.
+    """
+
+    def __init__(self, source: str, detail: str = ""):
+        self.source = source
+        message = f"reconciliation source unavailable: {source}"
+        if detail:
+            message = f"{message} — {detail}"
+        super().__init__(message)
+
+
 # SLA in seconds for each break type
 BREAK_SLA_SECONDS: dict[BreakType, int] = {
     BreakType.TIMING: 2 * 3600,         # 2 hours
@@ -127,6 +143,10 @@ class ReconciliationReport:
     escalated_count: int
     parquet_s3_key: str
     generated_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+    # "completed" only when every source was genuinely fetched;
+    # "source_unavailable" when one or more sources failed (see failed_sources).
+    status: str = "completed"
+    failed_sources: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +170,17 @@ class ReconciliationActivities:
           1. Call TigerBeetle lookup_accounts for all DFSP position accounts
           2. Use the account history API to get all transfers in [start_ms, end_ms]
           3. Filter to COMMITTED state only
+
+        Raises SourceUnavailableError when the TigerBeetle fetcher is not
+        available — an empty list here would fabricate a "zero breaks" report.
         """
-        # Stub: return empty list
-        # TODO: implement TigerBeetle account history query
-        return []
+        # TODO: implement TigerBeetle account history query. Until then, fail
+        # closed: returning [] would make compute_breaks report zero breaks
+        # against a source that was never actually read.
+        raise SourceUnavailableError(
+            "hub:tigerbeetle",
+            "TigerBeetle account-history fetcher not implemented; refusing to fabricate an empty hub record set",
+        )
 
     async def fetch_rail_records(self, window_id: str, rail: str, start_ms: int, end_ms: int) -> list[RailRecord]:
         """
@@ -164,10 +191,65 @@ class ReconciliationActivities:
           - SWIFT:     Parse SWIFT MT940 statement
           - MBRIDGE:   Call mBridge settlement API
           - CIPS:      Call CIPS settlement report API
+
+        Raises SourceUnavailableError when the per-rail fetcher is not
+        available — an empty list here would fabricate a "zero breaks" report.
         """
-        # Stub: return empty list
-        # TODO: implement per-rail record fetcher
-        return []
+        # TODO: implement per-rail record fetcher. Until then, fail closed:
+        # returning [] would make compute_breaks report zero breaks against a
+        # rail that was never actually read.
+        raise SourceUnavailableError(
+            f"rail:{rail.lower()}",
+            f"{rail} settlement-record fetcher not implemented; refusing to fabricate an empty rail record set",
+        )
+
+    async def run_reconciliation(
+        self,
+        window_id: str,
+        rail: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> ReconciliationReport:
+        """
+        Pipeline entry point: fetch both sources, compute breaks, write report.
+
+        Fail-closed contract: if any source cannot be genuinely fetched, the
+        report status is "source_unavailable" and failed_sources names the
+        sources that failed. A "completed" status (including a zero-breaks
+        result) is only ever returned when hub AND rail records were actually
+        retrieved from their real sources.
+        """
+        failed_sources: list[str] = []
+
+        hub_records: list[HubRecord] = []
+        try:
+            hub_records = await self.fetch_hub_records(window_id, start_ms, end_ms)
+        except SourceUnavailableError as exc:
+            failed_sources.append(exc.source)
+
+        rail_records: list[RailRecord] = []
+        try:
+            rail_records = await self.fetch_rail_records(window_id, rail, start_ms, end_ms)
+        except SourceUnavailableError as exc:
+            failed_sources.append(exc.source)
+
+        if failed_sources:
+            return ReconciliationReport(
+                window_id=window_id,
+                hub_record_count=0,
+                rail_record_count=0,
+                matched_count=0,
+                break_count=0,
+                breaks_by_type={},
+                auto_resolved_count=0,
+                escalated_count=0,
+                parquet_s3_key="",
+                status="source_unavailable",
+                failed_sources=failed_sources,
+            )
+
+        breaks = await self.compute_breaks(window_id, hub_records, rail_records)
+        return await self.write_report(window_id, hub_records, rail_records, breaks)
 
     async def compute_breaks(
         self,

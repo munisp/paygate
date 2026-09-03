@@ -58,11 +58,15 @@ export default function QrMerchantAnalytics() {
             </div>
             <div className="flex items-center justify-between p-3 border rounded-lg">
               <p className="font-medium">Avg Session Duration</p>
-              <p className="font-bold">{insights?.avgSessionDuration ?? 0}s</p>
+              <p className="font-bold">{insights?.avgSessionDuration != null ? `${insights.avgSessionDuration}s` : "—"}</p>
             </div>
             <div className="p-3 border rounded-lg">
               <p className="font-medium mb-2">Top Locations</p>
-              <div className="flex flex-wrap gap-2">{(insights?.topLocations ?? []).map(l => <Badge key={l} variant="secondary">{l}</Badge>)}</div>
+              {(insights?.topLocations?.length ?? 0) > 0 ? (
+                <div className="flex flex-wrap gap-2">{(insights?.topLocations ?? []).map(l => <Badge key={l} variant="secondary">{l}</Badge>)}</div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No location data collected</p>
+              )}
             </div>
           </div>
         </CardContent></Card>

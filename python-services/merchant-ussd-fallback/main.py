@@ -25,6 +25,7 @@ Architecture:
   - Rate limiting: 10 req/min per phone number
 """
 
+import hmac
 import json
 import logging
 import os
@@ -663,16 +664,23 @@ async def lifespan(app: FastAPI):
     logger.info("Merchant USSD Fallback Service shutting down")
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Merchant USSD Fallback",
     version="2.0.0",
     description="USSD/SMS fallback for merchants in low-connectivity environments. Supports EN/HA/YO/IG/FR.",
     lifespan=lifespan,
 )
+setup_telemetry("merchant-ussd-fallback", app)
 
 
 def _check_internal_key(x_internal_key: Optional[str]) -> None:
-    if INTERNAL_API_KEY and x_internal_key != INTERNAL_API_KEY:
+    # Fail closed: key must be configured and presented; constant-time compare.
+    if not INTERNAL_API_KEY:
+        raise HTTPException(status_code=503, detail="Service misconfigured: INTERNAL_API_KEY not set")
+    if not x_internal_key or not hmac.compare_digest(x_internal_key, INTERNAL_API_KEY):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -870,6 +878,34 @@ async def metrics(x_internal_key: Optional[str] = Header(default=None)):
         f"paygate_active_sessions {len(_sessions)}",
     ]
     return "\n".join(lines) + "\n"
+
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

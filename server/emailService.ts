@@ -20,7 +20,22 @@ function getTransporter(): nodemailer.Transporter {
       user: env.smtpUser,
       pass: env.smtpPass,
     },
-    tls: { rejectUnauthorized: false },
+    // R4 F10: TLS certificate verification stays ON (Node default). The only
+    // opt-out is the explicit dev escape hatch EMAIL_TLS_INSECURE=true, which
+    // is refused in production and logs a loud warning.
+    tls: {
+      rejectUnauthorized: (() => {
+        const insecure = process.env.EMAIL_TLS_INSECURE === "true";
+        if (insecure && process.env.NODE_ENV === "production") {
+          // Fail closed: NEVER disable TLS verification in production.
+          throw new Error("[emailService] EMAIL_TLS_INSECURE=true is forbidden in production — refusing to create SMTP transporter");
+        }
+        if (insecure) {
+          console.warn("[emailService] WARNING: EMAIL_TLS_INSECURE=true — SMTP TLS certificate verification DISABLED (dev only). Do not use with real credentials.");
+        }
+        return !insecure;
+      })(),
+    },
   });
   return _transporter;
 }
@@ -40,7 +55,20 @@ export interface SendMailOptions {
 export async function sendEmail(opts: SendMailOptions): Promise<boolean> {
   const from = opts.from ?? `"PayGate" <noreply@${env.smtpHost.replace(/^smtp\./, "")}>`;
   if (!env.smtpPass) {
-    console.log("[emailService] DEV MODE — email not sent:", {
+    // R4 F10: the simulated send is gated — in production a missing SMTP_PASS
+    // is a misconfiguration and must fail loudly (return false), not pretend
+    // the email was delivered.
+    const simulationAllowed =
+      process.env.PAYGATE_SIMULATION_MODE === "true" ||
+      process.env.NODE_ENV !== "production";
+    if (!simulationAllowed) {
+      console.error("[emailService] SMTP_PASS not configured in production — email NOT sent (failing loud):", {
+        to: opts.to,
+        subject: opts.subject,
+      });
+      return false;
+    }
+    console.warn("[emailService] SIMULATED SEND (PAYGATE_SIMULATION_MODE or non-production) — email not actually delivered:", {
       to: opts.to,
       subject: opts.subject,
     });

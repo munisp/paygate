@@ -41,8 +41,8 @@ data:
     delta.metadata.live-files.cache-size=10000
     hive.s3.endpoint=http://paygate-minio:9000
     hive.s3.path-style-access=true
-    hive.s3.aws-access-key=minioadmin
-    hive.s3.aws-secret-key=minioadmin123
+    hive.s3.aws-access-key=<CHANGE_ME: minio access key>
+    hive.s3.aws-secret-key=<CHANGE_ME: minio secret key>
     hive.s3.ssl.enabled=false
   catalog/tpch.properties: |
     connector.name=tpch

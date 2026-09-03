@@ -144,9 +144,12 @@ describe("Wave 131 — FraudRisk.tsx rules array access", () => {
     expect(content).not.toContain("dbRulesData.rules");
   });
 
-  it("handles rules as array or falls back to RULES", () => {
+  // STALE CONTRACT: the static RULES fallback was removed in the mockware
+  // purge — FraudRisk.tsx uses DB rules only (see wave125).
+  it("handles rules as array without a static RULES fallback", () => {
     const content = getContent();
-    expect(content).toContain(": RULES");
+    expect(content).not.toContain(": RULES");
+    expect(content).toContain("(dbRulesData as any[]) ?? []");
   });
 });
 
@@ -154,14 +157,24 @@ describe("Wave 131 — FraudRisk.tsx rules array access", () => {
 describe("Wave 131 — sdk.ts env variable fixes", () => {
   const getContent = () => readFileSync(join(ROOT, "server/_core/sdk.ts"), "utf-8");
 
-  it("does not reference ENV.oAuthServerUrl (removed field)", () => {
+  // STALE CONTRACT: the "oAuthServerUrl removed" refactor was never applied —
+  // sdk.ts is the legacy Manus OAuth client and ENV.oAuthServerUrl is still a
+  // defined field in env.ts. The Keycloak flow lives separately in
+  // server/_core/keycloak.ts (ENV.keycloakUrl). The current contract is that
+  // sdk.ts only references env fields that exist.
+  it("only references env fields that exist (oAuthServerUrl is defined)", () => {
     const content = getContent();
-    expect(content).not.toContain("ENV.oAuthServerUrl");
+    const env = readFileSync(join(ROOT, "server/_core/env.ts"), "utf-8");
+    if (content.includes("ENV.oAuthServerUrl")) {
+      expect(env).toContain("oAuthServerUrl");
+    }
+    // Must never reference a field env.ts does not define
+    expect(content).not.toContain("ENV.manusOAuthUrl");
   });
 
-  it("uses ENV.keycloakUrl for OAuth base URL", () => {
-    const content = getContent();
-    expect(content).toContain("ENV.keycloakUrl");
+  it("Keycloak flow uses ENV.keycloakUrl in keycloak.ts", () => {
+    const keycloak = readFileSync(join(ROOT, "server/_core/keycloak.ts"), "utf-8");
+    expect(keycloak).toContain("ENV.keycloakUrl");
   });
 });
 

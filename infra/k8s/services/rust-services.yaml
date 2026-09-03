@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: billing-engine
-          image: paygate/billing-engine:${BILLING_VERSION:-latest}
+          image: paygate/billing-engine:${BILLING_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -124,7 +124,7 @@ spec:
     spec:
       containers:
         - name: credit-scoring
-          image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+          image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -210,7 +210,7 @@ spec:
     spec:
       containers:
         - name: inventory-engine
-          image: paygate/inventory-engine:${INVENTORY_VERSION:-latest}
+          image: paygate/inventory-engine:${INVENTORY_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -288,7 +288,7 @@ spec:
     spec:
       containers:
         - name: loyalty-ledger
-          image: paygate/loyalty-ledger:${LOYALTY_VERSION:-latest}
+          image: paygate/loyalty-ledger:${LOYALTY_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -371,7 +371,7 @@ spec:
     spec:
       containers:
         - name: tigerbeetle-recon
-          image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-latest}
+          image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -451,7 +451,7 @@ spec:
     spec:
       containers:
         - name: wallet-ffi
-          image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
+          image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-1.0.0}
           ports:
             - containerPort: 8080
               name: http
@@ -480,6 +480,11 @@ spec:
                   key: KAFKA_BOOTSTRAP_SERVERS
             - name: OTEL_SERVICE_NAME
               value: paygate-wallet-ffi
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: INTERNAL_API_KEY
             - name: PORT
               value: "8080"
             - name: RUST_LOG

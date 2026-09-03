@@ -108,7 +108,34 @@ export type WebhookEventType =
   // ── Portal Billing ───────────────────────────────────────────────────────
   | "portal_billing.upgraded"
   | "portal_billing.cancelled"
-  | "portal_billing.payment_failed";
+  | "portal_billing.payment_failed"
+  // ── Paystack-parity wave ─────────────────────────────────────────────────
+  | "refund.pending"
+  | "refund.processing"
+  | "refund.needs_attention"
+  | "refund.failed"
+  | "refund.processed"
+  | "split.applied"
+  | "paymentrequest.pending"
+  | "paymentrequest.success"
+  | "transfer.recipient.created"
+  | "transfer.otp.required"
+  | "direct_debit.authorization.created"
+  | "direct_debit.authorization.active"
+  | "direct_debit.authorization.deactivated"
+  | "direct_debit.mandate.paused"
+  | "direct_debit.mandate.resumed"
+  | "direct_debit.debit.success"
+  | "direct_debit.debit.failed"
+  | "wallet.domain.verified"
+  | "wallet.charge.success"
+  | "dedicatedaccount.assign.success"
+  | "dedicatedaccount.assign.failed"
+  | "customer.identification.success"
+  | "customer.identification.failed"
+  | "subscription.not_renew"
+  | "subscription.expiring_cards"
+  | "subscription.manage_link.created";
 
 export interface WebhookEventPayload<T extends WebhookEventType = WebhookEventType> {
   event: T;

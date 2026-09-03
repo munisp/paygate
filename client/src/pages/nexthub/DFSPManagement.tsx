@@ -38,7 +38,7 @@ export default function DFSPManagement() {
 
   const { data: stats, refetch: refetchStats } = trpc.nexthubDfsps.getStats.useQuery();
   const { data, isLoading, refetch } = trpc.nexthubDfsps.listDfsps.useQuery({
-    page, pageSize: 20,
+    limit: 20, offset: (page - 1) * 20,
     status: statusFilter as any,
     dfspType: typeFilter as any,
     search: search || undefined,

@@ -5,21 +5,27 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/paygate/pix-gateway/internal/telemetry"
 )
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
@@ -33,13 +39,40 @@ type Config struct {
 }
 
 func loadConfig() Config {
-	return Config{
+	cfg := Config{
 		Port:           getEnv("PORT", "8100"),
-		PIXURL:         getEnv("PIX_URL", "https://api.bacen.gov.br/pix/v2"),
-		ISPBCode:       getEnv("PIX_ISPB_CODE", "12345678"),
-		PIXSecretKey:   getEnv("PIX_SECRET_KEY", "pix-secret-key-default"),
-		InternalAPIKey: getEnv("INTERNAL_API_KEY", "internal-api-key-default"),
+		PIXURL:         os.Getenv("PIX_URL"),
+		ISPBCode:       os.Getenv("PIX_ISPB_CODE"),
+		PIXSecretKey:   os.Getenv("PIX_SECRET_KEY"), // no default — HMAC secret for webhooks
+		InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
 	}
+	env := strings.ToLower(os.Getenv("ENV"))
+	prod := env == "production" || env == "prod"
+	if cfg.InternalAPIKey == "" {
+		if prod {
+			slog.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production")
+			os.Exit(1)
+		}
+		// Dev mode: per-boot random key (NOT a well-known default).
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.InternalAPIKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("INTERNAL_API_KEY unset — generated per-boot dev key; refusing well-known defaults")
+	}
+	if cfg.upstreamEnabled() {
+		if cfg.PIXURL == "" || cfg.ISPBCode == "" {
+			slog.Error("FATAL: PIX_UPSTREAM_ENABLED=true requires PIX_URL and PIX_ISPB_CODE")
+			os.Exit(1)
+		}
+	}
+	return cfg
+}
+
+// upstreamEnabled reports whether real BACEN submission is configured.
+// Without PIX_UPSTREAM_ENABLED=true the gateway FAILS LOUD (503) on payment
+// paths instead of fabricating transfers.
+func (c Config) upstreamEnabled() bool {
+	return os.Getenv("PIX_UPSTREAM_ENABLED") == "true"
 }
 
 func getEnv(key, fallback string) string {
@@ -63,36 +96,36 @@ const (
 
 // Brazilian bank ISPB codes
 var BrazilianBanks = map[string]string{
-	"ITAU":       "60701190",
-	"BRADESCO":   "60746948",
-	"SANTANDER":  "90400888",
-	"CAIXA":      "00360305",
-	"BB":         "00000000", // Banco do Brasil
-	"NUBANK":     "18236120",
-	"INTER":      "00416968",
-	"C6BANK":     "31872495",
-	"PICPAY":     "22896431",
+	"ITAU":        "60701190",
+	"BRADESCO":    "60746948",
+	"SANTANDER":   "90400888",
+	"CAIXA":       "00360305",
+	"BB":          "00000000", // Banco do Brasil
+	"NUBANK":      "18236120",
+	"INTER":       "00416968",
+	"C6BANK":      "31872495",
+	"PICPAY":      "22896431",
 	"MERCADOPAGO": "10573521",
-	"PAGSEGURO":  "08561701",
-	"STONE":      "11274546",
-	"SICOOB":     "02038232",
-	"SICREDI":    "01181521",
-	"BANRISUL":   "92702067",
+	"PAGSEGURO":   "08561701",
+	"STONE":       "11274546",
+	"SICOOB":      "02038232",
+	"SICREDI":     "01181521",
+	"BANRISUL":    "92702067",
 }
 
 type PIXPaymentRequest struct {
-	TransferID      string `json:"transfer_id"`
-	PaygateRef      string `json:"paygate_ref"`
-	SenderName      string `json:"sender_name"`
-	PIXKey          string `json:"pix_key"`
-	PIXKeyType      string `json:"pix_key_type"`
-	Amount          string `json:"amount"`
-	SourceCurrency  string `json:"source_currency"`
-	TargetCurrency  string `json:"target_currency"`
-	Corridor        string `json:"corridor"`
-	EndToEndID      string `json:"end_to_end_id"`
-	Description     string `json:"description"`
-	CreatedAt       string `json:"created_at"`
+	TransferID     string `json:"transfer_id"`
+	PaygateRef     string `json:"paygate_ref"`
+	SenderName     string `json:"sender_name"`
+	PIXKey         string `json:"pix_key"`
+	PIXKeyType     string `json:"pix_key_type"`
+	Amount         string `json:"amount"`
+	SourceCurrency string `json:"source_currency"`
+	TargetCurrency string `json:"target_currency"`
+	Corridor       string `json:"corridor"`
+	EndToEndID     string `json:"end_to_end_id"`
+	Description    string `json:"description"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type PIXPaymentResponse struct {
@@ -110,16 +143,16 @@ type PIXPaymentResponse struct {
 }
 
 type PIXQRCodeRequest struct {
-	Amount      string `json:"amount"`
-	Description string `json:"description"`
-	PIXKey      string `json:"pix_key"`
+	Amount       string `json:"amount"`
+	Description  string `json:"description"`
+	PIXKey       string `json:"pix_key"`
 	MerchantName string `json:"merchant_name"`
 	MerchantCity string `json:"merchant_city"`
-	ExpiresAt   string `json:"expires_at,omitempty"`
+	ExpiresAt    string `json:"expires_at,omitempty"`
 }
 
 type PIXQRCodeResponse struct {
-	QRCode      string `json:"qr_code"`      // EMV QR code string
+	QRCode      string `json:"qr_code"`       // EMV QR code string
 	QRCodeImage string `json:"qr_code_image"` // Base64 PNG (simplified)
 	EndToEndID  string `json:"end_to_end_id"`
 	ExpiresAt   string `json:"expires_at"`
@@ -269,8 +302,10 @@ func calculateCRC16(data string) uint16 {
 // ─── HTTP Handlers ─────────────────────────────────────────────────────────────
 
 type Server struct {
-	cfg    Config
-	client *http.Client
+	cfg      Config
+	client   *http.Client
+	mu       sync.RWMutex
+	payments map[string]paymentRecord
 }
 
 // newMTLSClient creates an HTTP client with mTLS cert pinning for the BACEN PIX API.
@@ -302,8 +337,9 @@ func newMTLSClient() *http.Client {
 
 func NewServer(cfg Config) *Server {
 	return &Server{
-		cfg:    cfg,
-		client: newMTLSClient(),
+		cfg:      cfg,
+		client:   newMTLSClient(),
+		payments: make(map[string]paymentRecord),
 	}
 }
 
@@ -322,9 +358,11 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-Internal-Key")
 		if key == "" {
-			key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				key = strings.TrimPrefix(auth, "Bearer ")
+			}
 		}
-		if key != s.cfg.InternalAPIKey {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.InternalAPIKey)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -335,14 +373,14 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":              "healthy",
-		"service":             "pix-gateway",
-		"version":             "1.0.0",
-		"ispb_code":           s.cfg.ISPBCode,
+		"status":               "healthy",
+		"service":              "pix-gateway",
+		"version":              "1.0.0",
+		"ispb_code":            s.cfg.ISPBCode,
 		"supported_currencies": []string{"BRL"},
-		"key_types":           []string{"CPF", "CNPJ", "PHONE", "EMAIL", "EVP"},
-		"settlement":          "instant",
-		"ts":                  time.Now().UTC().Format(time.RFC3339),
+		"key_types":            []string{"CPF", "CNPJ", "PHONE", "EMAIL", "EVP"},
+		"settlement":           "instant",
+		"ts":                   time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -363,35 +401,52 @@ func (s *Server) handlePayment(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("PIX key validation warning", "key", req.PIXKey, "type", req.PIXKeyType)
 	}
 
+	if !s.cfg.upstreamEnabled() {
+		slog.Error("PIX upstream not enabled — refusing to fabricate a payment (set PIX_UPSTREAM_ENABLED=true with PIX_URL/PIX_ISPB_CODE)")
+		http.Error(w, `{"error":"pix_upstream_not_configured","message":"BACEN PIX upstream is not configured; no payment was executed"}`, http.StatusServiceUnavailable)
+		return
+	}
+
 	// Generate E2E ID
 	e2eID := req.EndToEndID
 	if e2eID == "" {
 		e2eID = generateE2EID(s.cfg.ISPBCode)
 	}
 
-	// PIX is instant — simulate immediate settlement
-	settledAt := time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339)
+	// Submit to BACEN via the mTLS client (PUT /pix/{e2eid}).
+	status, raw, err := s.submitToBACEN(r, e2eID, req)
+	if err != nil {
+		slog.Error("BACEN submission failed", "e2e_id", e2eID, "error", err)
+		http.Error(w, `{"error":"bacen_submission_failed","message":"PIX submission to BACEN failed; no payment was executed"}`, http.StatusBadGateway)
+		return
+	}
 
-	slog.Info("PIX payment initiated",
+	s.storePayment(paymentRecord{
+		TransferID: req.TransferID,
+		EndToEndID: e2eID,
+		Status:     status,
+		Raw:        raw,
+		UpdatedAt:  time.Now().UTC(),
+	})
+
+	slog.Info("PIX payment submitted to BACEN",
 		"transfer_id", req.TransferID,
 		"pix_key", req.PIXKey,
 		"key_type", req.PIXKeyType,
 		"amount", req.Amount,
 		"e2e_id", e2eID,
+		"bacen_status", status,
 	)
 
 	resp := PIXPaymentResponse{
 		Success:       true,
 		TransferID:    req.TransferID,
-		PIXTransferID: fmt.Sprintf("PIX-%d", time.Now().UnixMilli()),
+		PIXTransferID: e2eID,
 		EndToEndID:    e2eID,
-		Status:        "submitted",
+		Status:        status,
 		PIXKey:        req.PIXKey,
 		PIXKeyType:    req.PIXKeyType,
-		ExchangeRate:  "5.0250",
-		Fee:           "0.20",
-		SettledAt:     settledAt,
-		Message:       fmt.Sprintf("PIX payment initiated to key %s (%s), E2E: %s", req.PIXKey, req.PIXKeyType, e2eID),
+		Message:       fmt.Sprintf("PIX payment submitted to BACEN, E2E: %s", e2eID),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -399,13 +454,98 @@ func (s *Server) handlePayment(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// paymentRecord tracks a real submitted payment.
+type paymentRecord struct {
+	TransferID string
+	EndToEndID string
+	Status     string
+	Raw        map[string]interface{}
+	UpdatedAt  time.Time
+}
+
+// submitToBACEN performs the real PIX API call: PUT {PIX_URL}/pix/{e2eid}.
+// Returns (status, upstream body, error).
+func (s *Server) submitToBACEN(r *http.Request, e2eID string, req PIXPaymentRequest) (string, map[string]interface{}, error) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"valor":       req.Amount,
+		"chave":       req.PIXKey,
+		"infoPagador": req.Description,
+	})
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPut,
+		fmt.Sprintf("%s/pix/%s", s.cfg.PIXURL, e2eID), strings.NewReader(string(payload)))
+	if err != nil {
+		return "", nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	var body map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if resp.StatusCode >= 400 {
+		return "", body, fmt.Errorf("BACEN returned HTTP %d", resp.StatusCode)
+	}
+	status, _ := body["status"].(string)
+	if status == "" {
+		status = "submitted"
+	}
+	return status, body, nil
+}
+
+// storePayment records a submitted payment for status queries.
+func (s *Server) storePayment(rec paymentRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.payments[rec.EndToEndID] = rec
+	if rec.TransferID != "" {
+		s.payments[rec.TransferID] = rec
+	}
+}
+
+// lookupPayment finds a recorded payment by E2E ID or transfer ID.
+func (s *Server) lookupPayment(id string) (paymentRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.payments[id]
+	return rec, ok
+}
+
 func (s *Server) handleGetPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	rec, ok := s.lookupPayment(id)
+	if !ok {
+		// Try a live refresh from BACEN when the upstream is wired.
+		if s.cfg.upstreamEnabled() && strings.HasPrefix(id, "E") {
+			httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+				fmt.Sprintf("%s/pix/%s", s.cfg.PIXURL, id), nil)
+			if err == nil {
+				if resp, derr := s.client.Do(httpReq); derr == nil {
+					defer resp.Body.Close()
+					if resp.StatusCode == http.StatusOK {
+						var body map[string]interface{}
+						_ = json.NewDecoder(resp.Body).Decode(&body)
+						w.Header().Set("Content-Type", "application/json")
+						json.NewEncoder(w).Encode(map[string]interface{}{
+							"transfer_id": id,
+							"upstream":    body,
+						})
+						return
+					}
+				}
+			}
+		}
+		http.Error(w, `{"error":"payment_not_found"}`, http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"transfer_id": id,
-		"status":      "settled",
-		"message":     "PIX payment settled instantly",
+		"transfer_id":   rec.TransferID,
+		"end_to_end_id": rec.EndToEndID,
+		"status":        rec.Status,
+		"updated_at":    rec.UpdatedAt.Format(time.RFC3339),
+		"upstream":      rec.Raw,
 	})
 }
 
@@ -425,8 +565,9 @@ func (s *Server) handleGenerateQRCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := PIXQRCodeResponse{
-		QRCode:      qrCode,
-		QRCodeImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+		QRCode: qrCode,
+		// No fabricated raster image — callers render the EMV payload client-side.
+		QRCodeImage: "",
 		EndToEndID:  e2eID,
 		ExpiresAt:   expiresAt,
 		Amount:      req.Amount,
@@ -462,18 +603,36 @@ func (s *Server) handleKeyLookup(w http.ResponseWriter, r *http.Request) {
 		PIXKey string `json:"pix_key"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
+	if req.PIXKey == "" {
+		http.Error(w, `{"error":"pix_key_required"}`, http.StatusBadRequest)
+		return
+	}
 
-	keyType := detectPIXKeyType(req.PIXKey)
-
+	// Real payee identity comes from the BACEN DICT directory only.
+	dictURL := os.Getenv("PIX_DICT_URL")
+	if dictURL == "" {
+		slog.Error("PIX_DICT_URL not configured — refusing to fabricate payee identity", "key", req.PIXKey)
+		http.Error(w, `{"error":"dict_not_configured","message":"BACEN DICT is not configured; payee identity cannot be verified"}`, http.StatusServiceUnavailable)
+		return
+	}
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		fmt.Sprintf("%s/entries/%s", dictURL, req.PIXKey), nil)
+	if err != nil {
+		http.Error(w, `{"error":"lookup_failed"}`, http.StatusInternalServerError)
+		return
+	}
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		slog.Error("DICT lookup failed", "key", req.PIXKey, "error", err)
+		http.Error(w, `{"error":"dict_unreachable"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	var body map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"pix_key":      req.PIXKey,
-		"pix_key_type": string(keyType),
-		"holder_name":  "Account Holder",
-		"bank_name":    "Nubank",
-		"ispb_code":    "18236120",
-		"account_type": "CACC", // Current account
-	})
+	w.WriteHeader(resp.StatusCode)
+	json.NewEncoder(w).Encode(body)
 }
 
 func (s *Server) handleListBanks(w http.ResponseWriter, r *http.Request) {
@@ -489,7 +648,28 @@ func (s *Server) handleListBanks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	slog.Info("PIX webhook received")
+	// Settlement callbacks mutate payment state — require HMAC-SHA256 over the
+	// raw body keyed by PIX_SECRET_KEY (header X-PIX-Signature, hex encoded).
+	if s.cfg.PIXSecretKey == "" {
+		slog.Error("PIX webhook rejected: PIX_SECRET_KEY not configured")
+		http.Error(w, `{"error":"webhook_not_configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	sig := r.Header.Get("X-PIX-Signature")
+	mac := hmac.New(sha256.New, []byte(s.cfg.PIXSecretKey))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if sig == "" || !hmac.Equal([]byte(strings.ToLower(sig)), []byte(expected)) {
+		slog.Warn("PIX webhook rejected: invalid or missing signature")
+		http.Error(w, `{"error":"invalid_signature"}`, http.StatusUnauthorized)
+		return
+	}
+	slog.Info("PIX webhook accepted (signature verified)")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -498,6 +678,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-pix-gateway")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 	srv := NewServer(cfg)
 	mux := http.NewServeMux()
@@ -505,7 +689,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      telemetry.Middleware(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}

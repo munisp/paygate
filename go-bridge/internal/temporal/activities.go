@@ -147,7 +147,7 @@ func (a *ActivitySet) ExecutePayout(ctx context.Context, payoutID string) error 
 	}
 
 	if err := db.UpdatePayoutStatus(ctx, payoutID, "completed", ""); err != nil {
-		slog.Warn("[activity] ExecutePayout: mark completed failed (non-fatal)", "err", err)
+		slog.Error("[activity] ExecutePayout: ledger debit succeeded but status update failed — reconciliation required", "err", err, "payout_id", payoutID)
 	}
 
 	producer := kafka.GetProducer()
@@ -192,26 +192,29 @@ func (a *ActivitySet) SubmitNIBSSBatch(ctx context.Context, input SettlementBatc
 		"settlement_id", input.SettlementID, "batch_ref", input.BatchRef, "amount", input.Amount)
 	client, err := nibss.New()
 	if err != nil {
-		// NIBSS not configured — log and continue (non-blocking in sandbox/staging)
-		slog.Warn("[activity] SubmitNIBSSBatch: NIBSS not configured — simulating submission", "err", err)
+		if !allowSimulation() {
+			slog.Error("[activity] SubmitNIBSSBatch: NIBSS not configured and ALLOW_SIMULATION != true — failing (no fake settlement)", "err", err)
+			return fmt.Errorf("SubmitNIBSSBatch: NIBSS not configured: %w", err)
+		}
+		slog.Warn("[activity] SubmitNIBSSBatch: ALLOW_SIMULATION=true — SIMULATED submission, NO MONEY MOVED", "err", err)
 		return nil
 	}
 	req := nibss.SingleCreditRequest{
-		SessionID:                  input.BatchRef,
-		DestinationInstitutionCode: input.BankCode,
-		ChannelCode:                "2",
-		BeneficiaryAccountName:     input.AccountName,
-		BeneficiaryAccountNumber:   input.AccountNumber,
+		SessionID:                         input.BatchRef,
+		DestinationInstitutionCode:        input.BankCode,
+		ChannelCode:                       "2",
+		BeneficiaryAccountName:            input.AccountName,
+		BeneficiaryAccountNumber:          input.AccountNumber,
 		BeneficiaryBankVerificationNumber: "",
-		BeneficiaryKYCLevel:        "1",
-		OriginatorAccountName:      "PayGate Settlement",
-		OriginatorAccountNumber:    os.Getenv("NIBSS_ORIGINATOR_ACCOUNT"),
-		OriginatorBankVerificationNumber: "",
-		OriginatorKYCLevel:         "3",
-		TransactionLocation:        "6.5244,3.3792",
-		Narration:                  fmt.Sprintf("PayGate Settlement %s", input.SettlementID),
-		PaymentReference:           input.BatchRef,
-		Amount:                     fmt.Sprintf("%d", input.Amount),
+		BeneficiaryKYCLevel:               "1",
+		OriginatorAccountName:             "PayGate Settlement",
+		OriginatorAccountNumber:           os.Getenv("NIBSS_ORIGINATOR_ACCOUNT"),
+		OriginatorBankVerificationNumber:  "",
+		OriginatorKYCLevel:                "3",
+		TransactionLocation:               "6.5244,3.3792",
+		Narration:                         fmt.Sprintf("PayGate Settlement %s", input.SettlementID),
+		PaymentReference:                  input.BatchRef,
+		Amount:                            fmt.Sprintf("%d", input.Amount),
 	}
 	resp, err := client.SingleCreditTransfer(ctx, req)
 	if err != nil {
@@ -233,8 +236,11 @@ func (a *ActivitySet) ConfirmNIBSSBatch(ctx context.Context, batchRef string) er
 	slog.Info("[activity] ConfirmNIBSSBatch", "batch_ref", batchRef)
 	client, err := nibss.New()
 	if err != nil {
-		// NIBSS not configured — assume confirmed in sandbox/staging
-		slog.Warn("[activity] ConfirmNIBSSBatch: NIBSS not configured — simulating confirmation", "err", err)
+		if !allowSimulation() {
+			slog.Error("[activity] ConfirmNIBSSBatch: NIBSS not configured and ALLOW_SIMULATION != true — failing (no fake confirmation)", "err", err)
+			return fmt.Errorf("ConfirmNIBSSBatch: NIBSS not configured: %w", err)
+		}
+		slog.Warn("[activity] ConfirmNIBSSBatch: ALLOW_SIMULATION=true — SIMULATED confirmation, settlement NOT verified", "err", err)
 		return nil
 	}
 	_, err = client.QueryTransactionStatus(ctx, batchRef)
@@ -422,7 +428,11 @@ func (a *ActivitySet) ChargeSubscription(ctx context.Context, input Subscription
 
 	stripeKey := os.Getenv("STRIPE_SECRET_KEY")
 	if stripeKey == "" {
-		slog.Warn("[activity] ChargeSubscription: STRIPE_SECRET_KEY not set — simulating charge")
+		if !allowSimulation() {
+			slog.Error("[activity] ChargeSubscription: STRIPE_SECRET_KEY not set and ALLOW_SIMULATION != true — failing (no fake charge)")
+			return fmt.Errorf("ChargeSubscription: STRIPE_SECRET_KEY not configured")
+		}
+		slog.Warn("[activity] ChargeSubscription: ALLOW_SIMULATION=true — SIMULATED charge, customer NOT billed")
 		return nil
 	}
 	// Use the Stripe Go SDK to create a PaymentIntent for the subscription.
@@ -516,7 +526,7 @@ func (a *ActivitySet) CancelSubscription(ctx context.Context, subscriptionID, re
 // GetCrossBorderQuote fetches a Mojaloop FX quote for the corridor.
 func (a *ActivitySet) GetCrossBorderQuote(ctx context.Context, input CrossBorderInput) (string, error) {
 	slog.Info("[activity] GetCrossBorderQuote",
-				"transfer_id", input.TransferID, "corridor", input.Corridors)
+		"transfer_id", input.TransferID, "corridor", input.Corridors)
 	mojaloopURL := os.Getenv("MOJALOOP_URL")
 	if mojaloopURL == "" {
 		slog.Warn("[activity] GetCrossBorderQuote: MOJALOOP_URL not set — returning mock quote")
@@ -527,6 +537,7 @@ func (a *ActivitySet) GetCrossBorderQuote(ctx context.Context, input CrossBorder
 	slog.Info("[activity] GetCrossBorderQuote: quote obtained", "quote_id", quoteID)
 	return quoteID, nil
 }
+
 // ExecuteMojalloopTransfer executes the Mojaloop cross-border transfer using
 // the previously obtained quote.
 func (a *ActivitySet) ExecuteMojalloopTransfer(ctx context.Context, input CrossBorderInput) error {
@@ -535,7 +546,11 @@ func (a *ActivitySet) ExecuteMojalloopTransfer(ctx context.Context, input CrossB
 
 	mojaloopURL := os.Getenv("MOJALOOP_URL")
 	if mojaloopURL == "" {
-		slog.Warn("[activity] ExecuteMojalloopTransfer: MOJALOOP_URL not set — simulating transfer")
+		if !allowSimulation() {
+			slog.Error("[activity] ExecuteMojalloopTransfer: MOJALOOP_URL not set and ALLOW_SIMULATION != true — failing (no fake transfer)")
+			return fmt.Errorf("ExecuteMojalloopTransfer: MOJALOOP_URL not configured")
+		}
+		slog.Warn("[activity] ExecuteMojalloopTransfer: ALLOW_SIMULATION=true — SIMULATED transfer, NO MONEY MOVED")
 		return nil
 	}
 	// POST to Mojaloop /transfers endpoint with quoteId
@@ -601,115 +616,119 @@ func (a *ActivitySet) UpdateTransferStatus(ctx context.Context, transferID, stat
 //   - nil      → batch confirmed successfully; caller should set status "completed"
 //   - non-nil  → batch failed or timed out; caller should set status "failed"
 func (a *ActivitySet) PollNIBSSBatchStatus(ctx context.Context, batchRef string, settlementID string) error {
-const (
-pollInterval    = 30 * time.Second
-maxPollAttempts = 240 // 240 × 30s = 2 hours
-)
+	const (
+		pollInterval    = 30 * time.Second
+		maxPollAttempts = 240 // 240 × 30s = 2 hours
+	)
 
-slog.Info("[activity] PollNIBSSBatchStatus: starting",
-"batch_ref", batchRef, "settlement_id", settlementID)
+	slog.Info("[activity] PollNIBSSBatchStatus: starting",
+		"batch_ref", batchRef, "settlement_id", settlementID)
 
-client, err := nibss.New()
-if err != nil {
-// NIBSS not configured — assume confirmed in sandbox/staging environments.
-slog.Warn("[activity] PollNIBSSBatchStatus: NIBSS not configured — simulating success",
-"batch_ref", batchRef)
-return nil
-}
+	client, err := nibss.New()
+	if err != nil {
+		if !allowSimulation() {
+			slog.Error("[activity] PollNIBSSBatchStatus: NIBSS not configured and ALLOW_SIMULATION != true — failing (no fake status)",
+				"batch_ref", batchRef)
+			return fmt.Errorf("PollNIBSSBatchStatus: NIBSS not configured: %w", err)
+		}
+		slog.Warn("[activity] PollNIBSSBatchStatus: ALLOW_SIMULATION=true — SIMULATED success, settlement NOT verified",
+			"batch_ref", batchRef)
+		return nil
+	}
 
-for attempt := 1; attempt <= maxPollAttempts; attempt++ {
-if attempt > 1 {
-// Sleep between polls (skip on the first attempt to query immediately).
-select {
-case <-ctx.Done():
-slog.Info("[activity] PollNIBSSBatchStatus: context cancelled",
-"batch_ref", batchRef, "attempt", attempt)
-return fmt.Errorf("PollNIBSSBatchStatus: context cancelled after %d attempts (batch_ref=%s)",
-attempt-1, batchRef)
-case <-time.After(pollInterval):
-}
-}
+	for attempt := 1; attempt <= maxPollAttempts; attempt++ {
+		if attempt > 1 {
+			// Sleep between polls (skip on the first attempt to query immediately).
+			select {
+			case <-ctx.Done():
+				slog.Info("[activity] PollNIBSSBatchStatus: context cancelled",
+					"batch_ref", batchRef, "attempt", attempt)
+				return fmt.Errorf("PollNIBSSBatchStatus: context cancelled after %d attempts (batch_ref=%s)",
+					attempt-1, batchRef)
+			case <-time.After(pollInterval):
+			}
+		}
 
-resp, queryErr := client.QueryTransactionStatus(ctx, batchRef)
-if queryErr == nil {
-// Terminal success: ResponseCode == "00"
-slog.Info("[activity] PollNIBSSBatchStatus: confirmed",
-"batch_ref", batchRef, "attempt", attempt,
-"response_code", resp.ResponseCode, "response_message", resp.ResponseMessage)
-a.notifySettlementOutcome(settlementID, batchRef, "completed", resp.ResponseMessage)
-return nil
-}
+		resp, queryErr := client.QueryTransactionStatus(ctx, batchRef)
+		if queryErr == nil {
+			// Terminal success: ResponseCode == "00"
+			slog.Info("[activity] PollNIBSSBatchStatus: confirmed",
+				"batch_ref", batchRef, "attempt", attempt,
+				"response_code", resp.ResponseCode, "response_message", resp.ResponseMessage)
+			a.notifySettlementOutcome(settlementID, batchRef, "completed", resp.ResponseMessage)
+			return nil
+		}
 
-if queryErr == nibss.ErrPending {
-// Still processing — log and continue polling.
-slog.Info("[activity] PollNIBSSBatchStatus: still pending",
-"batch_ref", batchRef, "attempt", attempt, "max_attempts", maxPollAttempts)
-continue
-}
+		if queryErr == nibss.ErrPending {
+			// Still processing — log and continue polling.
+			slog.Info("[activity] PollNIBSSBatchStatus: still pending",
+				"batch_ref", batchRef, "attempt", attempt, "max_attempts", maxPollAttempts)
+			continue
+		}
 
-// Non-pending error: terminal failure.
-slog.Error("[activity] PollNIBSSBatchStatus: terminal failure",
-"batch_ref", batchRef, "attempt", attempt, "err", queryErr)
-a.notifySettlementOutcome(settlementID, batchRef, "failed", queryErr.Error())
-return fmt.Errorf("PollNIBSSBatchStatus: terminal failure after %d attempts (batch_ref=%s): %w",
-attempt, batchRef, queryErr)
-}
+		// Non-pending error: terminal failure.
+		slog.Error("[activity] PollNIBSSBatchStatus: terminal failure",
+			"batch_ref", batchRef, "attempt", attempt, "err", queryErr)
+		a.notifySettlementOutcome(settlementID, batchRef, "failed", queryErr.Error())
+		return fmt.Errorf("PollNIBSSBatchStatus: terminal failure after %d attempts (batch_ref=%s): %w",
+			attempt, batchRef, queryErr)
+	}
 
-// Max attempts exhausted — treat as SLA breach.
-slog.Warn("[activity] PollNIBSSBatchStatus: max poll attempts exhausted",
-"batch_ref", batchRef, "max_attempts", maxPollAttempts)
-a.notifySettlementOutcome(settlementID, batchRef, "sla_breached",
-fmt.Sprintf("max poll attempts (%d) exhausted", maxPollAttempts))
-return fmt.Errorf("PollNIBSSBatchStatus: max poll attempts (%d) exhausted (batch_ref=%s)",
-maxPollAttempts, batchRef)
+	// Max attempts exhausted — treat as SLA breach.
+	slog.Warn("[activity] PollNIBSSBatchStatus: max poll attempts exhausted",
+		"batch_ref", batchRef, "max_attempts", maxPollAttempts)
+	a.notifySettlementOutcome(settlementID, batchRef, "sla_breached",
+		fmt.Sprintf("max poll attempts (%d) exhausted", maxPollAttempts))
+	return fmt.Errorf("PollNIBSSBatchStatus: max poll attempts (%d) exhausted (batch_ref=%s)",
+		maxPollAttempts, batchRef)
 }
 
 // notifySettlementOutcome fires a portal owner notification after a settlement
 // reaches a terminal state.  This is best-effort: errors are logged but not
 // propagated so they do not affect the workflow outcome.
 func (a *ActivitySet) notifySettlementOutcome(settlementID, batchRef, outcome, detail string) {
-portalURL := os.Getenv("PORTAL_TRPC_URL")
-internalKey := os.Getenv("MIDDLEWARE_INTERNAL_KEY")
-if portalURL == "" || internalKey == "" {
-slog.Debug("[activity] notifySettlementOutcome: PORTAL_TRPC_URL not set — skipping",
-"settlement_id", settlementID, "outcome", outcome)
-return
-}
+	portalURL := os.Getenv("PORTAL_TRPC_URL")
+	internalKey := os.Getenv("MIDDLEWARE_INTERNAL_KEY")
+	if portalURL == "" || internalKey == "" {
+		slog.Debug("[activity] notifySettlementOutcome: PORTAL_TRPC_URL not set — skipping",
+			"settlement_id", settlementID, "outcome", outcome)
+		return
+	}
 
-msgTitle := fmt.Sprintf("Settlement %s %s", settlementID, outcome)
-msgContent := fmt.Sprintf(
-"NIBSS batch %s for settlement %s reached terminal state: %s.\nDetail: %s",
-batchRef, settlementID, outcome, detail,
-)
+	msgTitle := fmt.Sprintf("Settlement %s %s", settlementID, outcome)
+	msgContent := fmt.Sprintf(
+		"NIBSS batch %s for settlement %s reached terminal state: %s.\nDetail: %s",
+		batchRef, settlementID, outcome, detail,
+	)
 
-// tRPC batch envelope for system.notifyOwner
-bodyJSON := fmt.Sprintf(`{"0":{"json":{"title":%q,"content":%q}}}`, msgTitle, msgContent)
+	// tRPC batch envelope for system.notifyOwner
+	bodyJSON := fmt.Sprintf(`{"0":{"json":{"title":%q,"content":%q}}}`, msgTitle, msgContent)
 
-url := portalURL + "/api/trpc/system.notifyOwner?batch=1"
-req, err := http.NewRequestWithContext(
-context.Background(),
-http.MethodPost,
-url,
-bytes.NewReader([]byte(bodyJSON)),
-)
-if err != nil {
-slog.Warn("[activity] notifySettlementOutcome: build request failed", "err", err)
-return
-}
-req.Header.Set("Content-Type", "application/json")
-req.Header.Set("X-Internal-Key", internalKey)
+	url := portalURL + "/api/trpc/system.notifyOwner?batch=1"
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		url,
+		bytes.NewReader([]byte(bodyJSON)),
+	)
+	if err != nil {
+		slog.Warn("[activity] notifySettlementOutcome: build request failed", "err", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Key", internalKey)
 
-httpClient := &http.Client{Timeout: 10 * time.Second}
-resp, callErr := httpClient.Do(req)
-if callErr != nil {
-slog.Warn("[activity] notifySettlementOutcome: HTTP call failed", "err", callErr)
-return
-}
-defer resp.Body.Close()
-if resp.StatusCode >= 400 {
-slog.Warn("[activity] notifySettlementOutcome: portal returned error", "status", resp.StatusCode)
-return
-}
-slog.Info("[activity] notifySettlementOutcome: notification sent",
-"settlement_id", settlementID, "outcome", outcome)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, callErr := httpClient.Do(req)
+	if callErr != nil {
+		slog.Warn("[activity] notifySettlementOutcome: HTTP call failed", "err", callErr)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		slog.Warn("[activity] notifySettlementOutcome: portal returned error", "status", resp.StatusCode)
+		return
+	}
+	slog.Info("[activity] notifySettlementOutcome: notification sent",
+		"settlement_id", settlementID, "outcome", outcome)
 }

@@ -67,10 +67,10 @@ func ValidateCIPSBeneficiary(ctx context.Context, input CIPSTransferInput) (map[
 	}
 
 	return map[string]interface{}{
-		"valid":         true,
-		"cnaps_code":    input.CNAPSCode,
-		"bank_name":     "Bank of China",
-		"validated_at":  time.Now().UTC().Format(time.RFC3339),
+		"valid":        true,
+		"cnaps_code":   input.CNAPSCode,
+		"bank_name":    "Bank of China",
+		"validated_at": time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -88,11 +88,15 @@ func SubmitCIPSTransfer(ctx context.Context, input CIPSTransferInput) (map[strin
 		"purpose_code":   input.PurposeCode,
 	})
 	if err != nil {
-		// Fallback: generate a simulated CIPS message ID
-		slog.Warn("CIPS bridge unavailable, using simulation", "error", err)
+		if !allowSimulation() {
+			slog.Error("CIPS bridge unavailable and ALLOW_SIMULATION != true — failing (no fake CIPS message)", "error", err)
+			return nil, fmt.Errorf("SubmitCIPSTransfer: CIPS bridge unavailable: %w", err)
+		}
+		slog.Warn("CIPS bridge unavailable — ALLOW_SIMULATION=true, returning SIMULATED message ID (no real submission)", "error", err)
 		return map[string]interface{}{
-			"cips_message_id": fmt.Sprintf("CIPS%d", time.Now().UnixNano()%1000000000),
-			"status":          "submitted",
+			"cips_message_id": fmt.Sprintf("SIM-CIPS%d", time.Now().UnixNano()%1000000000),
+			"status":          "simulated",
+			"simulation":      true,
 			"submitted_at":    time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	}
@@ -112,9 +116,14 @@ func PollCIPSSettlement(ctx context.Context, params map[string]interface{}) (map
 		"cips_message_id": cipsMessageID,
 	})
 	if err != nil {
-		// Simulate settlement after delay
+		if !allowSimulation() {
+			slog.Error("CIPS settlement poll failed and ALLOW_SIMULATION != true — failing (no fake settlement)", "error", err)
+			return nil, fmt.Errorf("PollCIPSSettlement: status query failed: %w", err)
+		}
+		slog.Warn("CIPS settlement poll failed — ALLOW_SIMULATION=true, returning SIMULATED settlement", "error", err)
 		return map[string]interface{}{
-			"status":     "settled",
+			"status":     "simulated_settled",
+			"simulation": true,
 			"settled_at": time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	}
@@ -141,12 +150,17 @@ func LookupUPIVPA(ctx context.Context, params map[string]interface{}) (map[strin
 
 	result, err := crossBorderHTTPPost(ctx, "/v1/upi/vpa/lookup", params)
 	if err != nil {
-		// Fallback simulation
+		if !allowSimulation() {
+			slog.Error("UPI VPA lookup failed and ALLOW_SIMULATION != true — failing (no fake payee identity)", "error", err)
+			return nil, fmt.Errorf("LookupUPIVPA: lookup failed: %w", err)
+		}
+		slog.Warn("UPI VPA lookup failed — ALLOW_SIMULATION=true, returning SIMULATED payee", "error", err)
 		return map[string]interface{}{
 			"vpa":          vpa,
-			"name":         "Test Beneficiary",
-			"bank":         "HDFC Bank",
+			"name":         "SIMULATED Beneficiary",
+			"bank":         "SIMULATED Bank",
 			"valid":        true,
+			"simulation":   true,
 			"looked_up_at": time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	}
@@ -291,12 +305,9 @@ func ScreenCrossBorderAML(ctx context.Context, params map[string]interface{}) (m
 
 	result, err := crossBorderHTTPPost(ctx, "/v1/aml/screen", params)
 	if err != nil {
-		// Default to pass if AML service unavailable
-		return map[string]interface{}{
-			"cleared":    true,
-			"risk_score": 0.1,
-			"screened_at": time.Now().UTC().Format(time.RFC3339),
-		}, nil
+		// FAIL CLOSED: an unreachable AML service must never auto-clear a
+		// cross-border money transfer. Return an error so Temporal retries.
+		return nil, fmt.Errorf("AML screening unavailable — refusing to auto-clear transfer (fail closed): %w", err)
 	}
 
 	if cleared, ok := result["cleared"].(bool); ok && !cleared {
@@ -315,11 +326,9 @@ func ScoreCrossBorderFraud(ctx context.Context, params map[string]interface{}) (
 
 	result, err := crossBorderHTTPPost(ctx, "/v1/fraud/score/crossborder", params)
 	if err != nil {
-		return map[string]interface{}{
-			"score":      0.15,
-			"risk_level": "low",
-			"scored_at":  time.Now().UTC().Format(time.RFC3339),
-		}, nil
+		// FAIL CLOSED: never fabricate a low-risk score when the fraud
+		// service is unreachable. Return an error so Temporal retries.
+		return nil, fmt.Errorf("fraud scoring unavailable — refusing to fabricate a low-risk score (fail closed): %w", err)
 	}
 
 	return result, nil
@@ -335,7 +344,10 @@ func PostCrossBorderLedgerEntry(ctx context.Context, params map[string]interface
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/ledger/crossborder", params)
 	if err != nil {
-		slog.Warn("ledger post failed (non-fatal)", "error", err)
+		// Money leg: the ledger write MUST NOT be swallowed. Return the error
+		// so Temporal retries per the activity retry policy.
+		slog.Error("cross-border ledger post failed — returning error for retry", "error", err, "transfer_id", params["transfer_id"])
+		return fmt.Errorf("PostCrossBorderLedgerEntry: ledger post failed: %w", err)
 	}
 
 	return nil
@@ -350,7 +362,7 @@ func PublishCrossBorderSettledEvent(ctx context.Context, params map[string]inter
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/events/crossborder/settled", params)
 	if err != nil {
-		slog.Warn("event publish failed (non-fatal)", "error", err)
+		slog.Error("settled-event publish failed after settlement — reconciliation required", "error", err, "transfer_id", params["transfer_id"])
 	}
 
 	return nil
@@ -368,7 +380,7 @@ func GatherDisputeEvidence(ctx context.Context, input DisputeWorkflowInput) (map
 	})
 	if err != nil {
 		return map[string]interface{}{
-			"dispute_id":   input.DisputeID,
+			"dispute_id":        input.DisputeID,
 			"evidence_gathered": false,
 		}, nil
 	}
@@ -416,7 +428,9 @@ func ExecuteDisputeRefund(ctx context.Context, params map[string]interface{}) er
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/disputes/refund", params)
 	if err != nil {
-		slog.Warn("dispute refund failed", "error", err)
+		// Money leg: a failed refund must not be reported as executed.
+		slog.Error("dispute refund failed — returning error for retry", "error", err, "dispute_id", params["dispute_id"])
+		return fmt.Errorf("ExecuteDisputeRefund: refund failed: %w", err)
 	}
 
 	return nil
@@ -431,7 +445,7 @@ func NotifyDisputeResolution(ctx context.Context, params map[string]interface{})
 
 	_, err := crossBorderHTTPPost(ctx, "/v1/notifications/dispute-resolved", params)
 	if err != nil {
-		slog.Warn("dispute notification failed (non-fatal)", "error", err)
+		slog.Error("dispute notification failed — merchant not notified; reconciliation required", "error", err, "dispute_id", params["dispute_id"])
 	}
 
 	return nil

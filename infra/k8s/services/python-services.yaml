@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: settlement-forecast
-          image: paygate/settlement-forecast:latest
+          image: paygate/settlement-forecast:1.0.0
           ports:
             - containerPort: 9011
           env:
@@ -74,7 +74,7 @@ spec:
     spec:
       containers:
         - name: cohort-analytics
-          image: paygate/cohort-analytics:latest
+          image: paygate/cohort-analytics:1.0.0
           ports:
             - containerPort: 9015
           env:
@@ -125,7 +125,7 @@ spec:
     spec:
       containers:
         - name: carbon-oracle
-          image: paygate/carbon-oracle:latest
+          image: paygate/carbon-oracle:1.0.0
           ports:
             - containerPort: 9012
           env:
@@ -176,7 +176,7 @@ spec:
     spec:
       containers:
         - name: insurance-pricing
-          image: paygate/insurance-pricing:latest
+          image: paygate/insurance-pricing:1.0.0
           ports:
             - containerPort: 9013
           env:
@@ -227,7 +227,7 @@ spec:
     spec:
       containers:
         - name: tax-engine
-          image: paygate/tax-engine:latest
+          image: paygate/tax-engine:1.0.0
           ports:
             - containerPort: 9014
           env:
@@ -278,7 +278,7 @@ spec:
     spec:
       containers:
         - name: iso20022-parser
-          image: paygate/iso20022-parser:latest
+          image: paygate/iso20022-parser:1.0.0
           ports:
             - containerPort: 9016
           env:
@@ -324,7 +324,7 @@ spec:
     spec:
       containers:
         - name: fraud-scoring
-          image: paygate/fraud-scoring:latest
+          image: paygate/fraud-scoring:1.0.0
           ports:
             - containerPort: 9010
           env:
@@ -492,7 +492,7 @@ spec:
     spec:
       containers:
         - name: lakehouse-v2
-          image: paygate/lakehouse-v2:latest
+          image: paygate/lakehouse-v2:1.0.0
           ports:
             - containerPort: 8125
           env:
@@ -572,7 +572,7 @@ spec:
     spec:
       containers:
         - name: fraud-heatmap
-          image: paygate/fraud-heatmap:latest
+          image: paygate/fraud-heatmap:1.0.0
           ports:
             - containerPort: 8120
           env:
@@ -783,8 +783,8 @@ data:
     hive.metastore.catalog.dir=s3a://paygate-lakehouse/
     hive.s3.endpoint=http://paygate-minio:9000
     hive.s3.path-style-access=true
-    hive.s3.aws-access-key=minioadmin
-    hive.s3.aws-secret-key=minioadmin
+    hive.s3.aws-access-key=<CHANGE_ME: minio access key>
+    hive.s3.aws-secret-key=<CHANGE_ME: minio secret key>
     hive.non-managed-table-writes-enabled=true
     delta.enable-non-concurrent-writes=true
   tpch.properties: |
@@ -808,7 +808,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: spark-compaction
-              image: paygate/spark-compaction:latest
+              image: paygate/spark-compaction:1.0.0
               env:
                 - name: S3_BUCKET
                   value: "paygate-lakehouse"
@@ -995,7 +995,7 @@ spec:
     spec:
       containers:
         - name: lakehouse-v2
-          image: paygate/lakehouse-v2:latest
+          image: paygate/lakehouse-v2:1.0.0
           ports:
             - containerPort: 8125
           envFrom:
@@ -1059,7 +1059,7 @@ spec:
     spec:
       containers:
         - name: fraud-heatmap
-          image: paygate/fraud-heatmap:latest
+          image: paygate/fraud-heatmap:1.0.0
           ports:
             - containerPort: 8120
           envFrom:
@@ -1123,7 +1123,7 @@ spec:
     spec:
       containers:
         - name: credit-scoring
-          image: paygate/credit-scoring:latest
+          image: paygate/credit-scoring:1.0.0
           ports:
             - containerPort: 8200
           envFrom:
@@ -1340,7 +1340,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: spark-compaction
-              image: paygate/spark-compaction:latest
+              image: paygate/spark-compaction:1.0.0
               envFrom:
                 - configMapRef:
                     name: paygate-config
@@ -1376,7 +1376,7 @@ spec:
     spec:
       containers:
         - name: gnn-fraud
-          image: paygate/gnn-fraud:latest
+          image: paygate/gnn-fraud:1.0.0
           ports:
             - containerPort: 8000
           envFrom:
@@ -1475,7 +1475,7 @@ spec:
     spec:
       containers:
         - name: gnn-fraud
-          image: paygate/gnn-fraud:latest
+          image: paygate/gnn-fraud:1.0.0
           ports:
             - containerPort: 8000
           env:

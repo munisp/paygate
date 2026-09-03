@@ -102,7 +102,10 @@ export const auditLogMiddleware = middleware(async ({ ctx, path, type, next, get
             console.warn("[audit] Failed to write audit log:", e.message);
           })
       )
-      .catch(() => {});
+      .catch((e: unknown) => {
+        // Never throw from audit logging — but never swallow silently either
+        console.warn("[audit] Failed to write audit log:", e instanceof Error ? e.message : String(e));
+      });
   }
 });
 

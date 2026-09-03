@@ -32,8 +32,8 @@ export default function ConsumerBnplRepayments() {
   const [expandedLoan, setExpandedLoan] = useState<string | null>(null);
   const [payingInstalment, setPayingInstalment] = useState<string | null>(null);
 
-  const { data: bnplData, refetch, isLoading } = trpc.newFeatures.bnpl.getActiveLoans.useQuery();
-  const payMutation = trpc.newFeatures.bnpl.payInstalment.useMutation({
+  const { data: bnplData, refetch, isLoading } = trpc.consumerFinancial.emi.getLoans.useQuery();
+  const payMutation = trpc.consumerFinancial.emi.payEMI.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Payment of ${formatKobo(d.amountKobo ?? 0)} processed successfully!`);
       setPayingInstalment(null);
@@ -248,7 +248,8 @@ export default function ConsumerBnplRepayments() {
                                     setPayingInstalment(inst.instalmentId);
                                     payMutation.mutate({
                                       loanId: loan.loanId,
-                                      instalmentId: inst.instalmentId,
+                                      instalmentNumber: inst.instalmentNumber ?? 1,
+                                      amountKobo: inst.amountKobo ?? 0,
                                     });
                                   }}
                                 >

@@ -83,6 +83,40 @@ All secrets must be injected at deploy time; **never commit `.env` files**.
 
 ---
 
+## Critical Runtime & Secret Variables (fail-closed contract)
+
+These variables have **no defaults** anywhere in the deploy manifests
+(`docker-compose*.yml`, `k8s/`). Compose files use `${VAR:?must be set}` so
+deployment aborts when they are missing; application code fails closed
+(refuses to start or rejects the request) when a required secret is absent.
+Never commit real values — provision via your secret manager
+(sealed-secrets / external-secrets / SSM).
+
+| Variable | Required | Purpose | Fail-closed behavior when unset |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ | Primary DB connection string for the Node app **and** the go-bridge (`postgresql://...` / MySQL DSN) | Node `server/_core/env.ts` reports it missing-critical; go-bridge exits at startup |
+| `PG_DATABASE_URL` | ✅ | PostgreSQL connection string consumed by Python services and one-shot migrate/seed jobs | Compose refuses to start (`:?`) |
+| `JWT_SECRET` | ✅ | Signs session tokens (tokens carry `jti`; revoked JTIs are rejected) | Compose refuses to start; sessions cannot be issued/verified |
+| `MIDDLEWARE_BRIDGE_URL` | ✅ (prod) | Base URL of the go-bridge REST API (compose: `http://go-bridge:8080`; k8s: `http://paygate-go-bridge:8080`) | Flagged missing-critical at boot; bridge-dependent routes fail instead of silently mocking |
+| `MIDDLEWARE_INTERNAL_KEY` | ✅ (prod) | Shared HMAC/`X-Internal-Key` between portal and bridge/internal services | Portal flags missing-critical; internal callers reject requests when unset |
+| `BRIDGE_INTERNAL_KEY` | ✅ (prod) | Bearer token the portal presents to go-bridge (`Authorization: Bearer` or `X-Internal-Key`) | go-bridge refuses to boot when `ENV=production`; in dev it generates a per-boot random key (logged at startup) and all endpoints stay authenticated. The `BRIDGE_ALLOW_NOAUTH` bypass has been removed |
+| `INTERNAL_API_KEY` | ✅ (prod) | Service-to-service auth key for Python/Rust/Go microservices | Services refuse to serve in production (or generate a per-boot random key in dev); compose refuses to start |
+| `TIGERBEETLE_ADDRESS` | ✅ | TigerBeetle ledger cluster address(es) (e.g. `tb-1:3902` / `tigerbeetle-service:3000`) | go-bridge ledger client init fails → bridge exits; compose refuses to start |
+| `MOBILE_MONEY_WEBHOOK_SECRET` | ✅ when mobile-money enabled | HMAC secret verifying inbound mobile-money provider webhooks | Webhook endpoint throws `INTERNAL_SERVER_ERROR` — never processes unverified callbacks |
+| `NIP_WEBHOOK_SECRET` | ✅ when NIP enabled | HMAC secret verifying inbound NIP (NIBSS Instant Payments) webhooks | Webhook rejected / endpoint errors — never credits unverified transfers |
+| `TERMINAL_DEVICE_SECRET` | ✅ when POS terminals enabled | Secret authenticating POS terminal device calls | Terminal requests rejected when unset |
+| `USSD_SESSION_SECRET` | ✅ when USSD enabled | Secret signing/encrypting USSD session state | USSD session handling fails closed when unset |
+| `SYNC_RELAY_KEY` | ⚠️ Optional | Auth key for the offline-POS sync relay (relay itself is PLANNED — not built by this repo) | Sync endpoints fail closed when unset |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | ✅ | Object-store (S3-compatible) admin credentials; also injected as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for lakehouse/MLflow services | Compose refuses to start (`:?`) — no `minioadmin` defaults remain |
+| `PAYGATE_SIMULATION_MODE` | ⚠️ Optional — **DANGER** | Set to `true` ONLY in demo/dev: allows `demoOrFail(...)` paths to return simulated data. Any value other than `true` (including unset) means simulation calls throw | Production must leave unset; simulated money paths throw `PRECONDITION_FAILED`/`SERVICE_UNAVAILABLE` when not exactly `true` |
+| `MPESA_ENV` | ⚠️ Optional | M-Pesa environment selector (`sandbox` / `production`) | Defaults to sandbox behavior; live disbursement requires explicit `production` plus valid credentials |
+
+Related keys already documented below: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`NIBSS_SECRET_KEY`, `KEYCLOAK_CLIENT_SECRET`, `VAPID_PRIVATE_KEY` — all are
+`${VAR:?must be set}` in the production compose file.
+
+---
+
 ## Security Notes
 
 1. **JWT_SECRET** must be at least 32 characters of random entropy. Generate with: `openssl rand -base64 48`

@@ -39,11 +39,12 @@ export default function SecurityDashboard() {
 
   const { data: stats, refetch: refetchStats } = trpc.nexthubSecurity.getDashboardStats.useQuery();
   const { data: expiring } = trpc.nexthubSecurity.getExpiringCertificates.useQuery({ withinDays: 30 });
-  const { data: amlRules, refetch: refetchAml } = trpc.nexthubSecurity.listAmlRules.useQuery();
+  const { data: amlRulesData, refetch: refetchAml } = trpc.nexthubSecurity.listAmlRules.useQuery();
+  const amlRules = Array.isArray(amlRulesData) ? amlRulesData : amlRulesData?.rules ?? [];
 
   const { data, isLoading, refetch } = trpc.nexthubSecurity.listEvents.useQuery({
-    page,
-    pageSize: 20,
+    limit: 20,
+    offset: (page - 1) * 20,
     severity: severityFilter as any,
     acknowledged: acknowledgedFilter === "unack" ? false : acknowledgedFilter === "ack" ? true : undefined,
   });

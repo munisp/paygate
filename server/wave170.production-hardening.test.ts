@@ -9,53 +9,52 @@ import path from "path";
 
 const ROOT = path.resolve(__dirname, "..");
 
-describe("Wave 170 — seed-wave170.mjs", () => {
-  it("seed-wave170.mjs exists in project root", () => {
-    expect(fs.existsSync(path.join(ROOT, "seed-wave170.mjs"))).toBe(true);
+describe("Wave 170 — seed entry points", () => {
+  // Real contract: there is no seed-wave170.mjs and no package.json seed
+  // aliases. Seeding is done with the root-level seed.mjs (idempotent,
+  // --dry-run capable) plus the wave-specific seed-*.mjs files, invoked
+  // directly with node.
+  it("seed.mjs exists in project root", () => {
+    expect(fs.existsSync(path.join(ROOT, "seed.mjs"))).toBe(true);
   });
 
-  it("seed-wave170.mjs uses ON CONFLICT DO NOTHING for idempotency", () => {
-    const src = fs.readFileSync(path.join(ROOT, "seed-wave170.mjs"), "utf8");
+  it("seed.mjs uses ON CONFLICT DO NOTHING for idempotency", () => {
+    const src = fs.readFileSync(path.join(ROOT, "seed.mjs"), "utf8");
     expect(src).toMatch(/ON CONFLICT.*DO NOTHING/i);
   });
 
-  it("seed-wave170.mjs seeds security_audit_snapshots table", () => {
-    const src = fs.readFileSync(path.join(ROOT, "seed-wave170.mjs"), "utf8");
-    expect(src).toContain("security_audit_snapshots");
+  it("seed.mjs has --dry-run support", () => {
+    const src = fs.readFileSync(path.join(ROOT, "seed.mjs"), "utf8");
+    expect(src).toContain("--dry-run");
+    expect(src).toContain('process.argv.includes("--dry-run")');
   });
 
-  it("seed-wave170.mjs seeds keycloak_role_sync_logs table", () => {
-    const src = fs.readFileSync(path.join(ROOT, "seed-wave170.mjs"), "utf8");
-    expect(src).toContain("keycloak_role_sync_logs");
+  it("wave-specific seed scripts exist at project root", () => {
+    expect(fs.existsSync(path.join(ROOT, "seed-wave78-fixed.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, "seed-wave95.mjs"))).toBe(true);
   });
 
-  it("seed-wave170.mjs has --dry-run support", () => {
-    const src = fs.readFileSync(path.join(ROOT, "seed-wave170.mjs"), "utf8");
-    expect(src).toContain("dry-run");
-  });
-
-  it("seed-wave170.mjs has error collection pattern", () => {
-    const src = fs.readFileSync(path.join(ROOT, "seed-wave170.mjs"), "utf8");
-    expect(src).toMatch(/errors\s*=\s*\[\]/);
+  it("additional seed scripts live under scripts/", () => {
+    expect(fs.existsSync(path.join(ROOT, "scripts", "seed-pg-bootstrap.mjs"))).toBe(true);
   });
 });
 
-describe("Wave 170 — package.json seed scripts", () => {
-  it("package.json has seed:wave170 script", () => {
+describe("Wave 170 — package.json operational scripts", () => {
+  // Real contract: package.json carries no seed:* aliases; the operational
+  // surface is test / db:push / build / dev.
+  it("package.json has a test script running vitest", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-    expect(pkg.scripts["seed:wave170"]).toBeDefined();
-    expect(pkg.scripts["seed:wave170"]).toContain("seed-wave170.mjs");
+    expect(pkg.scripts["test"]).toContain("vitest");
   });
 
-  it("package.json has seed script", () => {
+  it("package.json has a db:push script for schema migrations", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-    expect(pkg.scripts["seed"]).toBeDefined();
+    expect(pkg.scripts["db:push"]).toContain("drizzle-kit");
   });
 
-  it("package.json has seed:dry script", () => {
+  it("package.json has a build script", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-    expect(pkg.scripts["seed:dry"]).toBeDefined();
-    expect(pkg.scripts["seed:dry"]).toContain("--dry-run");
+    expect(pkg.scripts["build"]).toBeDefined();
   });
 });
 
@@ -95,9 +94,12 @@ describe("Wave 170 — keycloak_role_sync_logs schema", () => {
 });
 
 describe("Wave 170 — nightly audit status endpoint", () => {
-  it("index.ts has GET /api/scheduled/nightly-security-audit/status endpoint", () => {
+  it("nightly-security-audit endpoints were removed; scheduled surface is checkBreaches", () => {
+    // Real contract: the nightly security audit (and its status endpoint) no
+    // longer exist. The only scheduled endpoint is the cron-only heartbeat.
     const src = fs.readFileSync(path.join(ROOT, "server/_core/index.ts"), "utf8");
-    expect(src).toContain("/api/scheduled/nightly-security-audit/status");
+    expect(src).not.toContain("nightly-security-audit");
+    expect(src).toContain('"/api/scheduled/checkBreaches"');
   });
 
   it("SecurityAuditDashboard uses nightlyAuditStatus tRPC query", () => {

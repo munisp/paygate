@@ -46,6 +46,28 @@ import {
 import { nanoid } from "nanoid";
 import { logger } from "./logger";
 
+/**
+ * FAIL LOUD helper — when the middleware bridge is unavailable or returns no
+ * result, surface an explicit error to the caller instead of fabricating
+ * financial artifacts (trades, policies, cards, approvals).
+ */
+function bridgeUnavailable(feature: string): never {
+  logger.error(`[wave90] FAIL-LOUD: ${feature} unavailable — middleware bridge down or returned no result`);
+  throw new TRPCError({
+    code: "SERVICE_UNAVAILABLE",
+    message: `${feature} is temporarily unavailable. Please try again later.`,
+  });
+}
+
+/** Explicit not-implemented error for features with no real persistence path. */
+function notImplemented(feature: string): never {
+  logger.error(`[wave90] FAIL-LOUD: ${feature} has no real backend integration`);
+  throw new TRPCError({
+    code: "NOT_IMPLEMENTED",
+    message: `${feature} is not available yet.`,
+  });
+}
+
 // ─── Digital Gold (ViaMiddleware) ───────────────────────────────────────────
 
 export const goldMwRouter = router({
@@ -61,11 +83,8 @@ export const goldMwRouter = router({
         );
         if (result) return result;
       }
-      // Fallback: direct DB
-      const rate = 95000; // NGN per gram
-      const grams = amountNGN / rate;
-      const txId = nanoid();
-      return { grams, rate, txId };
+      // FAIL LOUD — never fabricate a gold trade at a hardcoded price.
+      bridgeUnavailable("Digital gold purchase");
     }),
 
   sell: protectedProcedure
@@ -79,8 +98,8 @@ export const goldMwRouter = router({
         );
         if (result) return result;
       }
-      const rate = 94500;
-      return { amountNGN: input.grams * rate, rate, txId: nanoid() };
+      // FAIL LOUD — never fabricate a gold sale at a hardcoded price.
+      bridgeUnavailable("Digital gold sale");
     }),
 
   holdings: protectedProcedure.query(async ({ ctx }) => {
@@ -88,7 +107,8 @@ export const goldMwRouter = router({
       const result = await getDigitalGoldHoldingsViaMiddleware(String(ctx.user.id));
       if (result) return result;
     }
-    return { grams: 0, valueNGN: 0, currentRate: 95000 };
+    // FAIL LOUD — a fabricated rate/zero holdings must not be shown as real.
+    bridgeUnavailable("Digital gold holdings");
   }),
 
   createSIP: protectedProcedure
@@ -105,7 +125,8 @@ export const goldMwRouter = router({
         );
         if (result) return result;
       }
-      return { sipId: nanoid(), status: "active" };
+      // FAIL LOUD — never report a SIP as active when none was created.
+      bridgeUnavailable("Gold SIP creation");
     }),
 });
 
@@ -117,12 +138,8 @@ export const remittanceMwRouter = router({
       const result = await getRemittanceCorridorsViaMiddleware();
       if (result) return result.corridors;
     }
-    return [
-      { id: "NGN-GBP", source: "NGN", dest: "GBP", rate: 0.00052, fee_pct: 1.5 },
-      { id: "NGN-USD", source: "NGN", dest: "USD", rate: 0.00065, fee_pct: 1.2 },
-      { id: "NGN-EUR", source: "NGN", dest: "EUR", rate: 0.00060, fee_pct: 1.3 },
-      { id: "NGN-GHS", source: "NGN", dest: "GHS", rate: 0.0095, fee_pct: 0.8 },
-    ];
+    // FAIL LOUD — never present hardcoded FX corridor rates as live quotes.
+    bridgeUnavailable("Remittance corridor quotes");
   }),
 
   create: protectedProcedure
@@ -144,11 +161,9 @@ export const remittanceMwRouter = router({
         );
         if (result) return result;
       }
-      return {
-        remittanceId: nanoid(),
-        status: "pending",
-        trackingCode: `TRK${Date.now()}`,
-      };
+      // FAIL LOUD — never fabricate a remittance ID / tracking code for a
+      // transfer that was never initiated on a real rail.
+      bridgeUnavailable("International remittance");
     }),
 
   history: protectedProcedure.query(async ({ ctx }) => {
@@ -168,12 +183,8 @@ export const insuranceMwRouter = router({
       const result = await getConsumerInsuranceProductsViaMiddleware();
       if (result) return result.products;
     }
-    return [
-      { id: "ins_life_term", name: "Term Life Insurance", category: "life", premiumKoboPerMonth: 150_000, coverageKobo: 10_000_000_000, provider: "AXA Mansard" },
-      { id: "ins_health_basic", name: "Basic Health Insurance", category: "health", premiumKoboPerMonth: 250_000, coverageKobo: 5_000_000_000, provider: "Hygeia HMO" },
-      { id: "ins_device", name: "Device Insurance", category: "device", premiumKoboPerMonth: 50_000, coverageKobo: 500_000_000, provider: "Leadway Assurance" },
-      { id: "ins_travel", name: "Travel Insurance", category: "travel", premiumKoboPerMonth: 30_000, coverageKobo: 200_000_000, provider: "AIICO Insurance" },
-    ];
+    // FAIL LOUD — never present hardcoded insurance products as purchasable.
+    bridgeUnavailable("Insurance product catalogue");
   }),
 
   purchase: protectedProcedure
@@ -190,10 +201,8 @@ export const insuranceMwRouter = router({
         );
         if (result) return result;
       }
-      const policyId = nanoid();
-      const startDate = new Date().toISOString();
-      const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-      return { policyId, premium: 150_000, startDate, endDate };
+      // FAIL LOUD — never fabricate a policy; no insurer call means no coverage.
+      bridgeUnavailable("Insurance purchase");
     }),
 
   fileClaim: protectedProcedure
@@ -215,11 +224,8 @@ export const insuranceMwRouter = router({
         );
         if (result) return result;
       }
-      return {
-        claimId: nanoid(),
-        status: "filed",
-        estimatedPayout: input.amountKobo * 0.8,
-      };
+      // FAIL LOUD — never fabricate a claim ID or estimated payout.
+      bridgeUnavailable("Insurance claim filing");
     }),
 
   // List user's active insurance policies
@@ -230,11 +236,8 @@ export const insuranceMwRouter = router({
         if (result?.policies) return result.policies;
       } catch { /* fallback */ }
     }
-    // Fallback: return seeded demo policies
-    return [
-      { id: "POL-001", productId: "ins_health_basic", name: "Basic Health Insurance", status: "active", provider: "Hygeia HMO", premiumKoboPerMonth: 250_000, coverageKobo: 5_000_000_000, startDate: "2026-01-01", endDate: "2026-12-31" },
-      { id: "POL-002", productId: "ins_device", name: "Device Insurance", status: "active", provider: "Leadway Assurance", premiumKoboPerMonth: 50_000, coverageKobo: 500_000_000, startDate: "2026-02-15", endDate: "2027-02-15" },
-    ];
+    // No fabricated demo rows — empty state when the insurer is unreachable.
+    return [];
   }),
 
   // List user's insurance claims
@@ -245,11 +248,8 @@ export const insuranceMwRouter = router({
         if (result?.claims) return result.claims;
       } catch { /* fallback */ }
     }
-    // Fallback: return seeded demo claims
-    return [
-      { id: "CLM-001", policyId: "POL-001", claimType: "medical", status: "approved", amountKobo: 150_000_000, description: "Outpatient consultation", filedAt: "2026-03-10", resolvedAt: "2026-03-15" },
-      { id: "CLM-002", policyId: "POL-002", claimType: "device_damage", status: "pending", amountKobo: 200_000_000, description: "Screen damage", filedAt: "2026-04-20", resolvedAt: null },
-    ];
+    // No fabricated demo rows — empty state when the insurer is unreachable.
+    return [];
   }),
 });
 
@@ -261,12 +261,8 @@ export const emiMwRouter = router({
       const result = await getEMIPlansViaMiddleware("default");
       if (result) return result.plans;
     }
-    return [
-      { id: "emi_3m", name: "3-Month Plan", months: 3, interestRatePct: 2.5, maxAmountNGN: 500_000 },
-      { id: "emi_6m", name: "6-Month Plan", months: 6, interestRatePct: 3.5, maxAmountNGN: 1_000_000 },
-      { id: "emi_12m", name: "12-Month Plan", months: 12, interestRatePct: 5.0, maxAmountNGN: 2_000_000 },
-      { id: "emi_24m", name: "24-Month Plan", months: 24, interestRatePct: 7.5, maxAmountNGN: 5_000_000 },
-    ];
+    // FAIL LOUD — never present hardcoded credit plans as live offers.
+    bridgeUnavailable("EMI plan catalogue");
   }),
 
   applyForEmi: protectedProcedure
@@ -285,28 +281,9 @@ export const emiMwRouter = router({
         );
         if (result) return result;
       }
-      // Amortisation calculation
-      const planMonths = { emi_3m: 3, emi_6m: 6, emi_12m: 12, emi_24m: 24 };
-      const rateMap = { emi_3m: 0.025, emi_6m: 0.035, emi_12m: 0.05, emi_24m: 0.075 };
-      const months = planMonths[input.planId as keyof typeof planMonths] ?? 12;
-      const annualRate = rateMap[input.planId as keyof typeof rateMap] ?? 0.05;
-      const monthlyRate = annualRate / 12;
-      const emiAmount = monthlyRate === 0
-        ? input.amountNGN / months
-        : (input.amountNGN * monthlyRate * Math.pow(1 + monthlyRate, months)) /
-          (Math.pow(1 + monthlyRate, months) - 1);
-      const schedule = Array.from({ length: months }, (_, i) => ({
-        instalment: i + 1,
-        dueDate: new Date(Date.now() + (i + 1) * 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        amountNGN: Math.round(emiAmount),
-        status: "pending",
-      }));
-      return {
-        applicationId: nanoid(),
-        status: "approved",
-        emiAmount: Math.round(emiAmount),
-        schedule,
-      };
+      // FAIL LOUD — never auto-approve a credit application offline. No lender,
+      // no credit check, no disbursement happened.
+      bridgeUnavailable("EMI credit application");
     }),
 
   schedule: protectedProcedure
@@ -342,7 +319,8 @@ export const loyaltyMwRouter = router({
         );
         if (result) return result;
       }
-      return { success: true, newBalance: 0, redemptionId: nanoid() };
+      // FAIL LOUD — never report a cashback redemption that never happened.
+      bridgeUnavailable("Cashback redemption");
     }),
 
   // Loyalty tier auto-promotion (called by cron)
@@ -394,12 +372,8 @@ export const virtualCardsMwRouter = router({
         });
         if (result) return result;
       }
-      return {
-        cardId: nanoid(),
-        maskedPan: `**** **** **** ${Math.floor(1000 + Math.random() * 9000)}`,
-        status: "active",
-        currency: input.currency,
-      };
+      // FAIL LOUD — never fabricate an "active" card with a random PAN.
+      bridgeUnavailable("Virtual card issuance");
     }),
 });
 
@@ -411,11 +385,8 @@ export const subscriptionsMwRouter = router({
       const result = await listSubscriptionPlansViaMiddleware("default");
       if (result) return result.plans;
     }
-    return [
-      { id: "plan_starter", name: "Starter", priceNGN: 5_000, features: ["100 transactions/month", "Basic analytics", "Email support"] },
-      { id: "plan_growth", name: "Growth", priceNGN: 25_000, features: ["5,000 transactions/month", "Advanced analytics", "Priority support", "API access"] },
-      { id: "plan_enterprise", name: "Enterprise", priceNGN: 100_000, features: ["Unlimited transactions", "Custom analytics", "Dedicated support", "White-label", "SLA guarantee"] },
-    ];
+    // FAIL LOUD — never present hardcoded subscription plans as purchasable.
+    bridgeUnavailable("Subscription plan catalogue");
   }),
 
   cancel: protectedProcedure
@@ -431,7 +402,8 @@ export const subscriptionsMwRouter = router({
         );
         if (result) return result;
       }
-      return { success: true, cancelledAt: new Date().toISOString() };
+      // FAIL LOUD — never report a cancellation that did not happen.
+      bridgeUnavailable("Subscription cancellation");
     }),
 });
 
@@ -519,14 +491,21 @@ export const tenantBrandingApiRouter = router({
       logger.info(`[tenantBranding] Upsert for slug=${input.slug} by user=${ctx.user.id}`);
       // Fetch tenant to get its ID
       const tenant = await getTenantBySlug(input.slug).catch(() => null);
-      if (tenant) {
+      if (!tenant) {
+        // Never report saved:true when nothing was persisted.
+        throw new TRPCError({ code: "NOT_FOUND", message: `Tenant '${input.slug}' not found — branding was NOT saved` });
+      }
+      try {
         await updateTenantBranding((tenant as any).id, {
           logoUrl: input.logoUrl ?? null,
           primaryColor: input.primaryColor ?? null,
           accentColor: input.secondaryColor ?? null,
           fontFamily: input.fontFamily ?? null,
           customDomain: input.customDomain ?? null,
-        }).catch((e: any) => logger.warn(`[tenantBranding] DB update failed: ${e.message}`));
+        });
+      } catch (e: any) {
+        logger.error(`[tenantBranding] DB update failed: ${e.message}`);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Branding could not be saved" });
       }
       return { slug: input.slug, saved: true, updatedAt: new Date() };
     }),
@@ -556,16 +535,19 @@ export const partnerOnboardingRouter = router({
       data: z.record(z.string(), z.string(), z.string(), z.unknown()),
     }))
     .mutation(async ({ ctx, input }) => {
-      logger.info(`[partner-onboard] Step ${input.step} saved for session ${input.sessionId}`);
-      return { sessionId: input.sessionId, step: input.step, nextStep: input.step + 1, saved: true };
+      // FAIL LOUD — there is no onboarding-session persistence; reporting
+      // saved:true while persisting nothing would lose partner data silently.
+      logger.error(`[partner-onboard] saveStep called for session ${input.sessionId} but no session store exists`);
+      notImplemented("Partner onboarding step persistence");
     }),
 
   complete: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const tenantId = nanoid();
-      logger.info(`[partner-onboard] Session ${input.sessionId} completed — tenant ${tenantId} created`);
-      return { tenantId, status: "active", dashboardUrl: `/admin/tenant/${tenantId}` };
+      // FAIL LOUD — never claim a tenant was created (with an ID, "active"
+      // status, and dashboard URL) when nothing was persisted.
+      logger.error(`[partner-onboard] complete called for session ${input.sessionId} but tenant provisioning is not implemented`);
+      notImplemented("Partner tenant provisioning");
     }),
   // List all partner tenants — used by PartnerAdminDashboard.tsx
   list: protectedProcedure
@@ -576,24 +558,35 @@ export const partnerOnboardingRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       logger.info(`[partner-onboard] List partners requested by user=${ctx.user.id}`);
-      // Return structured partner data; in production this would query the tenants table
-      const partners = [
-        { id: "PTR-001", name: "FinTech Solutions Ltd", slug: "fintech-solutions", status: "active", tier: "gold", revenueNGN: 1_250_000, merchantCount: 45, joinedAt: "2025-11-15", country: "NG", contactEmail: "ceo@fintechsolutions.ng" },
-        { id: "PTR-002", name: "PayEasy Africa", slug: "payeasy-africa", status: "active", tier: "silver", revenueNGN: 680_000, merchantCount: 22, joinedAt: "2025-12-01", country: "GH", contactEmail: "admin@payeasy.africa" },
-        { id: "PTR-003", name: "QuickPay Kenya", slug: "quickpay-kenya", status: "pending", tier: "bronze", revenueNGN: 0, merchantCount: 0, joinedAt: "2026-04-10", country: "KE", contactEmail: "info@quickpay.ke" },
-        { id: "PTR-004", name: "SecurePay SA", slug: "securepay-sa", status: "active", tier: "platinum", revenueNGN: 3_800_000, merchantCount: 120, joinedAt: "2025-09-01", country: "ZA", contactEmail: "partners@securepay.co.za" },
-        { id: "PTR-005", name: "MobileMoney Uganda", slug: "mobilemoney-ug", status: "suspended", tier: "bronze", revenueNGN: 45_000, merchantCount: 3, joinedAt: "2026-01-20", country: "UG", contactEmail: "ops@mobilemoney.ug" },
-      ];
-      let filtered = partners;
+      // Query the real tenants table — never return hardcoded partner rows.
+      const db = await getDb();
+      if (!db) bridgeUnavailable("Partner tenant listing");
+      const rows = await db!.execute(
+        sql`SELECT id, name, slug, status, plan, email, country, created_at FROM tenants ORDER BY created_at DESC LIMIT 200`
+      ).catch((err: any) => {
+        logger.error(`[partner-onboard] tenants query failed: ${err?.message}`);
+        bridgeUnavailable("Partner tenant listing");
+      });
+      let partners = ((rows as unknown as any[]) ?? []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        status: t.status,
+        tier: t.plan,
+        revenueNGN: 0,
+        merchantCount: 0,
+        joinedAt: t.created_at,
+        country: t.country,
+        contactEmail: t.email,
+      }));
       if (input.search) {
         const q = input.search.toLowerCase();
-        filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.contactEmail.includes(q));
+        partners = partners.filter((p: any) => p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.contactEmail.includes(q));
       }
-      if (input.status !== "all") filtered = filtered.filter(p => p.status === input.status);
-      if (input.tier !== "all") filtered = filtered.filter(p => p.tier === input.tier);
-      const totalRevenue = filtered.reduce((s, p) => s + p.revenueNGN, 0);
-      const totalMerchants = filtered.reduce((s, p) => s + p.merchantCount, 0);
-      return { partners: filtered, totalRevenue, totalMerchants, total: filtered.length };
+      if (input.status !== "all") partners = partners.filter((p: any) => p.status === input.status);
+      const totalRevenue = partners.reduce((s: number, p: any) => s + p.revenueNGN, 0);
+      const totalMerchants = partners.reduce((s: number, p: any) => s + p.merchantCount, 0);
+      return { partners, totalRevenue, totalMerchants, total: partners.length };
     }),
   // Update partner status — used by PartnerAdminDashboard.tsx suspend/activate buttons
   updateStatus: protectedProcedure
@@ -603,6 +596,19 @@ export const partnerOnboardingRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       logger.info(`[partner-onboard] Partner ${input.partnerId} status → ${input.status} by user=${ctx.user.id}`);
+      // Real DB update — never report success without persisting.
+      const db = await getDb();
+      if (!db) bridgeUnavailable("Partner status update");
+      const result = await db!.execute(
+        sql`UPDATE tenants SET status = ${input.status} WHERE id = ${input.partnerId}`
+      ).catch((err: any) => {
+        logger.error(`[partner-onboard] status update failed: ${err?.message}`);
+        bridgeUnavailable("Partner status update");
+      });
+      const affected = Number((result as any)?.affectedRows ?? (result as any)?.rowCount ?? 0);
+      if (affected === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Partner tenant ${input.partnerId} not found` });
+      }
       return { partnerId: input.partnerId, status: input.status, updatedAt: new Date() };
     }),
   revenueData: protectedProcedure
@@ -639,32 +645,58 @@ export const virtualCardsMwExtRouter = router({
   list: protectedProcedure
     .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
     .query(async ({ ctx, input }) => {
-      return {
-        cards: [
-          { cardId: "vc-001", maskedPan: "**** **** **** 4242", status: "active", currency: "NGN", spendLimit: 1_000_000, balance: 450_000, createdAt: "2026-03-01" },
-          { cardId: "vc-002", maskedPan: "**** **** **** 8888", status: "frozen", currency: "USD", spendLimit: 500, balance: 120, createdAt: "2026-04-01" },
-        ].slice(input.offset, input.offset + input.limit),
-        total: 2,
-      };
+      // Query the issuer via the bridge — never return hardcoded cards.
+      if (isBridgeAvailable()) {
+        try {
+          const resp = await fetch(
+            `${process.env.MIDDLEWARE_BRIDGE_URL}/v1/cards?merchantId=${encodeURIComponent(String(ctx.user.id))}&limit=${input.limit}&offset=${input.offset}`,
+            { headers: { "x-internal-key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "" }, signal: AbortSignal.timeout(10_000) }
+          );
+          if (resp.ok) return await resp.json();
+        } catch (err) {
+          logger.error(`[wave90] card list bridge error: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      bridgeUnavailable("Virtual card listing");
     }),
   freeze: protectedProcedure
     .input(z.object({ cardId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       if (isBridgeAvailable()) {
-        const result = await freezeVirtualCardViaMiddleware({ cardId: input.cardId, merchantId: String(ctx.user.id) } as any);
+        const result = await freezeVirtualCardViaMiddleware({ cardId: input.cardId, merchantId: String(ctx.user.id), freeze: true } as any);
         if (result) return result;
       }
-      return { success: true, cardId: input.cardId, status: "frozen" };
+      // FAIL LOUD — never report a freeze that the issuer never applied.
+      bridgeUnavailable("Virtual card freeze");
     }),
   unfreeze: protectedProcedure
     .input(z.object({ cardId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return { success: true, cardId: input.cardId, status: "active" };
+      if (isBridgeAvailable()) {
+        const result = await freezeVirtualCardViaMiddleware({ cardId: input.cardId, merchantId: String(ctx.user.id), freeze: false } as any);
+        if (result) return result;
+      }
+      // FAIL LOUD — never report an unfreeze that the issuer never applied.
+      bridgeUnavailable("Virtual card unfreeze");
     }),
   terminate: protectedProcedure
     .input(z.object({ cardId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return { success: true, cardId: input.cardId, status: "terminated" };
+      if (isBridgeAvailable()) {
+        try {
+          const resp = await fetch(`${process.env.MIDDLEWARE_BRIDGE_URL}/v1/cards/${encodeURIComponent(input.cardId)}/terminate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-internal-key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "" },
+            body: JSON.stringify({ merchantId: String(ctx.user.id) }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (resp.ok) return await resp.json();
+        } catch (err) {
+          logger.error(`[wave90] card terminate bridge error: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      // FAIL LOUD — never report a termination that the issuer never applied.
+      bridgeUnavailable("Virtual card termination");
     }),
 });
 
@@ -677,21 +709,16 @@ export const subscriptionsMwExtRouter = router({
       const result = await listSubscribersViaMiddleware(String(ctx.user.id));
       if (result) return result;
     }
-    return {
-      subscribers: [
-        { id: "SUB-001", name: "Adaeze Okonkwo", email: "adaeze@example.com", plan: "Growth", amount: 25_000, status: "active", startDate: "2026-01-15", nextBilling: "2026-05-15" },
-        { id: "SUB-002", name: "Emeka Nwosu", email: "emeka@example.com", plan: "Starter", amount: 5_000, status: "active", startDate: "2026-02-01", nextBilling: "2026-05-01" },
-        { id: "SUB-003", name: "Fatima Aliyu", email: "fatima@example.com", plan: "Enterprise", amount: 100_000, status: "active", startDate: "2026-03-10", nextBilling: "2026-05-10" },
-      ],
-      total: 3,
-    };
+    // FAIL LOUD — never present invented subscribers as real customers.
+    bridgeUnavailable("Subscriber listing");
   }),
   churnAnalytics: protectedProcedure.query(async ({ ctx }) => {
     if (isBridgeAvailable()) {
       const result = await getChurnAnalyticsViaMiddleware(String(ctx.user.id));
       if (result) return result;
     }
-    return { churnRate: 1.6, mrr: 335_000, arr: 4_020_000, atRiskCount: 3 };
+    // FAIL LOUD — never present hardcoded churn/MRR analytics as real.
+    bridgeUnavailable("Churn analytics");
   }),
   monthlyChurnData: protectedProcedure
     .input(z.object({ months: z.number().min(1).max(24).default(6) }))
@@ -703,20 +730,22 @@ export const subscriptionsMwExtRouter = router({
       const merchant = await requireMerchant(user.id);
       // Return last N months of churn/MRR data
       const rows = await db.execute(
-        sql`SELECT 
-          DATE_FORMAT(created_at, '%b') as month,
-          COUNT(*) as newSubs,
+        sql`SELECT
+          TO_CHAR(created_at, 'Mon') as month,
+          COUNT(*) as "newSubs",
           SUM(amount_ngn) as mrr
         FROM subscription_plans
         WHERE merchant_id = ${merchant.id}
-          AND created_at >= DATE_SUB(NOW(), INTERVAL ${input.months} MONTH)
-        GROUP BY DATE_FORMAT(created_at, '%Y-%m')
-        ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC`
+          AND created_at >= NOW() - make_interval(months => ${input.months})
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM'), TO_CHAR(created_at, 'Mon')
+        ORDER BY TO_CHAR(created_at, 'YYYY-MM') ASC`
       );
       return (rows as any[]).map(r => ({
         month: r.month,
         mrr: Number(r.mrr ?? 0),
-        churnRate: 1.5 + Math.random() * 1.5, // computed from cancellations
+        // Churn requires cancellation data we do not have here — report it as
+        // not computed rather than emitting a random number.
+        churnRate: null,
         newSubs: Number(r.newSubs ?? 0),
       }));
     }),
@@ -739,7 +768,8 @@ export const subscriptionsMwExtRouter = router({
         );
         if (result) return result;
       }
-      return { planId: nanoid(), status: "active", name: input.name };
+      // FAIL LOUD — never report a subscription plan as created when it was not.
+      bridgeUnavailable("Subscription plan creation");
     }),
 });
 
@@ -753,7 +783,25 @@ export const loyaltyMwExtRouter = router({
     .mutation(async ({ ctx, input }) => {
       const uid = input.userId ?? String(ctx.user.id);
       logger.info(`[loyalty] Evaluating tier for user ${uid}`);
-      return { userId: uid, newTier: "gold", previousTier: "silver", upgraded: true, evaluatedAt: new Date().toISOString() };
+      // Compute from real loyalty points — never return a hardcoded upgrade.
+      const TIERS = [
+        { name: "bronze", minPoints: 0 },
+        { name: "silver", minPoints: 5_000 },
+        { name: "gold", minPoints: 25_000 },
+        { name: "platinum", minPoints: 100_000 },
+      ];
+      let currentPoints = 0;
+      const db = await getDb();
+      if (!db) bridgeUnavailable("Loyalty tier evaluation");
+      try {
+        const rows = await db!.execute(sql`SELECT COALESCE(SUM(points_balance), 0) AS total_points FROM loyalty_accounts WHERE merchant_id = ${uid} LIMIT 1`);
+        currentPoints = Number((rows as any[])[0]?.total_points ?? 0);
+      } catch (err) {
+        logger.error(`[loyalty] points query failed: ${err instanceof Error ? err.message : err}`);
+        bridgeUnavailable("Loyalty tier evaluation");
+      }
+      const newTier = [...TIERS].reverse().find(t => currentPoints >= t.minPoints)?.name ?? "bronze";
+      return { userId: uid, newTier, previousTier: newTier, upgraded: false, currentPoints, evaluatedAt: new Date().toISOString() };
     }),
   merchantConfig: protectedProcedure
     .input(z.object({ cashbackRate: z.number().min(0).max(10), minTransactionAmountNGN: z.number().positive() }))
@@ -762,7 +810,8 @@ export const loyaltyMwExtRouter = router({
         const result = await updateCashbackMerchantConfigViaMiddleware(String(ctx.user.id), input.cashbackRate, input.minTransactionAmountNGN);
         if (result) return result;
       }
-      return { success: true };
+      // FAIL LOUD — never report a config update that was not applied.
+      bridgeUnavailable("Cashback merchant configuration");
     }),
   // Transaction history for loyalty points
   history: protectedProcedure.query(async ({ ctx }) => {
@@ -772,13 +821,8 @@ export const loyaltyMwExtRouter = router({
         if (result?.history) return result.history;
       } catch { /* fallback */ }
     }
-    // Fallback: return seeded demo history
-    return [
-      { id: "LH-001", type: "earned", points: 250, description: "Purchase at Shoprite", date: "2026-04-15", status: "credited" },
-      { id: "LH-002", type: "earned", points: 180, description: "Airtime recharge", date: "2026-04-20", status: "credited" },
-      { id: "LH-003", type: "redeemed", points: -500, description: "Cashback redemption", date: "2026-05-01", status: "redeemed" },
-      { id: "LH-004", type: "earned", points: 320, description: "Bill payment", date: "2026-05-10", status: "credited" },
-    ];
+    // No fabricated demo history — empty state when the bridge is unreachable.
+    return [];
   }),
 });
 
@@ -799,7 +843,8 @@ export const emiMwExtRouter = router({
         const result = await createEMIApplicationViaMiddleware(input.customerId, String(ctx.user.id), amountNGN, input.planId);
         if (result) return result;
       }
-      return { applicationId: nanoid(), status: "approved", emiAmount: Math.round(amountNGN / 12), schedule: [] };
+      // FAIL LOUD — never auto-approve a credit application offline.
+      bridgeUnavailable("EMI credit application");
     }),
   // List EMI applications for the current user/merchant
   listApplications: protectedProcedure.query(async ({ ctx }) => {
@@ -809,11 +854,8 @@ export const emiMwExtRouter = router({
         if (result?.applications) return result.applications;
       } catch { /* fallback */ }
     }
-    // Fallback: return seeded demo applications
-    return [
-      { id: "APP-001", planId: "emi_6m", planName: "6-Month Plan", amountNGN: 150_000, emiAmountNGN: 26_250, status: "approved", appliedAt: "2026-03-01", nextDueDate: "2026-05-01", remainingInstallments: 4 },
-      { id: "APP-002", planId: "emi_12m", planName: "12-Month Plan", amountNGN: 500_000, emiAmountNGN: 43_750, status: "active", appliedAt: "2026-01-15", nextDueDate: "2026-05-15", remainingInstallments: 8 },
-    ];
+    // No fabricated demo applications — empty state when the lender is unreachable.
+    return [];
   }),
 
   // Repayment schedule for a specific EMI application
@@ -828,25 +870,8 @@ export const emiMwExtRouter = router({
           if (resp.ok) return await resp.json();
         } catch { /* fallback */ }
       }
-      // Fallback: generate a synthetic schedule from the application data
-      const DEMO_APPS: Record<string, { amountNGN: number; emiAmountNGN: number; appliedAt: string; totalMonths: number }> = {
-        'APP-001': { amountNGN: 150_000, emiAmountNGN: 26_250, appliedAt: '2026-03-01', totalMonths: 6 },
-        'APP-002': { amountNGN: 500_000, emiAmountNGN: 43_750, appliedAt: '2026-01-15', totalMonths: 12 },
-      };
-      const app = DEMO_APPS[input.applicationId];
-      if (!app) return { instalments: [] };
-      const start = new Date(app.appliedAt);
-      let outstanding = app.amountNGN;
-      const instalments = Array.from({ length: app.totalMonths }, (_, i) => {
-        const dueDate = new Date(start.getFullYear(), start.getMonth() + i + 1, start.getDate());
-        const principal = Math.round(app.amountNGN / app.totalMonths);
-        const interest = app.emiAmountNGN - principal;
-        outstanding = Math.max(0, outstanding - principal);
-        const now = new Date();
-        const status = dueDate < now ? 'paid' : dueDate.getMonth() === now.getMonth() && dueDate.getFullYear() === now.getFullYear() ? 'due' : 'upcoming';
-        return { month: i + 1, dueDate: dueDate.toISOString().split('T')[0], instalment: app.emiAmountNGN, principal, interest, outstanding, status };
-      });
-      return { instalments };
+      // No synthetic schedules from demo data — empty when the lender is unreachable.
+      return { instalments: [] };
     }),
 });
 

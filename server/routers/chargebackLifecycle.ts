@@ -4,8 +4,15 @@
  * Full DB-backed chargeback lifecycle router.
  * Manages dispute evidence submission, timeline events, and escalations.
  */
-import { router, protectedProcedure } from '../_core/trpc';
+import { router, pbacProcedure } from '../_core/trpc';
+
+// PBAC: chargeback reads require chargeback:view; evidence/escalation writes
+// require chargeback:manage (admin + finance_manager per server/pbac.ts).
+const viewChargebacks = pbacProcedure('view_chargebacks');
+const manageChargebacks = pbacProcedure('manage_chargebacks');
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
+import { storagePut } from '../storage';
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from '../db';
 import * as schema from '../../drizzle/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
@@ -26,7 +33,7 @@ async function getDbInstance() {
 
 export const chargebackLifecycleRouter = router({
   /** List chargebacks with pagination */
-  list: protectedProcedure
+  list: viewChargebacks
     .input(z.object({
       page: z.number().min(1).default(1),
       pageSize: z.number().min(1).max(100).default(20),
@@ -50,7 +57,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Get a single chargeback with its evidence and timeline */
-  get: protectedProcedure
+  get: viewChargebacks
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const merchantId = await resolveMerchantId(ctx.user!.openId);
@@ -70,7 +77,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Submit evidence for a chargeback */
-  submitEvidence: protectedProcedure
+  submitEvidence: manageChargebacks
     .input(z.object({
       chargebackId: z.string(),
       evidenceType: z.string(),
@@ -117,8 +124,58 @@ export const chargebackLifecycleRouter = router({
       return evidence;
     }),
 
+  /** Upload an evidence file (base64) to storage and attach it to a chargeback */
+  uploadEvidence: manageChargebacks
+    .input(z.object({
+      chargebackId: z.string(),
+      evidenceType: z.string(),
+      fileName: z.string(),
+      mimeType: z.string(),
+      fileContentBase64: z.string().max(14_000_000, 'File must be under ~10MB'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user!.openId);
+      const [chargeback] = await (await getDbInstance()).select().from(schema.chargebacks)
+        .where(and(eq(schema.chargebacks.id, input.chargebackId), eq(schema.chargebacks.merchantId, merchantId)))
+        .limit(1);
+      if (!chargeback) throw new Error('Chargeback not found');
+      const buffer = Buffer.from(input.fileContentBase64, 'base64');
+      const suffix = randomUUID().slice(0, 8);
+      const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const fileKey = `chargeback-evidence/${merchantId}/${input.chargebackId}/${suffix}-${safeName}`;
+      const { url: fileUrl } = await storagePut(fileKey, buffer, input.mimeType);
+      const db = await getDbInstance();
+      const [[evidence]] = await Promise.all([
+        db.insert(schema.chargebackEvidencePackages).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          evidenceType: input.evidenceType,
+          fileName: input.fileName,
+          fileKey,
+          fileUrl,
+          mimeType: input.mimeType,
+          fileSizeBytes: buffer.length,
+          uploadedBy: ctx.user!.openId,
+        }).returning(),
+        db.update(schema.chargebacks)
+          .set({ evidenceSubmitted: true, updatedAt: new Date() })
+          .where(eq(schema.chargebacks.id, input.chargebackId)),
+        db.insert(schema.chargebackTimeline).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          event: 'evidence_submitted',
+          previousState: chargeback.status,
+          newState: chargeback.status,
+          actorId: ctx.user!.openId,
+          actorType: 'user',
+          notes: `Evidence submitted: ${input.evidenceType} (${input.fileName})`,
+        }),
+      ]);
+      return evidence;
+    }),
+
   /** Escalate a chargeback to a higher stage */
-  escalate: protectedProcedure
+  escalate: manageChargebacks
     .input(z.object({
       chargebackId: z.string(),
       reason: z.string().min(1),
@@ -151,7 +208,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Summary stats for the chargeback dashboard */
-  stats: protectedProcedure.query(async ({ ctx }) => {
+  stats: viewChargebacks.query(async ({ ctx }) => {
     const merchantId = await resolveMerchantId(ctx.user!.openId);
     const rows = await (await getDbInstance()).select({ status: schema.chargebacks.status, total: count() })
       .from(schema.chargebacks)

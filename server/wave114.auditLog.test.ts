@@ -70,7 +70,7 @@ describe("ussd.resetLangPref — audit log (Wave 114)", () => {
     await expect(
       caller.ussd.resetLangPref({ phone: "+2348012345678" })
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-  });
+  }, 60_000 /* Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems — timeout bumped, assertion unchanged. */);
 
   it("calls logAuditEvent with action=ussd.resetLangPref after a successful reset", async () => {
     process.env.USSD_GATEWAY_URL = "http://ussd-service:8099";

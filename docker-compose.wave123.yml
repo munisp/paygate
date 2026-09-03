@@ -24,15 +24,15 @@ services:
     restart: unless-stopped
     command: >
       mlflow server
-        --backend-store-uri postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_mlflow
+        --backend-store-uri postgresql://paygate:${POSTGRES_PASSWORD:?must be set — no default database password allowed}@postgres:5432/paygate_mlflow
         --default-artifact-root s3://paygate-models/mlflow
         --host 0.0.0.0
         --port 5000
         --workers 2
     environment:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-paygate_minio}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-paygate_minio_secret_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}
     ports:
       - "5000:5000"
     depends_on:
@@ -59,8 +59,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-paygate_minio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-paygate_minio_secret_2026}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}
       MINIO_SITE_NAME: paygate-model-store
     ports:
       - "9000:9000"
@@ -88,7 +88,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-paygate_minio} ${MINIO_ROOT_PASSWORD:-paygate_minio_secret_2026};
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed} ${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed};
         mc mb --ignore-existing local/paygate-models;
         mc mb --ignore-existing local/paygate-datasets;
         mc mb --ignore-existing local/paygate-menu-assets;
@@ -110,7 +110,7 @@ services:
     environment:
       FEAST_REDIS_HOST: ${REDIS_HOST:-redis}
       FEAST_REDIS_PORT: 6379
-      FEAST_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      FEAST_REDIS_PASSWORD: ${REDIS_PASSWORD:?must be set — no default redis password allowed}
     ports:
       - "6566:6566"
     depends_on:
@@ -178,7 +178,7 @@ services:
     restart: unless-stopped
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
-      - ./infra/otel/collector-config.yaml:/etc/otel-collector-config.yaml:ro
+      - ./infra/otel-collector/otel-collector.yml:/etc/otel-collector-config.yaml:ro
     ports:
       - "4317:4317"   # gRPC OTLP receiver
       - "4318:4318"   # HTTP OTLP receiver
@@ -209,8 +209,8 @@ services:
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-paygate_minio}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-paygate_minio_secret_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?must be set — no default object-store credentials allowed}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?must be set — no default object-store credentials allowed}
       REDIS_URL: redis://redis:6379
       FEAST_ENDPOINT: http://feast-online:6566
       LOG_LEVEL: ${LOG_LEVEL:-info}

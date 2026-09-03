@@ -9,15 +9,20 @@ name = "tigerbeetle-ledger"
 path = "src/main.rs"
 
 [dependencies]
+
+# OpenTelemetry (OTEL_IMPLEMENTATION_SPEC §5)
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.28"
 axum = { version = "0.7", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 [profile.release]
 opt-level = 3

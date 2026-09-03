@@ -137,12 +137,10 @@ export default function KYBDocumentUpload() {
       setUploadProgress(60);
       getUploadUrl.mutate({
         verificationId,
-        merchantId,
         documentType: docType as any,
         fileName: file.name,
         mimeType: file.type,
         fileSizeBytes: file.size,
-        uploadedBy: user?.openId ?? "unknown",
         fileContent: base64,
       }, {
         onSuccess: () => {

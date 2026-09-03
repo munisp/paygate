@@ -1,9 +1,14 @@
 /**
  * PayGate API Proxy Router
  *
- * All procedures proxy to the configured PAYGATE_API_URL backend.
- * When the backend is unreachable, they return rich mock data so the
- * dashboard stays useful in development / demo environments.
+ * Most procedures proxy to the configured PAYGATE_API_URL backend.
+ * The infra detail procedures (topicHistory, redisNodeHistory,
+ * consumerGroupDetail) query their REAL sources directly — the Kafka admin
+ * API (kafkajs) and the configured Redis instance (ioredis INFO/CONFIG) —
+ * via server/infraHistory.ts ring buffers of genuinely observed samples.
+ * When the backend is unreachable, handlers FAIL LOUD (SERVICE_UNAVAILABLE)
+ * unless PAYGATE_SIMULATION_MODE=true, in which case loudly labeled demo
+ * data ({ source: "simulation", simulation: true }) is returned.
  */
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
@@ -12,12 +17,13 @@ import { getDb } from "../db";
 import { alertThresholds, breachEvents, namedAlertRules } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { notifyOwner } from "../_core/notification";
-
-const sourceInput = z.object({ forceMock: z.boolean().optional() }).optional();
+import { demoOrFail, demoArrayOrFail, isSimulationMode } from "../_core/demoData";
+import { getLiveTopicHistory, getLiveRedisNodeHistory, getLiveConsumerGroupDetail } from "../infraHistory";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-async function fetchPaygate<T>(path: string, fallback: T): Promise<T> {
+/** Returns the live payload, or null when the backend is unreachable. Never fabricates. */
+async function fetchPaygate<T>(path: string): Promise<T | null> {
   try {
     const url = `${ENV.paygateApiUrl.replace(/\/$/, "")}${path}`;
     const res = await fetch(url, {
@@ -27,8 +33,7 @@ async function fetchPaygate<T>(path: string, fallback: T): Promise<T> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
   } catch {
-    // Backend unreachable — return mock data
-    return fallback;
+    return null;
   }
 }
 
@@ -252,55 +257,61 @@ function generatePspHistory(providerId: string, hours = 24) {
 
 export const proxyRouter = router({
   // Gateway
-  gatewayHealth: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_GATEWAY_HEALTH) :
-    fetchPaygate("/api/trpc/middlewareDashboard.apisix.health", MOCK_GATEWAY_HEALTH)
-  ),
-  gatewayRoutes: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_ROUTES) :
-    fetchPaygate("/api/trpc/middlewareDashboard.apisix.listRoutes", MOCK_ROUTES)
-  ),
-  gatewayConsumers: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_CONSUMERS) :
-    fetchPaygate("/api/trpc/middlewareDashboard.apisix.listConsumers", MOCK_CONSUMERS)
-  ),
-  gatewayMetrics: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_METRICS) :
-    fetchPaygate("/api/trpc/middlewareDashboard.apisix.metrics", MOCK_METRICS)
-  ),
+  gatewayHealth: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_GATEWAY_HEALTH>("/api/trpc/middlewareDashboard.apisix.health");
+    if (live) return live;
+    return demoOrFail(MOCK_GATEWAY_HEALTH, "proxy:gatewayHealth");
+  }),
+  gatewayRoutes: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_ROUTES>("/api/trpc/middlewareDashboard.apisix.listRoutes");
+    if (live) return live;
+    return demoArrayOrFail(MOCK_ROUTES, "proxy:gatewayRoutes");
+  }),
+  gatewayConsumers: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_CONSUMERS>("/api/trpc/middlewareDashboard.apisix.listConsumers");
+    if (live) return live;
+    return demoArrayOrFail(MOCK_CONSUMERS, "proxy:gatewayConsumers");
+  }),
+  gatewayMetrics: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_METRICS>("/api/trpc/middlewareDashboard.apisix.metrics");
+    if (live) return live;
+    return demoOrFail(MOCK_METRICS, "proxy:gatewayMetrics");
+  }),
 
   // Temporal workflows
   workflows: publicProcedure
-    .input(z.object({ status: z.string().optional(), forceMock: z.boolean().optional() }).optional())
-    .query(({ input }) =>
-      input?.forceMock ? Promise.resolve(MOCK_WORKFLOWS) :
-      fetchPaygate(
-        `/api/trpc/middlewareDashboard.temporal.listWorkflows${input?.status ? `?status=${input.status}` : ""}`,
-        MOCK_WORKFLOWS
-      )
-    ),
+    .input(z.object({ status: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const live = await fetchPaygate<typeof MOCK_WORKFLOWS>(
+        `/api/trpc/middlewareDashboard.temporal.listWorkflows${input?.status ? `?status=${input.status}` : ""}`
+      );
+      if (live) return live;
+      return demoArrayOrFail(MOCK_WORKFLOWS, "proxy:workflows");
+    }),
 
   // PgBouncer pool
-  pool: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_POOL) :
-    fetchPaygate("/api/trpc/middlewareDashboard.pgbouncer.stats", MOCK_POOL)
-  ),
+  pool: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_POOL>("/api/trpc/middlewareDashboard.pgbouncer.stats");
+    if (live) return live;
+    return demoOrFail(MOCK_POOL, "proxy:pool");
+  }),
 
   // Kafka
-  kafka: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_KAFKA) :
-    fetchPaygate("/api/trpc/middlewareDashboard.kafka.stats", MOCK_KAFKA)
-  ),
+  kafka: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_KAFKA>("/api/trpc/middlewareDashboard.kafka.stats");
+    if (live) return live;
+    return demoOrFail(MOCK_KAFKA, "proxy:kafka");
+  }),
 
   // Redis
-  redis: publicProcedure.input(sourceInput).query(({ input }) =>
-    input?.forceMock ? Promise.resolve(MOCK_REDIS) :
-    fetchPaygate("/api/trpc/middlewareDashboard.redis.stats", MOCK_REDIS)
-  ),
+  redis: publicProcedure.query(async () => {
+    const live = await fetchPaygate<typeof MOCK_REDIS>("/api/trpc/middlewareDashboard.redis.stats");
+    if (live) return live;
+    return demoOrFail(MOCK_REDIS, "proxy:redis");
+  }),
 
   // Backend connectivity check
-  ping: publicProcedure.input(sourceInput).query(async ({ input }) => {
-    if (input?.forceMock) return { connected: false, url: null };
+  ping: publicProcedure.query(async () => {
     try {
       const url = `${ENV.paygateApiUrl.replace(/\/$/, "")}/api/trpc/system.ping`;
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
@@ -314,11 +325,12 @@ export const proxyRouter = router({
   topicHistory: publicProcedure
     .input(z.object({
       topicName: z.string(),
-      forceMock: z.boolean().optional(),
       from: z.string().optional(),
       to: z.string().optional(),
     }))
     .query(({ input }) => {
+      // NOTE: no live backend exists for per-topic history — the synthetic
+      // series below is served ONLY under PAYGATE_SIMULATION_MODE.
       const seed = input.topicName.length;
       const fromMs = input.from ? new Date(input.from).getTime() : Date.now() - 24 * 3600 * 1000;
       const toMs   = input.to   ? new Date(input.to).getTime()   : Date.now();
@@ -352,18 +364,23 @@ export const proxyRouter = router({
         partitions: 6, replication: 2, retentionHours: 72,
         compressionType: "none", cleanupPolicy: "delete", minInsyncReplicas: 1,
       };
-      return { topicName: input.topicName, history, config };
+      return demoOrFail({ topicName: input.topicName, history, config }, "proxy:topicHistory");
     }),
 
   // Redis node detail: 24h memory utilization + hit/miss history + config
   redisNodeHistory: publicProcedure
     .input(z.object({
       nodeId: z.string(),
-      forceMock: z.boolean().optional(),
       from: z.string().optional(),
       to: z.string().optional(),
     }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
+      // LIVE FIRST: real Redis INFO / CONFIG observation of the configured
+      // instance with a ring buffer of genuinely observed memory + hit/miss
+      // samples (deltas between consecutive polls).
+      const live = await getLiveRedisNodeHistory(input.nodeId, input.from, input.to);
+      if (live) return live;
+      // Synthetic series below is served ONLY under PAYGATE_SIMULATION_MODE.
       const isPrimary = input.nodeId === "redis-primary";
       const baseUsedMb = isPrimary ? 842 : 840;
       const maxMb = 4096;
@@ -413,13 +430,19 @@ export const proxyRouter = router({
         maxMemoryPolicy: "noeviction", maxMemory: "4096 MB", persistenceMode: "none", replicationLag: "unknown",
       };
 
-      return { nodeId: input.nodeId, memHistory, hitMissHistory, config };
+      return demoOrFail({ nodeId: input.nodeId, memHistory, hitMissHistory, config }, "proxy:redisNodeHistory");
     }),
 
   // Consumer group detail: per-partition lag + member assignments
   consumerGroupDetail: publicProcedure
-    .input(z.object({ groupName: z.string(), forceMock: z.boolean().optional() }))
-    .query(({ input }) => {
+    .input(z.object({ groupName: z.string() }))
+    .query(async ({ input }) => {
+      // LIVE FIRST: real Kafka admin observation (describeGroups, decoded
+      // member assignments, committed offsets vs log-end offsets) plus a ring
+      // buffer of genuinely observed total-lag samples.
+      const live = await getLiveConsumerGroupDetail(input.groupName);
+      if (live) return live;
+      // Synthetic data below is served ONLY under PAYGATE_SIMULATION_MODE.
       const groupConfigs: Record<string, {
         topic: string;
         partitionCount: number;
@@ -480,7 +503,7 @@ export const proxyRouter = router({
         };
       });
 
-      return {
+      return demoOrFail({
         groupName: input.groupName,
         topic: cfg.topic,
         state: cfg.state,
@@ -488,7 +511,7 @@ export const proxyRouter = router({
         partitions,
         members,
         lagHistory,
-      };
+      }, "proxy:consumerGroupDetail");
     }),
 
   // Alert threshold settings — read
@@ -528,8 +551,7 @@ export const proxyRouter = router({
   // Check current Kafka lag + Redis memory against saved thresholds and fire
   // owner notifications for any critical breach. Also persists breach events to DB.
   checkBreaches: publicProcedure
-    .input(z.object({ forceMock: z.boolean().optional() }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx }) => {
       const defaults = { lagWarn: 5, lagCritical: 20, memWarnPct: 70, memCriticalPct: 85 };
       let thresholds = defaults;
       let db: Awaited<ReturnType<typeof getDb>> | null = null;
@@ -545,13 +567,15 @@ export const proxyRouter = router({
         }
       } catch { /* use defaults */ }
 
-      // Fetch current Kafka and Redis data
-      const kafka = await fetchPaygate<typeof MOCK_KAFKA>(
-        "/api/trpc/middlewareDashboard.kafka.stats", MOCK_KAFKA
+      // Fetch current Kafka and Redis data — never alert on silently fabricated data
+      const kafkaLive = await fetchPaygate<typeof MOCK_KAFKA>(
+        "/api/trpc/middlewareDashboard.kafka.stats"
       );
-      const redis = await fetchPaygate<typeof MOCK_REDIS>(
-        "/api/trpc/middlewareDashboard.redis.stats", MOCK_REDIS
+      const redisLive = await fetchPaygate<typeof MOCK_REDIS>(
+        "/api/trpc/middlewareDashboard.redis.stats"
       );
+      const kafka = kafkaLive ?? demoOrFail(MOCK_KAFKA, "proxy:checkBreaches.kafka");
+      const redis = redisLive ?? demoOrFail(MOCK_REDIS, "proxy:checkBreaches.redis");
 
       type BreachItem = { metric: string; severity: "warn" | "critical"; message: string; value: number; threshold: number };
       const breachItems: BreachItem[] = [];
@@ -656,7 +680,8 @@ export const proxyRouter = router({
       }
 
       // ── PSP success rate breach check ────────────────────────────────────
-      const psp = MOCK_PSP; // always use mock for now; swap for live fetch when available
+      const pspLive = await fetchPaygate<typeof MOCK_PSP>("/psp/stats");
+      const psp = pspLive ?? demoOrFail(MOCK_PSP, "proxy:checkBreaches.psp");
       const PSP_WARN_SUCCESS_RATE = 96;
       const PSP_CRITICAL_SUCCESS_RATE = 94;
       for (const provider of (psp.providers ?? [])) {
@@ -703,7 +728,7 @@ export const proxyRouter = router({
           "",
           ...criticalItems.map(b => `🚨 ${b.message}`),
           "",
-          `Mode: ${input.forceMock ? "MOCK" : "LIVE"}`,
+          `Mode: ${isSimulationMode() ? "SIMULATION" : "LIVE"}`,
         ].join("\n");
         notified = await notifyOwner({ title, content });
       }
@@ -949,31 +974,25 @@ export const proxyRouter = router({
     }),
   // ── PSP Health ──────────────────────────────────────────────────────────
   pspStats: publicProcedure
-    .input(sourceInput)
-    .query(async ({ input }) => {
-      const forceMock = input?.forceMock ?? true;
-      if (!forceMock) {
-        const live = await fetchPaygate<typeof MOCK_PSP | null>("/psp/stats", null);
-        if (live) return live;
-      }
-      return MOCK_PSP;
+    .query(async () => {
+      const live = await fetchPaygate<typeof MOCK_PSP>("/psp/stats");
+      if (live) return live;
+      return demoOrFail(MOCK_PSP, "proxy:pspStats");
     }),
 
   pspHistory: publicProcedure
     .input(z.object({
       providerId: z.string(),
       hours: z.number().min(1).max(720).optional(),
-      forceMock: z.boolean().optional(),
     }))
     .query(async ({ input }) => {
-      const forceMock = input.forceMock ?? true;
-      if (!forceMock) {
-        const live = await fetchPaygate<Array<{ time: string; label: string; successRate: number; latencyMs: number; retryQueue: number }> | null>(
-          `/psp/${input.providerId}/history?hours=${input.hours ?? 24}`,
-          null,
-        );
-        if (live) return { history: live };
-      }
-      return { history: generatePspHistory(input.providerId, input.hours ?? 24) };
+      const live = await fetchPaygate<Array<{ time: string; label: string; successRate: number; latencyMs: number; retryQueue: number }>>(
+        `/psp/${input.providerId}/history?hours=${input.hours ?? 24}`,
+      );
+      if (live) return { history: live };
+      return demoOrFail(
+        { history: generatePspHistory(input.providerId, input.hours ?? 24) },
+        "proxy:pspHistory",
+      );
     }),
 });

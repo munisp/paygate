@@ -42,9 +42,9 @@ export default function BillPayments() {
     onError: (e) => toast.error(e.message),
   });
 
+  // userId/walletId are no longer accepted by the server — both are resolved
+  // server-side from the session (wave124 billPayments.create).
   const [form, setForm] = useState({
-    userId: 1,
-    walletId: "",
     category: "electricity",
     billerCode: "",
     billerName: "",
@@ -95,13 +95,8 @@ export default function BillPayments() {
               <div><Label>Customer Reference</Label>
                 <Input value={form.customerReference} onChange={e => setForm(f => ({ ...f, customerReference: e.target.value }))} placeholder="Meter/Account number" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Amount (Kobo)</Label>
-                  <Input type="number" value={form.amountKobo} onChange={e => setForm(f => ({ ...f, amountKobo: Number(e.target.value) }))} />
-                </div>
-                <div><Label>Wallet ID</Label>
-                  <Input value={form.walletId} onChange={e => setForm(f => ({ ...f, walletId: e.target.value }))} placeholder="wallet_..." />
-                </div>
+              <div><Label>Amount (Kobo)</Label>
+                <Input type="number" value={form.amountKobo} onChange={e => setForm(f => ({ ...f, amountKobo: Number(e.target.value) }))} />
               </div>
               <Button className="w-full" onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending}>
                 {createMutation.isPending ? "Creating..." : "Create Bill Payment"}

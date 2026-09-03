@@ -20,6 +20,7 @@ import { Zap, Wifi, Phone, Tv, Droplets, CheckCircle, Loader2, ArrowLeft, Clock 
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 const ICON_MAP: Record<string, React.ElementType> = {
   electricity: Zap, internet: Wifi, airtime: Phone, cable: Tv, water: Droplets, data: Wifi,
@@ -113,14 +114,16 @@ export default function BillPay() {
     onError: (e: any) => toast.error("Verification failed: " + e.message),
   });
 
+  const payKey = useIdempotencyKey();
   const payBill = trpc.consumerBills.pay.useMutation({
     onSuccess: (data: any) => {
+      payKey.reset();
       setTxRef(data.reference);
       setStep("success");
       utils.consumerWallet.getBalance.invalidate();
       utils.consumerWallet.history.invalidate();
     },
-    onError: (e: { message: string }) => toast.error(e.message),
+    onError: (e: { message: string }) => { payKey.reset(); toast.error(e.message); },
   });
 
   const handleVerify = () => {
@@ -134,6 +137,7 @@ export default function BillPay() {
       billerCode: selectedBillerCode,
       customerReference,
       amountKobo: Math.round(parseFloat(amount) * 100),
+      idempotencyKey: payKey.getKey(),
     });
   };
 

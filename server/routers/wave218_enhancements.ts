@@ -27,6 +27,8 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 
 // ─── 1. Domain Health Heartbeat ─────────────────────────────────────────────
 const domainHealthRouter = router({
@@ -312,7 +314,12 @@ const domainRetryRouter = router({
 // ─── 9. Cross-Domain Reconciliation Report ───────────────────────────────────
 const crossDomainReconRouter = router({
   generateReport: protectedProcedure
-    .input(z.object({ startDate: z.string(), endDate: z.string() }))
+    .input(z.object({
+      // Strict ISO date/datetime only — these values are bound as parameters below,
+      // and the regex guarantees no SQL metacharacters can ever reach the query.
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?)?)?$/, "startDate must be an ISO date or datetime"),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?)?)?$/, "endDate must be an ISO date or datetime"),
+    }))
     .query(async ({ input }) => {
       const domains = [
         { id: "remittance", table: "remittance_transfers", amountCol: "amount" },
@@ -325,25 +332,38 @@ const crossDomainReconRouter = router({
       ];
       const rows = await Promise.all(domains.map(async (d) => {
         try {
-          const r = await db.execute(sql.raw(`
+          // Table/column identifiers come from the hardcoded whitelist above
+          // (safe for sql.raw); the date range is passed as BOUND parameters.
+          const r = await db.execute(sql`
             SELECT
               COUNT(*) as total_count,
-              SUM(${d.amountCol}) as total_volume,
+              SUM(${sql.raw(d.amountCol)}) as total_volume,
               SUM(CASE WHEN status IN ('COMPLETED','APPROVED','PAID','ACTIVE','SETTLED','DISBURSED') THEN 1 ELSE 0 END) as success_count,
               SUM(CASE WHEN status IN ('FAILED','REJECTED') THEN 1 ELSE 0 END) as failed_count
-            FROM ${d.table}
-            WHERE created_at BETWEEN '${input.startDate}' AND '${input.endDate}'
-          `));
+            FROM ${sql.raw(d.table)}
+            WHERE created_at BETWEEN ${input.startDate} AND ${input.endDate}
+          `);
           const row = r.rows[0] as any;
           return {
             domain: d.id,
+            dataAvailable: true as const,
             totalCount: Number(row?.total_count ?? 0),
             totalVolume: Number(row?.total_volume ?? 0),
             successCount: Number(row?.success_count ?? 0),
             failedCount: Number(row?.failed_count ?? 0),
             successRate: row?.total_count > 0 ? ((row.success_count / row.total_count) * 100).toFixed(2) : "0.00",
           };
-        } catch { return { domain: d.id, totalCount: 0, totalVolume: 0, successCount: 0, failedCount: 0, successRate: "0.00" }; }
+        } catch (err) {
+          // HONEST UNAVAILABILITY — never fabricate zeroed stats for a domain whose
+          // query failed; the UI must render this domain as "unavailable", not as
+          // "0 transactions".
+          console.error(`[crossDomainRecon] query failed for domain ${d.id}:`, err);
+          return {
+            domain: d.id,
+            dataAvailable: false as const,
+            totalCount: null, totalVolume: null, successCount: null, failedCount: null, successRate: null,
+          };
+        }
       }));
       return { report: rows, generatedAt: new Date().toISOString(), startDate: input.startDate, endDate: input.endDate };
     }),
@@ -418,7 +438,7 @@ const bulkStatusUpdateRouter = router({
     .input(z.object({
       domain: z.enum(["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"]),
       ids: z.array(z.string().uuid()).min(1).max(100),
-      newStatus: z.string(),
+      newStatus: z.enum(["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"]),
       reason: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -431,11 +451,15 @@ const bulkStatusUpdateRouter = router({
       const table = tableMap[input.domain];
       if (!table) throw new Error("Unknown domain");
       try {
-        const idList = input.ids.map(id => `'${id}'`).join(",");
-        await db.execute(sql.raw(`UPDATE ${table} SET status = '${input.newStatus}', updated_at = NOW() WHERE id IN (${idList})`));
+        // `table` is whitelisted via tableMap above (safe identifier); status
+        // and ids are bound parameters — no string interpolation of input.
+        await db.execute(sql`UPDATE ${sql.raw(table)} SET status = ${input.newStatus}, updated_at = NOW() WHERE id = ANY(${input.ids})`);
         // Audit log
-        await db.execute(sql`INSERT INTO domain_audit_log (id, domain, action, actor_id, payload, created_at) VALUES (gen_random_uuid(), ${input.domain}, 'BULK_STATUS_UPDATE', ${ctx.user.id}, ${JSON.stringify({ ids: input.ids, newStatus: input.newStatus, reason: input.reason })}, NOW())`).catch(() => {});
-      } catch { /* ok */ }
+        await db.execute(sql`INSERT INTO domain_audit_log (id, domain, action, actor_id, payload, created_at) VALUES (gen_random_uuid(), ${input.domain}, 'BULK_STATUS_UPDATE', ${ctx.user.id}, ${JSON.stringify({ ids: input.ids, newStatus: input.newStatus, reason: input.reason })}, NOW())`).catch((e) => logger.error("[wave218] domain_audit_log insert failed — bulk status update NOT audited", { domain: input.domain, error: e instanceof Error ? e.message : String(e) }));
+      } catch (e) {
+        logger.error("[wave218] bulk status update failed", { domain: input.domain, error: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Bulk status update failed" });
+      }
       return { updated: input.ids.length, domain: input.domain, newStatus: input.newStatus };
     }),
 });

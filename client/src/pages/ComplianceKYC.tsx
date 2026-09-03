@@ -37,7 +37,7 @@ export default function ComplianceKYC() {
   });
   const [exporting, setExporting] = useState(false);
   const exportCsvMutation = trpc.complianceKyc.exportCSV.useMutation();
-  const { data: kycListData, isLoading: kycLoading, refetch } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: kycListData, isLoading: kycLoading, error: kycError, refetch } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: kycStats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
 
   const handleExportCSV = async () => {
@@ -61,20 +61,28 @@ export default function ComplianceKYC() {
     }
   };
 
-  const FALLBACK_DOCS = [
-    { id: 1, name: "Certificate of Incorporation", type: "business_reg", status: "verified", uploadedAt: "2024-01-15", expiresAt: null },
-    { id: 2, name: "Director ID (Passport)", type: "director_id", status: "verified", uploadedAt: "2024-01-15", expiresAt: "2029-06-30" },
-    { id: 3, name: "Proof of Address", type: "address_proof", status: "pending", uploadedAt: "2024-03-01", expiresAt: null },
-    { id: 4, name: "Bank Statement (3 months)", type: "bank_statement", status: "pending", uploadedAt: "2024-03-01", expiresAt: null },
-    { id: 5, name: "Tax Identification Number", type: "tax_id", status: "not_submitted", uploadedAt: null, expiresAt: null },
-    { id: 6, name: "AML Policy Document", type: "aml_policy", status: "not_submitted", uploadedAt: null, expiresAt: null },
-  ];
-  const documents = (kycListData as any)?.rows?.length > 0 ? (kycListData as any).rows : FALLBACK_DOCS;
+  // Real query data only — no fabricated documents.
+  const docStatusMap: Record<string, string> = {
+    approved: "verified",
+    pending: "pending",
+    under_review: "pending",
+    rejected: "rejected",
+    not_submitted: "not_submitted",
+  };
+  const documents: any[] = ((kycListData as any)?.rows ?? []).map((row: any) => ({
+    id: row.id,
+    name: row.name ?? (row.docType ? String(row.docType).replace(/_/g, " ") : "KYC Document"),
+    type: row.docType ?? "other",
+    status: docStatusMap[row.status] ?? "pending",
+    uploadedAt: row.uploadedAt ?? (row.createdAt ? new Date(row.createdAt).toLocaleDateString() : null),
+    expiresAt: row.expiresAt ?? null,
+    documentUrl: row.documentUrl,
+  }));
 
-  const totalKyc = (kycStats as any)?.total ?? 0;
+  const totalKyc = (kycStats as any)?.total ?? null;
   const approvedKyc = (kycStats as any)?.approved ?? 0;
   const pendingKyc = (kycStats as any)?.pending ?? 0;
-  const kycScore = totalKyc > 0 ? Math.round((approvedKyc / totalKyc) * 100) : 68;
+  const kycScore = totalKyc !== null && totalKyc > 0 ? Math.round((approvedKyc / totalKyc) * 100) : null;
   const pciTier = "SAQ-A";
   const amlStatus = "clear";
   const liveStatus = kycLoading ? "loading" : pendingKyc > 0 ? "pending_review" : "clear";
@@ -169,9 +177,9 @@ export default function ComplianceKYC() {
               <p className="text-zinc-400 text-sm">KYC Completion Score</p>
               <Shield className="w-5 h-5 text-amber-400" />
             </div>
-            <p className="text-3xl font-bold text-white font-mono">{kycScore}%</p>
-            <Progress value={kycScore} className="mt-3 h-2 bg-zinc-800" />
-            <p className="text-xs text-zinc-500 mt-2">Complete all documents to reach 100%</p>
+            <p className="text-3xl font-bold text-white font-mono">{kycScore !== null ? `${kycScore}%` : "—"}</p>
+            <Progress value={kycScore ?? 0} className="mt-3 h-2 bg-zinc-800" />
+            <p className="text-xs text-zinc-500 mt-2">{kycScore !== null ? "Complete all documents to reach 100%" : "Score unavailable — no KYC submissions yet"}</p>
           </CardContent>
         </Card>
 
@@ -275,7 +283,25 @@ export default function ComplianceKYC() {
                     </tr>
                   </thead>
                   <tbody>
-                    {documents.map((doc: any) => (
+                    {kycLoading ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
+                          <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" /> Loading documents…
+                        </td>
+                      </tr>
+                    ) : kycError ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-red-400">
+                          Failed to load KYC documents: {kycError.message}
+                        </td>
+                      </tr>
+                    ) : documents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
+                          No KYC documents on file yet.
+                        </td>
+                      </tr>
+                    ) : documents.map((doc: any) => (
                       <tr key={doc.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">

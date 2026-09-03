@@ -7,8 +7,45 @@
  */
 import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
 import { ENV } from "../_core/env";
 import { logger } from "../logger";
+import { demoOrFail } from "../_core/demoData";
+import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
+
+// ─── AuthZ helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the merchant that owns the authenticated user. Client-supplied
+ * merchant IDs are never trusted for money movement or merchant-scoped data.
+ */
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account for this user" });
+  return merchant.id;
+}
+
+/**
+ * Platform-ops guard — admin role re-checked from the DB on every call
+ * (same pattern as server/adminRouter.ts). Used for platform-level middleware
+ * operations: ledger writes, workflow control, cross-tenant search.
+ */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { users } = await import("../../drizzle/schema");
+  const [user] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (!user || user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  }
+  return next({ ctx });
+});
 
 // ─── Bridge Fetch Helper ──────────────────────────────────────────────────────
 
@@ -202,7 +239,8 @@ function generateDemoRedisStats() {
 
 export const middlewareDashboardRouter = router({
   // ── Health ──────────────────────────────────────────────────────────────────
-  health: protectedProcedure.query(async () => {
+  // Platform-wide infra health — admin only.
+  health: adminProcedure.query(async () => {
     const live = await getAllMiddlewareHealth();
     const allOk = Object.values(live).every(s => s.status === "ok" || s.status === "unknown");
     return {
@@ -214,11 +252,12 @@ export const middlewareDashboardRouter = router({
 
   // ── Kafka ────────────────────────────────────────────────────────────────────
   kafka: router({
-    topics: protectedProcedure.query(async () => {
+    // Kafka topic/event data is platform-wide message-bus data — admin only.
+    topics: adminProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/kafka/topics");
-      return live ?? { topics: generateDemoKafkaTopics(), source: "demo" };
+      return live ?? demoOrFail({ topics: generateDemoKafkaTopics() }, "middlewareDashboard.kafka.topics");
     }),
-    events: protectedProcedure
+    events: adminProcedure
       .input(z.object({
         topic: z.string().optional(),
         limit: z.number().min(1).max(100).default(20),
@@ -237,9 +276,9 @@ export const middlewareDashboardRouter = router({
           value: JSON.stringify({ event_id: `evt_${Date.now() - i * 1000}`, merchant_id: "merchant_demo_001", amount: (i + 1) * 5000 }),
           timestamp: new Date(Date.now() - i * 30000).toISOString(),
         }));
-        return { events, source: "demo" };
+        return demoOrFail({ events }, "middlewareDashboard.kafka.events");
       }),
-    publish: protectedProcedure
+    publish: adminProcedure
       .input(z.object({
         topic: z.string(),
         key: z.string().optional(),
@@ -247,107 +286,115 @@ export const middlewareDashboardRouter = router({
       }))
       .mutation(async ({ input }) => {
         const result = await bridgePost("/v1/middleware/kafka/publish", input);
-        return result ?? { published: true, topic: input.topic, source: "demo" };
+        return result ?? demoOrFail({ published: true, topic: input.topic, message: "SIMULATED — no real action taken" }, "middlewareDashboard.kafka.publish");
       }),
   }),
 
   // ── Fluvio ───────────────────────────────────────────────────────────────────
   fluvio: router({
-    streams: protectedProcedure.query(async () => {
+    // Platform-wide stream data — admin only.
+    streams: adminProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/fluvio/streams");
-      return live ?? { streams: generateDemoFluvioStreams(), source: "demo" };
+      return live ?? demoOrFail({ streams: generateDemoFluvioStreams() }, "middlewareDashboard.fluvio.streams");
     }),
-    consume: protectedProcedure
+    consume: adminProcedure
       .input(z.object({ topic: z.string(), limit: z.number().default(10) }))
       .query(async ({ input }) => {
         const live = await bridgePost("/v1/fluvio/consume", input);
-        return live ?? { messages: [], source: "demo" };
+        return live ?? demoOrFail({ messages: [] }, "middlewareDashboard.fluvio.consume");
       }),
   }),
 
   // ── Temporal ─────────────────────────────────────────────────────────────────
   temporal: router({
-    workflows: protectedProcedure
+    // Platform-wide workflow listing — admin only (consistent with
+    // listWorkflows/workflowStatus below).
+    workflows: adminProcedure
       .input(z.object({
         status: z.string().optional(),
         limit: z.number().default(20),
       }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/middleware/temporal/workflows?limit=${input.limit}`);
-        return live ?? { workflows: generateDemoTemporalWorkflows(), source: "demo" };
+        return live ?? demoOrFail({ workflows: generateDemoTemporalWorkflows() }, "middlewareDashboard.temporal.workflows");
       }),
     startCIPSWorkflow: protectedProcedure
       .input(z.object({
         transferId: z.string(),
-        merchantId: z.string(),
         cnapsCode: z.string().length(12),
         amount: z.string(),
         currency: z.string().default("CNY"),
         beneficiaryId: z.string(),
         purposeCode: z.string().default("TRAD"),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        // Merchant is resolved server-side — clients cannot start money
+        // movement on behalf of another merchant.
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const result = await bridgePost("/v1/workflows/cips/start", {
           transfer_id: input.transferId,
-          merchant_id: input.merchantId,
+          merchant_id: merchantId,
           cnaps_code: input.cnapsCode,
           amount: input.amount,
           currency: input.currency,
           beneficiary_id: input.beneficiaryId,
           purpose_code: input.purposeCode,
         });
-        return result ?? { workflow_id: `wf_cips_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_cips_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startCIPSWorkflow");
       }),
     startUPIWorkflow: protectedProcedure
       .input(z.object({
         transferId: z.string(),
-        merchantId: z.string(),
         payerVpa: z.string(),
         payeeVpa: z.string(),
         amount: z.string(),
         pspName: z.string().default("gpay"),
         remarks: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const result = await bridgePost("/v1/workflows/upi/start", {
           transfer_id: input.transferId,
-          merchant_id: input.merchantId,
+          merchant_id: merchantId,
           payer_vpa: input.payerVpa,
           payee_vpa: input.payeeVpa,
           amount: input.amount,
           psp_name: input.pspName,
           remarks: input.remarks ?? "",
         });
-        return result ?? { workflow_id: `wf_upi_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_upi_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startUPIWorkflow");
       }),
     startPIXWorkflow: protectedProcedure
       .input(z.object({
         transferId: z.string(),
-        merchantId: z.string(),
         pixKey: z.string(),
         pixKeyType: z.enum(["CPF", "CNPJ", "PHONE", "EMAIL", "EVP"]),
         amount: z.string(),
         description: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const result = await bridgePost("/v1/workflows/pix/start", {
           transfer_id: input.transferId,
-          merchant_id: input.merchantId,
+          merchant_id: merchantId,
           pix_key: input.pixKey,
           pix_key_type: input.pixKeyType,
           amount: input.amount,
           description: input.description ?? "",
         });
-        return result ?? { workflow_id: `wf_pix_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_pix_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startPIXWorkflow");
       }),
-    workflowStatus: protectedProcedure
+    // Workflow metadata is platform ops data (consistent with the wave225
+    // getTemporalStatus hardening) — admin only.
+    workflowStatus: adminProcedure
       .input(z.object({ workflowId: z.string() }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/workflows/status/${input.workflowId}`);
-        return live ?? { workflow_id: input.workflowId, status: "Running", source: "demo" };
+        return live ?? demoOrFail({ workflow_id: input.workflowId, status: "Running" }, "middlewareDashboard.temporal.workflowStatus");
       }),
-    /** List all active Temporal workflows for a merchant */
-    listWorkflows: protectedProcedure
+    /** List all active Temporal workflows (platform ops view — admin only;
+     *  the optional merchantId filter lets admins drill into one merchant) */
+    listWorkflows: adminProcedure
       .input(z.object({
         merchantId: z.string().optional(),
         limit: z.number().min(1).max(200).default(50),
@@ -359,10 +406,10 @@ export const middlewareDashboardRouter = router({
         if (input.status) qs.set("status", input.status);
         qs.set("limit", String(input.limit));
         const live = await bridgeGet(`/v1/temporal/workflows?${qs.toString()}`);
-        return live ?? { workflows: [], total: 0, source: "demo" };
+        return live ?? demoOrFail({ workflows: [], total: 0 }, "middlewareDashboard.temporal.listWorkflows");
       }),
     /** Force-terminate a stuck or runaway Temporal workflow (admin escape hatch) */
-    forceTerminate: protectedProcedure
+    forceTerminate: adminProcedure
       .input(z.object({
         workflowId: z.string(),
         reason: z.string().min(1).max(500),
@@ -371,11 +418,11 @@ export const middlewareDashboardRouter = router({
         const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/terminate`, {
           reason: input.reason,
         });
-        if (!result) return { terminated: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ terminated: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.forceTerminate");
         return { terminated: true, workflowId: input.workflowId, ...result };
       }),
     /** Signal a Temporal workflow (e.g., approve/reject a pending step) */
-    signal: protectedProcedure
+    signal: adminProcedure
       .input(z.object({
         workflowId: z.string(),
         signalName: z.string(),
@@ -386,33 +433,38 @@ export const middlewareDashboardRouter = router({
           signal_name: input.signalName,
           input: input.payload ?? {},
         });
-        if (!result) return { signaled: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ signaled: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.signal");
         return { signaled: true, workflowId: input.workflowId, ...result };
       }),
     /** Cancel a Temporal workflow gracefully */
-    cancel: protectedProcedure
+    cancel: adminProcedure
       .input(z.object({ workflowId: z.string() }))
       .mutation(async ({ input }) => {
         const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/cancel`, {});
-        if (!result) return { cancelled: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ cancelled: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.cancel");
         return { cancelled: true, workflowId: input.workflowId, ...result };
       }),
   }),
 
   // ── TigerBeetle Ledger ───────────────────────────────────────────────────────
   ledger: router({
-    stats: protectedProcedure.query(async () => {
+    // Platform-wide ledger stats (volumes across all rails/merchants) — admin only.
+    stats: adminProcedure.query(async () => {
       const live = await serviceGet(TIGERBEETLE_URL, "/v1/ledger/stats");
-      return live ?? generateDemoLedgerStats();
+      return live ?? demoOrFail(generateDemoLedgerStats(), "middlewareDashboard.ledger.stats");
     }),
-    accounts: protectedProcedure
+    // TigerBeetle ledger endpoints are platform ledger operations (the
+    // TigerBeetle service itself is unauthenticated). Restricted to admins;
+    // the optional merchantId filter is an admin drill-down, not a tenant
+    // boundary a caller can choose.
+    accounts: adminProcedure
       .input(z.object({ merchantId: z.string().optional() }))
       .query(async ({ input }) => {
         const path = `/v1/ledger/accounts${input.merchantId ? `?merchant_id=${input.merchantId}` : ""}`;
         const live = await serviceGet(TIGERBEETLE_URL, path);
-        return live ?? { accounts: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ accounts: [], count: 0 }, "middlewareDashboard.ledger.accounts");
       }),
-    createAccount: protectedProcedure
+    createAccount: adminProcedure
       .input(z.object({
         merchantId: z.string(),
         accountType: z.enum(["MERCHANT", "ESCROW", "FEE", "SETTLEMENT", "SUSPENSE",
@@ -425,9 +477,9 @@ export const middlewareDashboardRouter = router({
           account_type: input.accountType,
           currency: input.currency,
         });
-        return result ?? { id: `acct_${Date.now()}`, source: "demo" };
+        return result ?? demoOrFail({ id: `acct_${Date.now()}`, message: "SIMULATED — no real action taken" }, "middlewareDashboard.ledger.createAccount");
       }),
-    transfers: protectedProcedure
+    transfers: adminProcedure
       .input(z.object({
         merchantId: z.string().optional(),
         rail: z.string().optional(),
@@ -439,9 +491,9 @@ export const middlewareDashboardRouter = router({
         if (input.rail) params.set("rail", input.rail);
         params.set("limit", String(input.limit));
         const live = await serviceGet(TIGERBEETLE_URL, `/v1/ledger/transfers?${params}`);
-        return live ?? { transfers: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ transfers: [], count: 0 }, "middlewareDashboard.ledger.transfers");
       }),
-    crossBorderTransfer: protectedProcedure
+    crossBorderTransfer: adminProcedure
       .input(z.object({
         transferId: z.string(),
         merchantId: z.string(),
@@ -465,27 +517,29 @@ export const middlewareDashboardRouter = router({
           rail: input.rail,
           reference: input.reference,
         });
-        return result ?? { success: true, transfer_id: input.transferId, source: "demo" };
+        return result ?? demoOrFail({ success: true, transfer_id: input.transferId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.ledger.crossBorderTransfer");
       }),
-    balance: protectedProcedure
+    balance: adminProcedure
       .input(z.object({ accountId: z.string() }))
       .query(async ({ input }) => {
         const live = await serviceGet(TIGERBEETLE_URL, `/v1/ledger/accounts/${input.accountId}/balance`);
-        return live ?? {
+        return live ?? demoOrFail({
           account_id: input.accountId,
           balance: 10000000,
           available_balance: 9500000,
           currency: "NGN",
-          source: "demo",
-        };
+        }, "middlewareDashboard.ledger.balance");
       }),
   }),
 
   // ── OpenSearch ───────────────────────────────────────────────────────────────
+  // These endpoints query arbitrary platform-wide financial indices
+  // (transactions, customers, fraud alerts, audit events) with no tenant
+  // filtering in the backing service — ops-dashboard functionality, admin only.
   search: router({
-    indices: protectedProcedure.query(async () => {
+    indices: adminProcedure.query(async () => {
       const live = await serviceGet(LAKEHOUSE_URL.replace(":8125", ":8300"), "/v1/search/indices");
-      return live ?? {
+      return live ?? demoOrFail({
         indices: {
           "paygate-transactions": { doc_count: 142857 },
           "paygate-customers": { doc_count: 8432 },
@@ -494,10 +548,9 @@ export const middlewareDashboardRouter = router({
           "paygate-audit-events": { doc_count: 89432 },
           "paygate-merchants": { doc_count: 234 },
         },
-        source: "demo",
-      };
+      }, "middlewareDashboard.search.indices");
     }),
-    query: protectedProcedure
+    query: adminProcedure
       .input(z.object({
         index: z.string(),
         query: z.string().default(""),
@@ -514,9 +567,9 @@ export const middlewareDashboardRouter = router({
           from: input.from,
           size: input.size,
         });
-        return live ?? { total: 0, hits: [], source: "demo" };
+        return live ?? demoOrFail({ total: 0, hits: [] }, "middlewareDashboard.search.query");
       }),
-    aggregate: protectedProcedure
+    aggregate: adminProcedure
       .input(z.object({
         index: z.string(),
         field: z.string(),
@@ -533,15 +586,16 @@ export const middlewareDashboardRouter = router({
           size: input.size,
           filters: input.filters,
         });
-        return live ?? { aggregation: {}, source: "demo" };
+        return live ?? demoOrFail({ aggregation: {} }, "middlewareDashboard.search.aggregate");
       }),
   }),
 
   // ── Lakehouse ────────────────────────────────────────────────────────────────
   lakehouse: router({
-    tables: protectedProcedure.query(async () => {
+    // Platform-wide analytics warehouse data — admin only.
+    tables: adminProcedure.query(async () => {
       const live = await serviceGet(LAKEHOUSE_URL, "/v1/lakehouse/tables");
-      return live ?? {
+      return live ?? demoOrFail({
         tables: {
           crossborder_transfers: { record_count: 1247 },
           cips_settlements: { record_count: 312 },
@@ -551,10 +605,9 @@ export const middlewareDashboardRouter = router({
           fx_rates_history: { record_count: 4320 },
           corridor_analytics: { record_count: 168 },
         },
-        source: "demo",
-      };
+      }, "middlewareDashboard.lakehouse.tables");
     }),
-    query: protectedProcedure
+    query: adminProcedure
       .input(z.object({
         table: z.string(),
         filters: z.record(z.string(), z.string(), z.string(), z.unknown()).optional(),
@@ -562,9 +615,9 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await servicePost(LAKEHOUSE_URL, "/v1/lakehouse/query", input);
-        return live ?? { records: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ records: [], count: 0 }, "middlewareDashboard.lakehouse.query");
       }),
-    corridorAnalytics: protectedProcedure
+    corridorAnalytics: adminProcedure
       .input(z.object({
         corridor: z.string().optional(),
         rail: z.string().optional(),
@@ -572,17 +625,16 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await servicePost(LAKEHOUSE_URL, "/v1/lakehouse/analytics/corridors", input);
-        return live ?? {
+        return live ?? demoOrFail({
           corridors: [
             { corridor: "NGN-CNY", rail: "cips", count: 312, total_source_amount: 31200000, avg_exchange_rate: 0.0052 },
             { corridor: "USD-INR", rail: "upi", count: 489, total_source_amount: 48900000, avg_exchange_rate: 83.5 },
             { corridor: "NGN-BRL", rail: "pix", count: 234, total_source_amount: 23400000, avg_exchange_rate: 0.028 },
             { corridor: "NGN-KES", rail: "mojaloop", count: 212, total_source_amount: 21200000, avg_exchange_rate: 13.2 },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.lakehouse.corridorAnalytics");
       }),
-    fxRates: protectedProcedure
+    fxRates: adminProcedure
       .input(z.object({
         corridor: z.string().optional(),
         rail: z.string().optional(),
@@ -592,32 +644,32 @@ export const middlewareDashboardRouter = router({
         if (input.corridor) params.set("corridor", input.corridor);
         if (input.rail) params.set("rail", input.rail);
         const live = await serviceGet(LAKEHOUSE_URL, `/v1/lakehouse/fx-rates?${params}`);
-        return live ?? {
+        return live ?? demoOrFail({
           rates: [
             { corridor: "NGN-CNY", rate: 0.0052, rail: "cips", provider: "cips-fx" },
             { corridor: "USD-INR", rate: 83.5, rail: "upi", provider: "npci-fx" },
             { corridor: "NGN-BRL", rate: 0.028, rail: "pix", provider: "bacen-fx" },
             { corridor: "NGN-KES", rate: 13.2, rail: "mojaloop", provider: "mojaloop-fx" },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.lakehouse.fxRates");
       }),
   }),
 
   // ── Redis ────────────────────────────────────────────────────────────────────
   redis: router({
-    stats: protectedProcedure.query(async () => {
+    // Platform-wide cache/state stats — admin only.
+    stats: adminProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/redis/stats");
-      return live ?? generateDemoRedisStats();
+      return live ?? demoOrFail(generateDemoRedisStats(), "middlewareDashboard.redis.stats");
     }),
-    events: protectedProcedure
+    events: adminProcedure
       .input(z.object({
         channel: z.string().default("paygate.crossborder.settled"),
         limit: z.number().default(20),
       }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/middleware/redis/events?channel=${input.channel}&limit=${input.limit}`);
-        return live ?? { messages: [], source: "demo" };
+        return live ?? demoOrFail({ messages: [] }, "middlewareDashboard.redis.events");
       }),
   }),
 
@@ -625,13 +677,14 @@ export const middlewareDashboardRouter = router({
   keycloak: router({
     health: publicProcedure.query(async () => {
       const live = await bridgeGet("/v1/keycloak/health");
-      return live ?? { status: "unknown", source: "demo" };
+      return live ?? demoOrFail({ status: "unknown" }, "middlewareDashboard.keycloak.health");
     }),
-    introspect: protectedProcedure
+    // Token introspection probing — admin only.
+    introspect: adminProcedure
       .input(z.object({ token: z.string() }))
       .mutation(async ({ input }) => {
         const live = await bridgePost("/v1/keycloak/introspect", { token: input.token });
-        return live ?? { active: false, source: "demo" };
+        return live ?? demoOrFail({ active: false }, "middlewareDashboard.keycloak.introspect");
       }),
   }),
 
@@ -639,9 +692,10 @@ export const middlewareDashboardRouter = router({
   permify: router({
     health: publicProcedure.query(async () => {
       const live = await bridgeGet("/v1/permify/health");
-      return live ?? { status: "unknown", source: "demo" };
+      return live ?? demoOrFail({ status: "unknown" }, "middlewareDashboard.permify.health");
     }),
-    check: protectedProcedure
+    // Arbitrary authorization-check probing — admin only.
+    check: adminProcedure
       .input(z.object({
         tenantId: z.string().default("paygate"),
         entityType: z.string(),
@@ -659,14 +713,14 @@ export const middlewareDashboardRouter = router({
           subject_type: input.subjectType,
           subject_id: input.subjectId,
         });
-        return live ?? { allowed: true, source: "demo" };
+        return live ?? demoOrFail({ allowed: true, message: "SIMULATED — no real authorization check performed" }, "middlewareDashboard.permify.check");
       }),
   }),
 
   // ── APISIX ───────────────────────────────────────────────────────────────────
   apisix: router({
-    /** Live routes from APISIX Admin API (falls back to static config) */
-    routes: protectedProcedure.query(async () => {
+    /** Live routes from APISIX Admin API (falls back to static config) — admin only */
+    routes: adminProcedure.query(async () => {
       const { listRoutes } = await import('../apisixClient');
       const live = await listRoutes();
       if (live.total > 0) return { ...live, source: "live" };
@@ -687,19 +741,19 @@ export const middlewareDashboardRouter = router({
         source: "static-config",
       };
     }),
-    /** Live consumers (API keys) registered in APISIX */
-    consumers: protectedProcedure.query(async () => {
+    /** Live consumers (API keys) registered in APISIX — admin only */
+    consumers: adminProcedure.query(async () => {
       const { listConsumers } = await import('../apisixClient');
       const live = await listConsumers();
       return { ...live, source: live.total > 0 ? "live" : "empty" };
     }),
-    /** APISIX gateway health */
-    health: protectedProcedure.query(async () => {
+    /** APISIX gateway health — admin only */
+    health: adminProcedure.query(async () => {
       const { getApisixHealth } = await import('../apisixClient');
       return getApisixHealth();
     }),
     /** Sync a route to APISIX (admin action) */
-    syncRoute: protectedProcedure
+    syncRoute: adminProcedure
       .input(z.object({
         id: z.string(),
         uri: z.string(),
@@ -720,15 +774,15 @@ export const middlewareDashboardRouter = router({
         return { synced: ok, routeId: input.id };
       }),
     /** Delete a route from APISIX (admin action) */
-    deleteRoute: protectedProcedure
+    deleteRoute: adminProcedure
       .input(z.object({ routeId: z.string() }))
       .mutation(async ({ input }) => {
         const { deleteRoute } = await import('../apisixClient');
         const ok = await deleteRoute(input.routeId);
         return { deleted: ok, routeId: input.routeId };
       }),
-    /** Plugin usage analytics — counts how many routes use each plugin */
-    pluginStats: protectedProcedure.query(async () => {
+    /** Plugin usage analytics — counts how many routes use each plugin — admin only */
+    pluginStats: adminProcedure.query(async () => {
       const { listRoutes } = await import('../apisixClient');
       const routeData = await listRoutes();
       const pluginCounts: Record<string, number> = {};
@@ -743,7 +797,7 @@ export const middlewareDashboardRouter = router({
         .map(([name, count]) => ({ name, count }))
         .sort((a, b) => b.count - a.count);
       if (plugins.length === 0) {
-        return {
+        return demoOrFail({
           plugins: [
             { name: "key-auth", count: 9 },
             { name: "rate-limiting", count: 9 },
@@ -752,17 +806,15 @@ export const middlewareDashboardRouter = router({
             { name: "ip-restriction", count: 3 },
             { name: "request-id", count: 9 },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.apisix.pluginStats");
       }
       return { plugins, source: "live" };
     }),
-    /** Gateway request metrics snapshot (from APISIX Prometheus endpoint via bridge) */
-    metrics: protectedProcedure.query(async () => {
+    /** Gateway request metrics snapshot (from APISIX Prometheus endpoint via bridge) — admin only */
+    metrics: adminProcedure.query(async () => {
       const live = await bridgeGet("/v1/apisix/metrics");
       if (live) return { ...live, source: "live" };
-      return {
-        source: "demo",
+      return demoOrFail({
         requestsPerSecond: parseFloat((Math.random() * 120 + 40).toFixed(1)),
         p50LatencyMs: parseFloat((Math.random() * 8 + 4).toFixed(1)),
         p95LatencyMs: parseFloat((Math.random() * 30 + 15).toFixed(1)),
@@ -772,26 +824,24 @@ export const middlewareDashboardRouter = router({
         activeConnections: Math.floor(Math.random() * 200 + 50),
         upstreamLatencyMs: parseFloat((Math.random() * 12 + 3).toFixed(1)),
         timestamp: Date.now(),
-      };
+      }, "middlewareDashboard.apisix.metrics");
     }),
   }),
 
   // ── PgBouncer Connection Pool ─────────────────────────────────────────────────
   pgbouncer: router({
-    /** PgBouncer pool statistics — reads from the virtual pgbouncer SHOW POOLS table */
-    stats: protectedProcedure.query(async () => {
+    /** PgBouncer pool statistics — reads from the virtual pgbouncer SHOW POOLS table — admin only */
+    stats: adminProcedure.query(async () => {
       const pgBouncerUrl = process.env.PGBOUNCER_URL;
       if (!pgBouncerUrl) {
         return {
-          source: "demo",
+          source: "unconfigured",
           configured: false,
-          pools: [
-            { database: "paygate_prod", user: "paygate", clActive: 12, clWaiting: 0, svActive: 12, svIdle: 13, svUsed: 0, maxWait: 0 },
-          ],
-          totalClActive: 12,
+          pools: [],
+          totalClActive: 0,
           totalClWaiting: 0,
-          totalSvActive: 12,
-          totalSvIdle: 13,
+          totalSvActive: 0,
+          totalSvIdle: 0,
           poolMode: "transaction",
           maxClientConn: 1000,
           defaultPoolSize: 25,
@@ -833,7 +883,8 @@ export const middlewareDashboardRouter = router({
   }),
 
   // ── Summary ──────────────────────────────────────────────────────────────────
-  summary: protectedProcedure.query(async () => {
+  // Platform-wide infra + ledger summary — admin only.
+  summary: adminProcedure.query(async () => {
     const [health, ledgerStats, kafkaTopics] = await Promise.allSettled([
       getAllMiddlewareHealth(),
       serviceGet(TIGERBEETLE_URL, "/v1/ledger/stats"),
@@ -848,8 +899,8 @@ export const middlewareDashboardRouter = router({
       services_healthy: okCount,
       services_total: totalServices,
       health_pct: Math.round((okCount / totalServices) * 100),
-      ledger: ledgerStats.status === "fulfilled" ? ledgerStats.value : generateDemoLedgerStats(),
-      kafka: kafkaTopics.status === "fulfilled" ? kafkaTopics.value : { topics: generateDemoKafkaTopics() },
+      ledger: ledgerStats.status === "fulfilled" ? ledgerStats.value : demoOrFail(generateDemoLedgerStats(), "middlewareDashboard.summary.ledger"),
+      kafka: kafkaTopics.status === "fulfilled" ? kafkaTopics.value : demoOrFail({ topics: generateDemoKafkaTopics() }, "middlewareDashboard.summary.kafka"),
       rails_active: ["cips", "upi", "pix", "mojaloop", "brics"],
       corridors_active: 11,
       checked_at: new Date().toISOString(),

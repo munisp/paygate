@@ -168,7 +168,8 @@ function adminWeeklyReportHtml(opts: {
   newMerchants: number;
   fraudAlerts: number;
   kycPending: number;
-  systemUptime: string;
+  /** Omit when no real uptime measurement exists — never fabricate a figure. */
+  systemUptime?: string;
   portalUrl: string;
 }): string {
   return `<!DOCTYPE html>
@@ -210,10 +211,11 @@ function adminWeeklyReportHtml(opts: {
                 <span style="float:right;color:#fff;font-weight:600;">${opts.newMerchants}</span>
               </td>
               <td width="4%"></td>
+              ${opts.systemUptime != null ? `
               <td width="48%" style="background:#0F172A;border-radius:8px;padding:12px 16px;border:1px solid #334155;">
                 <span style="color:#94A3B8;font-size:12px;">System Uptime</span>
                 <span style="float:right;color:#34D399;font-weight:600;">${opts.systemUptime}</span>
-              </td>
+              </td>` : ""}
             </tr>
             <tr><td colspan="3" style="height:8px;"></td></tr>
             <tr>
@@ -484,7 +486,10 @@ export async function sendAdminWeeklyReports(): Promise<void> {
           newMerchants: Number(mStat.new_merchants),
           fraudAlerts,
           kycPending,
-          systemUptime: "99.9%",
+          // R4 F15: no uptime telemetry source is integrated — the previous
+          // hardcoded "99.9%" was fabricated. The metric is omitted until a
+          // real measurement (e.g. heartbeat/infra history rollup) exists.
+          systemUptime: undefined,
           portalUrl: PORTAL_URL,
         }),
       });

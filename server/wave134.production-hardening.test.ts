@@ -91,8 +91,12 @@ describe("Go crossborder_proxy.go (wave134)", () => {
     expect(proxyGo).toContain('fraudURL+"/v1/score"');
   });
 
-  it("prescreenFraud fails open when engine is unavailable", () => {
-    expect(proxyGo).toContain('"ALLOW", nil // fail-open');
+  it("prescreenFraud fails closed when the engine is unavailable", () => {
+    // Real contract: an unconfigured/erroring fraud engine blocks the transfer
+    // (failClosed), never fail-open on money movement.
+    expect(proxyGo).toContain("FAIL CLOSED by default");
+    expect(proxyGo).toContain("failClosed :=");
+    expect(proxyGo).toContain('FRAUD_SCORING_URL not configured');
   });
 
   it("ProxyCIPSTransferReal checks circuit breaker before forwarding", () => {

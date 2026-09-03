@@ -80,7 +80,7 @@ export default function ConsumerCard() {
   const [actionCardId, setActionCardId] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
-  const { data: cards, isLoading } = trpc.consumerCard.list.useQuery(undefined, { staleTime: 30_000 });
+  const { data: cards, isLoading } = trpc.consumerCard.list.useQuery({}, { staleTime: 30_000 });
   const { data: kyc } = trpc.consumerKyc.status.useQuery(undefined, { staleTime: 60_000 });
   const kycApproved = (kyc as any)?.status === "approved";
 

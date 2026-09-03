@@ -210,6 +210,15 @@ describe("vtpass", () => {
     vi.resetModules();
     delete process.env.VTPASS_API_KEY;
     delete process.env.VTPASS_SECRET_KEY;
+    // STALE CONTRACT: silent simulation fallback was replaced by fail-loud
+    // behavior (see vtpass.failLoud.test.ts); simulation results are only
+    // produced when PAYGATE_SIMULATION_MODE=true, so these simulation-mode
+    // tests opt in explicitly.
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+  });
+
+  afterEach(() => {
+    delete process.env.PAYGATE_SIMULATION_MODE;
   });
 
   it("vtpassPay returns simulated result when no credentials are set", async () => {
@@ -232,7 +241,8 @@ describe("vtpass", () => {
       customerReference: "12345678901",
     });
     expect(result.valid).toBe(true);
-    expect(result.customerName).toBe("Simulated Customer");
+    // STALE CONTRACT: simulation output is now loudly labeled all-caps.
+    expect(result.customerName).toBe("SIMULATED CUSTOMER (not verified)");
   });
 });
 

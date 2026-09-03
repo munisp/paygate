@@ -11,6 +11,7 @@
 
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { toast } from "sonner";
 import {
   Search, Send, RefreshCw, CheckCircle2, XCircle, Clock,
@@ -187,14 +188,17 @@ function InitiateTransferDialog({
     reference: `MJL-${Date.now()}`,
   });
   const [transferResult, setTransferResult] = useState<any>(null);
+  const idem = useIdempotencyKey();
 
   const initiateMutation = trpc.mojaloop.initiateTransfer.useMutation({
     onSuccess: (data) => {
       setTransferResult(data);
       setStep("done");
+      idem.reset();
       toast.success("Transfer initiated via Mojaloop");
     },
     onError: (err) => {
+      idem.reset();
       toast.error(`Transfer failed: ${err.message}`);
     },
   });
@@ -208,6 +212,7 @@ function InitiateTransferDialog({
       currency: form.currency,
       note: form.note || undefined,
       reference: form.reference,
+      idempotencyKey: idem.getKey(),
     });
   };
 

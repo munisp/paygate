@@ -145,7 +145,7 @@ export default function STRFilingQueue() {
         <Card>
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-green-600">
-              {stats?.byStatus.find(s => s.status === "acknowledged")?.count ?? 0}
+              {stats?.byStatus?.find(s => s.status === "acknowledged")?.count ?? 0}
             </div>
             <div className="text-xs text-muted-foreground mt-1">Acknowledged by NFIU</div>
           </CardContent>

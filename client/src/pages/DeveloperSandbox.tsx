@@ -76,8 +76,8 @@ export default function DeveloperSandbox() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
-  const {isLoading, data: apiKeys} = trpc.apiKeys.list.useQuery();
-  const { data: webhooks } = trpc.webhooks.list.useQuery();
+  const {isLoading, data: apiKeys} = trpc.apiKeys.list.useQuery({});
+  const { data: webhooks } = trpc.webhooks.list.useQuery({});
 
   function handleEventTypeChange(type: string) {
     setEventType(type);

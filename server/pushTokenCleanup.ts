@@ -64,9 +64,9 @@ export function startPushTokenCleanupWorker(): void {
   if (_timer) return;
   // First run after 1 minute (let server warm up), then on interval
   setTimeout(() => {
-    runCleanup().catch(() => {});
+    runCleanup().catch((e) => logger.error("[pushTokenCleanup] tick failed:", e instanceof Error ? e.message : e));
     _timer = setInterval(() => {
-      runCleanup().catch(() => {});
+      runCleanup().catch((e) => logger.error("[pushTokenCleanup] tick failed:", e instanceof Error ? e.message : e));
     }, CLEANUP_INTERVAL_MS);
   }, 60_000);
   logger.info(`[pushTokenCleanup] Worker scheduled — interval: ${CLEANUP_INTERVAL_MS / 86_400_000}d, stale threshold: ${STALE_AFTER_DAYS}d`);

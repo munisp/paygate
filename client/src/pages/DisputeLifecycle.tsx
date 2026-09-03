@@ -1,222 +1,464 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { AlertTriangle, Clock, Upload, CheckCircle, XCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import {
+  Loader2,
+  RefreshCw,
+  ShieldAlert,
+  ArrowUpRight,
+  Upload,
+} from "lucide-react";
 
-const STATE_COLORS: Record<string, string> = {
-  open: "bg-yellow-500",
-  evidence_submitted: "bg-blue-500",
-  under_review: "bg-purple-500",
-  arbitration: "bg-orange-500",
-  resolved_won: "bg-green-500",
-  resolved_lost: "bg-red-500",
-  closed: "bg-gray-500",
+type ChargebackRow = {
+  id: string;
+  transactionId: string | null;
+  stripeChargeId: string | null;
+  amountKobo: number;
+  currency: string;
+  reason: string;
+  status: string;
+  dueDate: string | Date | null;
+  createdAt: string | Date;
 };
 
-function CountdownTimer({ deadlineIso }: { deadlineIso: string }) {
-  const [remaining, setRemaining] = useState("");
-  useEffect(() => {
-    const tick = () => {
-      const ms = new Date(deadlineIso).getTime() - Date.now();
-      if (ms <= 0) { setRemaining("EXPIRED"); return; }
-      const h = Math.floor(ms / 3600000);
-      const m = Math.floor((ms % 3600000) / 60000);
-      const s = Math.floor((ms % 60000) / 1000);
-      setRemaining(`${h}h ${m}m ${s}s`);
+const STATUS_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "needs_response", label: "Needs Response" },
+  { value: "under_review", label: "Under Review" },
+  { value: "pre_arbitration", label: "Pre-Arbitration" },
+  { value: "arbitration", label: "Arbitration" },
+  { value: "closed_won", label: "Won" },
+  { value: "closed_lost", label: "Lost" },
+];
+
+const STAGE_VARIANT: Record<string, string> = {
+  needs_response: "bg-red-100 text-red-800 border-red-200",
+  under_review: "bg-amber-100 text-amber-800 border-amber-200",
+  pre_arbitration: "bg-orange-100 text-orange-800 border-orange-200",
+  arbitration: "bg-purple-100 text-purple-800 border-purple-200",
+  closed_won: "bg-green-100 text-green-800 border-green-200",
+  closed_lost: "bg-gray-200 text-gray-700 border-gray-300",
+};
+
+const STAGE_LABEL: Record<string, string> = {
+  needs_response: "Needs Response",
+  under_review: "Under Review",
+  pre_arbitration: "Pre-Arbitration",
+  arbitration: "Arbitration",
+  closed_won: "Won",
+  closed_lost: "Lost",
+};
+
+const CLOSED_STATUSES = new Set(["closed_won", "closed_lost"]);
+
+function formatNaira(kobo: number | string | null | undefined): string {
+  const n = Number(kobo ?? 0);
+  if (!Number.isFinite(n)) return "₦0.00";
+  return `₦${(n / 100).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatDate(d: string | Date | null | undefined): string {
+  if (!d) return "—";
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
+}
+
+function inferEvidenceType(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".pdf")) return "receipt";
+  if (lower.match(/\.(png|jpe?g|gif|webp)$/)) return "customer_communication";
+  return "other";
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [deadlineIso]);
-  const isUrgent = new Date(deadlineIso).getTime() - Date.now() < 24 * 3600 * 1000;
-  return (
-    <span className={`font-mono text-sm ${isUrgent ? "text-red-500 font-bold" : "text-muted-foreground"}`}>
-      <Clock className="w-3 h-3 inline mr-1" />{remaining}
-    </span>
-  );
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function DisputeLifecycle() {
+  const utils = trpc.useUtils();
+  const [stageFilter, setStageFilter] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [escalationReason, setEscalationReason] = useState("");
 
-  const { data, isLoading, refetch } = trpc.chargebackLifecycle.list.useQuery({ page: 1, pageSize: 50 });
-  const { data: detail } = trpc.chargebackLifecycle.get.useQuery(
-    { id: selectedId! },
-    { enabled: !!selectedId }
+  const listQuery = trpc.chargebackLifecycle.list.useQuery({
+    page: 1,
+    pageSize: 100,
+    status: stageFilter === "all" ? undefined : stageFilter,
+  });
+
+  const chargebacks: ChargebackRow[] = useMemo(
+    () => (listQuery.data?.rows ?? []),
+    [listQuery.data]
   );
 
-  const submitEvidence = trpc.chargebackLifecycle.submitEvidence.useMutation({
-    onSuccess: () => { toast.success("Evidence submitted"); refetch(); setEvidenceFile(null); },
-    onError: (e) => toast.error(e.message),
+  const detailQuery = trpc.chargebackLifecycle.get.useQuery(
+    { id: selectedId as string },
+    { enabled: selectedId !== null }
+  );
+
+  const submitEvidence = trpc.chargebackLifecycle.uploadEvidence.useMutation({
+    onSuccess: () => {
+      toast.success("Evidence submitted");
+      setEvidenceFile(null);
+      void utils.chargebackLifecycle.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const escalate = trpc.chargebackLifecycle.escalate.useMutation({
-    onSuccess: () => { toast.success("Escalated to arbitration"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: (res) => {
+      toast.success(`Dispute escalated to ${res.newStatus}`);
+      setEscalationReason("");
+      void utils.chargebackLifecycle.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
   });
 
-  const handleEvidenceUpload = async () => {
-    if (!evidenceFile || !selectedId) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(",")[1];
-      submitEvidence.mutate({
-        chargebackId: selectedId,
-        evidenceBase64: base64,
-        evidenceType: evidenceFile.type,
-        filename: evidenceFile.name,
-        description: "Evidence uploaded via portal",
-      });
-    };
-    reader.readAsDataURL(evidenceFile);
+  const openDetail = (id: string) => {
+    setSelectedId(id);
+    setDrawerOpen(true);
+    setEvidenceFile(null);
+    setEscalationReason("");
   };
 
-  const chargebacks = data?.chargebacks ?? [];
+  const detail = detailQuery.data;
+  const isClosed = detail ? CLOSED_STATUSES.has(detail.status) : false;
+
+  const handleEvidenceSubmit = async () => {
+    if (!detail || !evidenceFile) return;
+    setUploading(true);
+    try {
+      const fileContentBase64 = await readFileAsBase64(evidenceFile);
+      await submitEvidence.mutateAsync({
+        chargebackId: detail.id,
+        evidenceType: inferEvidenceType(evidenceFile.name),
+        fileName: evidenceFile.name,
+        mimeType: evidenceFile.type || "application/octet-stream",
+        fileContentBase64,
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Evidence upload failed"
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleEscalate = () => {
+    if (!detail) return;
+    if (!escalationReason.trim()) {
+      toast.error("Escalation reason is required");
+      return;
+    }
+    escalate.mutate({
+      chargebackId: detail.id,
+      reason: escalationReason.trim(),
+      newStatus: "arbitration",
+    });
+  };
 
   return (
-    <DashboardLayout>
-      <div className="p-6 space-y-6">
+    <div className="container py-6 space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dispute Lifecycle</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Manage chargebacks end-to-end: evidence submission, arbitration, and resolution
+          <h1 className="text-2xl font-bold tracking-tight">
+            Dispute &amp; Chargeback Lifecycle
+          </h1>
+          <p className="text-muted-foreground">
+            Track chargebacks, submit evidence, and escalate disputes
           </p>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Chargeback list */}
-          <div className="lg:col-span-1 space-y-2">
-            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Active Disputes</h2>
-            {chargebacks.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
-                No active disputes
-              </div>
-            )}
-            {chargebacks.map((cb: any) => (
-              <Card
-                key={cb.id}
-                className={`cursor-pointer transition-colors ${selectedId === cb.id ? "border-primary" : ""}`}
-                onClick={() => setSelectedId(cb.id)}
-              >
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-xs">{cb.id.slice(0, 8).toUpperCase()}</span>
-                    <Badge className={`${STATE_COLORS[cb.lifecycleState] ?? "bg-gray-500"} text-white text-xs`}>
-                      {cb.lifecycleState.replace(/_/g, " ")}
-                    </Badge>
-                  </div>
-                  <p className="text-sm font-medium">₦{((cb.amountKobo ?? 0) / 100).toLocaleString()}</p>
-                  {cb.responseDeadline && (
-                    <CountdownTimer deadlineIso={cb.responseDeadline} />
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {/* Right: Detail panel */}
-          <div className="lg:col-span-2">
-            {!selectedId && (
-              <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-                Select a dispute to view details
-              </div>
-            )}
-            {detail && (
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Dispute {detail.id.slice(0, 8).toUpperCase()}</span>
-                      <Badge className={`${STATE_COLORS[detail.lifecycleState] ?? "bg-gray-500"} text-white`}>
-                        {detail.lifecycleState.replace(/_/g, " ")}
-                      </Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div><span className="text-muted-foreground">Amount:</span> ₦{((detail.amountKobo ?? 0) / 100).toLocaleString()}</div>
-                      <div><span className="text-muted-foreground">Reason:</span> {detail.reason}</div>
-                      <div><span className="text-muted-foreground">Network:</span> {detail.cardNetwork ?? "N/A"}</div>
-                      <div><span className="text-muted-foreground">ARN:</span> {detail.acquirerReferenceNumber ?? "N/A"}</div>
-                    </div>
-                    {detail.responseDeadline && (
-                      <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded">
-                        <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                        <span className="text-sm">Response deadline: </span>
-                        <CountdownTimer deadlineIso={detail.responseDeadline} />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Timeline */}
-                <Card>
-                  <CardHeader><CardTitle className="text-sm">Timeline</CardTitle></CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {(detail.timeline ?? []).map((event: any, i: number) => (
-                        <div key={i} className="flex items-start gap-2 text-sm">
-                          <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                          <div>
-                            <span className="font-medium">{event.action}</span>
-                            <span className="text-muted-foreground ml-2 text-xs">{new Date(event.timestamp).toLocaleString()}</span>
-                            {event.note && <p className="text-xs text-muted-foreground">{event.note}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Evidence upload */}
-                {["open", "evidence_submitted"].includes(detail.lifecycleState) && (
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Submit Evidence</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        onChange={e => setEvidenceFile(e.target.files?.[0] ?? null)}
-                        className="text-sm"
-                      />
-                      {evidenceFile && (
-                        <p className="text-xs text-muted-foreground">{evidenceFile.name} ({(evidenceFile.size / 1024).toFixed(1)} KB)</p>
-                      )}
-                      <Button
-                        size="sm"
-                        onClick={handleEvidenceUpload}
-                        disabled={!evidenceFile || submitEvidence.isPending}
-                      >
-                        <Upload className="w-3 h-3 mr-1" />
-                        {submitEvidence.isPending ? "Uploading..." : "Upload Evidence"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Escalate to arbitration */}
-                {detail.lifecycleState === "evidence_submitted" && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => escalate.mutate({ chargebackId: detail.id })}
-                    disabled={escalate.isPending}
-                  >
-                    {escalate.isPending ? "Escalating..." : "Escalate to Arbitration"}
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void listQuery.refetch()}
+          disabled={listQuery.isFetching}
+        >
+          {listQuery.isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          <span className="ml-2">Refresh</span>
+        </Button>
       </div>
-    </DashboardLayout>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>Chargebacks</CardTitle>
+            <CardDescription>
+              {listQuery.data?.total ?? 0} total disputes
+            </CardDescription>
+          </div>
+          <Select value={stageFilter} onValueChange={setStageFilter}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardHeader>
+        <CardContent>
+          {listQuery.isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : chargebacks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <ShieldAlert className="h-10 w-10 mb-2 opacity-40" />
+              <p>No chargebacks found</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Transaction</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Due Date</TableHead>
+                  <TableHead>Opened</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chargebacks.map((cb) => (
+                  <TableRow
+                    key={cb.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => openDetail(cb.id)}
+                  >
+                    <TableCell className="font-mono text-xs">
+                      {cb.stripeChargeId ?? cb.transactionId}
+                    </TableCell>
+                    <TableCell className="max-w-[220px] truncate">
+                      {cb.reason ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatNaira(cb.amountKobo)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={STAGE_VARIANT[cb.status] ?? ""}
+                      >
+                        {STAGE_LABEL[cb.status] ?? cb.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatDate(cb.dueDate)}</TableCell>
+                    <TableCell>{formatDate(cb.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <DrawerContent className="max-h-[90vh]">
+          <div className="mx-auto w-full max-w-3xl overflow-y-auto p-6">
+            <DrawerHeader>
+              <DrawerTitle>
+                Dispute {detail?.stripeChargeId ?? detail?.transactionId ?? ""}
+              </DrawerTitle>
+              <DrawerDescription>
+                {detail
+                  ? `${formatNaira(detail.amountKobo)} · ${
+                      STAGE_LABEL[detail.status] ?? detail.status
+                    } · due ${formatDate(detail.dueDate)}`
+                  : "Loading…"}
+              </DrawerDescription>
+            </DrawerHeader>
+
+            {detailQuery.isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : detail ? (
+              <div className="space-y-6">
+                {detail.notes ? (
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                    {detail.notes}
+                  </div>
+                ) : null}
+
+                <section>
+                  <h3 className="mb-2 text-sm font-semibold">Timeline</h3>
+                  {detail.timeline.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No timeline events recorded.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {detail.timeline.map((ev) => (
+                        <li
+                          key={ev.id}
+                          className="flex items-start gap-3 rounded-md border p-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium">{ev.event}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(ev.occurredAt)}
+                              {ev.previousState && ev.newState
+                                ? ` · ${ev.previousState} → ${ev.newState}`
+                                : ""}
+                            </p>
+                            {ev.notes ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {ev.notes}
+                              </p>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="mb-2 text-sm font-semibold">
+                    Submitted Evidence
+                  </h3>
+                  {detail.evidence.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No evidence submitted yet.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1 text-sm">
+                      {detail.evidence.map((item) => (
+                        <li key={item.id} className="flex items-center gap-2">
+                          <Badge variant="secondary">{item.evidenceType}</Badge>
+                          <a
+                            href={item.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="truncate text-primary underline-offset-2 hover:underline"
+                          >
+                            {item.fileName}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                {!isClosed && (
+                  <section className="space-y-3 rounded-md border p-4">
+                    <h3 className="text-sm font-semibold">Submit Evidence</h3>
+                    <input
+                      type="file"
+                      onChange={(e) =>
+                        setEvidenceFile(e.target.files?.[0] ?? null)
+                      }
+                      className="text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => void handleEvidenceSubmit()}
+                      disabled={
+                        !evidenceFile || uploading || submitEvidence.isPending
+                      }
+                    >
+                      {uploading || submitEvidence.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      <span className="ml-2">Upload &amp; Submit</span>
+                    </Button>
+                  </section>
+                )}
+
+                {!isClosed && detail.status !== "arbitration" && (
+                  <section className="space-y-3 rounded-md border p-4">
+                    <h3 className="text-sm font-semibold">
+                      Escalate to Arbitration
+                    </h3>
+                    <Textarea
+                      placeholder="Reason for escalation (required)"
+                      value={escalationReason}
+                      onChange={(e) => setEscalationReason(e.target.value)}
+                      rows={3}
+                    />
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={handleEscalate}
+                      disabled={escalate.isPending}
+                    >
+                      {escalate.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUpRight className="h-4 w-4" />
+                      )}
+                      <span className="ml-2">Escalate</span>
+                    </Button>
+                  </section>
+                )}
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Dispute not found.
+              </p>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
   );
 }

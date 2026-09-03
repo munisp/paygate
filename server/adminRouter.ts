@@ -394,7 +394,9 @@ const disputeMgmtRouter = router({
     .input(z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(10).max(100).default(20),
-      status: z.enum(["open", "under_review", "resolved", "escalated", "all"]).default("all"),
+      // R4 F14 (spec #12): filter vocab matches the dispute_status pg enum —
+      // 'resolved'/'escalated' never existed in the enum and matched nothing.
+      status: z.enum(["open", "under_review", "resolved_merchant", "resolved_customer", "closed", "all"]).default("all"),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -425,15 +427,25 @@ const disputeMgmtRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { disputes } = await import("../drizzle/schema");
+      // R4 F14 (spec #12): dispute_status enum is
+      // open|under_review|resolved_merchant|resolved_customer|closed — there
+      // is no 'resolved' (nor resolution/adminNotes columns; that write would
+      // have failed at the DB). Map the admin decision to the enum-valid
+      // status and record the details in the evidence jsonb.
+      const newStatus = input.resolution === "merchant_wins" ? "resolved_merchant" : "resolved_customer";
       await db.update(disputes)
         .set({
-          status: "resolved" as any,
-          resolution: input.resolution as any,
+          status: newStatus as any,
           resolvedAt: new Date(),
-          adminNotes: input.notes ?? null,
+          updatedAt: new Date(),
+          evidence: sql`COALESCE(evidence, '{}'::jsonb) || ${JSON.stringify({
+            adminResolution: input.resolution,
+            refundAmountKobo: input.refundAmountKobo ?? null,
+            adminNotes: input.notes ?? null,
+          })}::jsonb`,
         } as any)
         .where(eq(disputes.id, input.disputeId));
-      return { resolved: true, resolution: input.resolution };
+      return { resolved: true, status: newStatus, resolution: input.resolution };
     }),
 
   escalateDispute: adminProcedure
@@ -442,10 +454,18 @@ const disputeMgmtRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { disputes } = await import("../drizzle/schema");
+      // R4 F14 (spec #12): 'escalated' is NOT in the dispute_status enum —
+      // the enum-valid "needs attention" state is 'under_review'. The
+      // escalation reason is recorded in the evidence jsonb (no adminNotes
+      // column exists).
       await db.update(disputes)
-        .set({ status: "escalated" as any, adminNotes: input.reason } as any)
+        .set({
+          status: "under_review" as any,
+          updatedAt: new Date(),
+          evidence: sql`COALESCE(evidence, '{}'::jsonb) || ${JSON.stringify({ escalated: true, escalationReason: input.reason })}::jsonb`,
+        } as any)
         .where(eq(disputes.id, input.disputeId));
-      return { escalated: true };
+      return { escalated: true, status: "under_review" };
     }),
 });
 

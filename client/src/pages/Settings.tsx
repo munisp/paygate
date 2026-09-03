@@ -236,6 +236,10 @@ export default function Settings() {
     settlementAccountNumber: "",
     settlementAccountName: "",
   });
+  // Settlement schedule/account changes redirect the merchant's payout
+  // destination — the server requires the current password for
+  // password-backed accounts.
+  const [settlementPassword, setSettlementPassword] = useState("");
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
   const { data: settlementData, isLoading: settlementLoading } = trpc.settings.getSettlementSchedule.useQuery(undefined, { staleTime: 60_000 });
@@ -334,6 +338,7 @@ export default function Settings() {
       settlementBankCode: settlementForm.settlementBankCode || null,
       settlementAccountNumber: settlementForm.settlementAccountNumber || null,
       settlementAccountName: settlementForm.settlementAccountName || null,
+      currentPassword: settlementPassword,
     });
   };
 
@@ -590,6 +595,18 @@ export default function Settings() {
                     />
                   </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Current Password (required to change settlement settings)</label>
+                <input
+                  type="password"
+                  value={settlementPassword}
+                  onChange={(e: any) => setSettlementPassword(e.target.value)}
+                  placeholder="Confirm with your account password"
+                  autoComplete="current-password"
+                  className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                />
               </div>
 
               <Button type="submit" disabled={updateSettlement.isPending}>

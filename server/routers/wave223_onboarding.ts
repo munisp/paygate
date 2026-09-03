@@ -3,8 +3,9 @@
  * Covers: DFSP, PISP, PSP/Acquirer, POS Operator, Regulator, Settlement Bank
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
-import { getDb } from "../db";
+import { getDb, execRaw } from "../db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   dfspOnboardingSessions,
@@ -17,6 +18,32 @@ import { notifyOwner } from "../_core/notification";
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Strip status-flow / identity columns a free-form onboarding payload must never overwrite. */
+function sanitizeOnboardingData(data: Record<string, any>): Record<string, any> {
+  const {
+    id: _id, status: _s, submittedAt: _sa, reviewedBy: _rb, reviewedAt: _ra,
+    createdAt: _ca, currentStep: _cs, ...safe
+  } = data as any;
+  return safe;
+}
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Settlement-bank directory writes are platform-level administration: the
+// caller's session role is NOT trusted — the role is re-read from the users
+// table on every call (same pattern as wave29Router.requirePlatformAdmin).
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
 }
 
 // ── DFSP Onboarding ────────────────────────────────────────────────────────────
@@ -52,7 +79,7 @@ const dfspOnboardingRouter = router({
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
       await db.update(dfspOnboardingSessions)
-        .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
+        .set({ ...sanitizeOnboardingData(input.data), currentStep: input.step, updatedAt: new Date() })
         .where(eq(dfspOnboardingSessions.id, input.sessionId));
       return { success: true };
     }),
@@ -148,7 +175,7 @@ const pispOnboardingRouter = router({
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
       await db.update(pispOnboardingSessions)
-        .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
+        .set({ ...sanitizeOnboardingData(input.data), currentStep: input.step, updatedAt: new Date() })
         .where(eq(pispOnboardingSessions.id, input.sessionId));
       return { success: true };
     }),
@@ -224,7 +251,7 @@ const pspOnboardingRouter = router({
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
       await db.update(pspOnboardingSessions)
-        .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
+        .set({ ...sanitizeOnboardingData(input.data), currentStep: input.step, updatedAt: new Date() })
         .where(eq(pspOnboardingSessions.id, input.sessionId));
       return { success: true };
     }),
@@ -303,7 +330,7 @@ const posOperatorOnboardingRouter = router({
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
       await db.update(posOperatorOnboardingSessions)
-        .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
+        .set({ ...sanitizeOnboardingData(input.data), currentStep: input.step, updatedAt: new Date() })
         .where(eq(posOperatorOnboardingSessions.id, input.sessionId));
       return { success: true };
     }),
@@ -350,7 +377,11 @@ const posOperatorOnboardingRouter = router({
 
 // ── Settlement Bank Management ────────────────────────────────────────────────
 const settlementBankRouter = router({
-  list: protectedProcedure.query(async () => {
+  list: protectedProcedure.query(async ({ ctx }) => {
+    // Platform settlement-bank directory (includes settlementAccountNumber/
+    // settlementAccountName) — platform-admin only (DB re-check), same gate
+    // as the create/update/delete mutations below.
+    await requirePlatformAdmin(ctx);
     const db = (await getDb())!;
     return db.select().from(settlementBanks).orderBy(desc(settlementBanks.createdAt)).limit(100);
   }),
@@ -369,7 +400,9 @@ const settlementBankRouter = router({
       isRtgsEnabled: z.boolean().default(false),
       isNipEnabled: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Platform settlement-bank directory write — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = (await getDb())!;
       const id = uid("sbank");
       await db.insert(settlementBanks).values({ id, ...input, status: "active" });
@@ -379,19 +412,39 @@ const settlementBankRouter = router({
   update: protectedProcedure
     .input(z.object({
       id: z.string(),
-      data: z.record(z.string(), z.any()),
+      // Explicit field whitelist (matches the admin-gated variant in
+      // wave223_extensions.ts settlementBanks.create) — replaces the previous
+      // mass-assignment z.record(z.string(), z.any()) which could write ANY column.
+      data: z.object({
+        bankName: z.string().optional(),
+        bankCode: z.string().optional(),
+        nipCode: z.string().optional(),
+        swiftCode: z.string().optional(),
+        settlementAccountNumber: z.string().optional(),
+        settlementAccountName: z.string().optional(),
+        contactEmail: z.string().email().optional(),
+        contactPhone: z.string().optional(),
+        isRtgsEnabled: z.boolean().optional(),
+        isNipEnabled: z.boolean().optional(),
+      }),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Platform settlement-bank directory write — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = (await getDb())!;
-      await db.update(settlementBanks)
+      const [row] = await db.update(settlementBanks)
         .set({ ...input.data, updatedAt: new Date() })
-        .where(eq(settlementBanks.id, input.id));
+        .where(eq(settlementBanks.id, input.id))
+        .returning({ id: settlementBanks.id });
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Settlement bank not found" });
       return { success: true };
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Platform settlement-bank directory write — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = (await getDb())!;
       await db.update(settlementBanks)
         .set({ status: "inactive", updatedAt: new Date() })

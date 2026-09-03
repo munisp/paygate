@@ -67,6 +67,14 @@ export const PBAC_POLICIES = {
     actions: ["view", "trigger", "approve", "export"] as const,
     ownerRequired: false,
   },
+  billing: {
+    actions: ["view", "manage"] as const,
+    ownerRequired: false,
+  },
+  chargeback: {
+    actions: ["view", "manage"] as const,
+    ownerRequired: false,
+  },
   fraud_rule: {
     actions: ["view", "create", "update", "delete", "toggle"] as const,
     ownerRequired: false,
@@ -116,6 +124,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view", "create", "update", "delete", "test"],
     virtual_card: ["view", "create", "freeze", "unfreeze", "terminate"],
     settlement: ["view", "trigger", "approve", "export"],
+    billing: ["view", "manage"],
+    chargeback: ["view", "manage"],
     fraud_rule: ["view", "create", "update", "delete", "toggle"],
     compliance_report: ["view", "generate", "export", "archive"],
     team_member: ["view", "invite", "remove", "update_role"],
@@ -134,6 +144,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view", "create", "update", "delete", "test"],
     virtual_card: ["view", "create", "freeze", "unfreeze", "terminate"],
     settlement: ["view", "trigger", "approve", "export"],
+    billing: ["view", "manage"],
+    chargeback: ["view", "manage"],
     fraud_rule: ["view", "create", "update", "delete", "toggle"],
     compliance_report: ["view", "generate", "export", "archive"],
     team_member: ["view", "invite", "remove", "update_role"],
@@ -152,6 +164,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view"],
     virtual_card: ["view", "freeze"],
     settlement: ["view", "trigger", "export"],
+    billing: ["view", "manage"],
+    chargeback: ["view", "manage"],
     fraud_rule: ["view"],
     compliance_report: ["view", "generate", "export"],
     team_member: ["view"],
@@ -170,6 +184,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view"],
     virtual_card: ["view"],
     settlement: ["view", "export"],
+    billing: ["view"],
+    chargeback: ["view"],
     fraud_rule: ["view", "create", "update", "toggle"],
     compliance_report: ["view", "generate", "export", "archive"],
     team_member: ["view"],
@@ -188,6 +204,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view", "create", "update", "delete", "test"],
     virtual_card: ["view"],
     settlement: ["view"],
+    billing: ["view"],
+    chargeback: ["view"],
     fraud_rule: ["view"],
     compliance_report: ["view"],
     team_member: ["view"],
@@ -206,6 +224,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view"],
     virtual_card: ["view"],
     settlement: ["view"],
+    billing: ["view"],
+    chargeback: ["view"],
     fraud_rule: ["view"],
     compliance_report: ["view"],
     team_member: ["view"],
@@ -224,6 +244,8 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     webhook: ["view", "create", "update", "delete", "test"],
     virtual_card: ["view", "create", "freeze", "unfreeze"],
     settlement: ["view"],
+    billing: [],
+    chargeback: [],
     fraud_rule: [],
     compliance_report: [],
     team_member: ["view"],
@@ -503,9 +525,13 @@ export function verifyWebhookSignature(
   signature: string,
   secret: string
 ): boolean {
+  // Fail closed: an unconfigured webhook secret must reject, never permit.
   if (!secret) {
-    logger.warn("[PBAC] Webhook secret not configured — skipping signature verification");
-    return true; // Fail-open if secret not configured (dev mode)
+    logger.error("[PBAC] Webhook secret not configured — rejecting webhook (fail closed)");
+    return false;
+  }
+  if (!signature) {
+    return false;
   }
 
   const body = typeof payload === "string" ? Buffer.from(payload) : payload;
@@ -514,11 +540,15 @@ export function verifyWebhookSignature(
   // Support both "sha256=<hex>" and raw hex formats
   const received = signature.startsWith("sha256=") ? signature.slice(7) : signature;
 
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(received, "hex");
+  // Length mismatch (including truncated/padded signatures) must reject before
+  // timingSafeEqual, which would throw on unequal buffers.
+  if (receivedBuf.length !== expectedBuf.length) {
+    return false;
+  }
   try {
-    return cryptoTimingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(received.padEnd(expected.length, "0"), "hex")
-    );
+    return cryptoTimingSafeEqual(expectedBuf, receivedBuf);
   } catch {
     return false;
   }

@@ -50,8 +50,8 @@ export default function ReconciliationExceptions() {
   const { data: stats, refetch: refetchStats } = trpc.nexthubReconciliation.getStats.useQuery();
 
   const { data, isLoading, refetch } = trpc.nexthubReconciliation.listExceptions.useQuery({
-    page,
-    pageSize: 20,
+    limit: 20,
+    offset: (page - 1) * 20,
     status: statusFilter as any,
     severity: severityFilter as any,
     breakType: breakTypeFilter as any,

@@ -310,14 +310,17 @@ describe("ConsumerLayout: New Nav Items", () => {
 
 // ── 13. Skill: paygate-merchant-portal ──────────────────────────────────────
 
+// STALE CONTRACT: the out-of-repo skills/paygate-merchant-portal/SKILL.md
+// artifact no longer exists; platform docs now live in docs/ inside the
+// repository (same contract as wave131.production-hardening.test.ts).
 describe("Skill: paygate-merchant-portal", () => {
-  it("SKILL.md exists", () => {
-    const p = join(__dirname, "../../skills/paygate-merchant-portal/SKILL.md");
+  it("platform architecture doc exists", () => {
+    const p = join(__dirname, "../docs/ARCHITECTURE.md");
     expect(existsSync(p)).toBe(true);
   });
 
-  it("SKILL.md covers architecture and key files", () => {
-    const p = join(__dirname, "../../skills/paygate-merchant-portal/SKILL.md");
+  it("architecture doc covers architecture and key files", () => {
+    const p = join(__dirname, "../docs/ARCHITECTURE.md");
     const src = readFileSync(p, "utf8");
     expect(src).toContain("TigerBeetle");
     expect(src).toContain("tRPC");

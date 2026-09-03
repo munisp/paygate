@@ -69,6 +69,28 @@ import { wave90Routers } from './wave90Router';
 import { wave99Router } from './wave99Router';
 import { adminDataPipelineRouter } from './wave104Router';
 import { middlewareDashboardRouter } from './routers/middlewareDashboard';
+import { proxyRouter } from './routers/proxy';
+import { insiderThreatRouter } from './routers/insiderThreat';
+import { nexthubBillingRouter } from './routers/nexthubBilling';
+import { nexthubDfspsRouter } from './routers/nexthubDfsps';
+import { nexthubDisputesRouter } from './routers/nexthubDisputes';
+import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
+import { nexthubSecurityRouter } from './routers/nexthubSecurity';
+import { nexthubSettlementRouter } from './routers/nexthubSettlement';
+import { scfRouter, g2pRouter, energyRouter, remittanceRouter, healthcareRouter, cbdcRouter } from './routers/wave211_217';
+import { kycRouter } from './routers/kyc';
+import { mobileMoneyRouter } from './routers/mobileMoney';
+import { mojaloopRouter } from './routers/mojaloop';
+import { terminalRouter } from './routers/terminal';
+import { wave221Router } from './routers/wave221_developer';
+import { wave223Router } from './routers/wave223_onboarding';
+import { wave223ExtRouter } from './routers/wave223_extensions';
+import { wave218Router } from './routers/wave218_enhancements';
+import { sagaWiringRouter } from './routers/wave225_saga';
+import { nipBanksRouter } from './routers/nipBanks';
+import { regulatorAuthRouter } from './routers/regulatorAuth';
+import { regulatorPortalRouter } from './routers/regulatorPortal';
+import { nibssRouter } from './routers/nibss';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -106,7 +128,7 @@ import {
   getDb,
 } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { protectedProcedure, publicProcedure, router, pbacProcedure } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router, pbacProcedure, adminProcedure } from "./_core/trpc";
 import { auditedProcedure } from "./_core/auditMiddleware";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -117,6 +139,7 @@ import {
 import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
+import { demoOrFail } from "./_core/demoData";
 import {
   listGeofenceRules, upsertGeofenceRule, deleteGeofenceRule,
   listSubAgents, upsertSubAgent,
@@ -179,6 +202,7 @@ import {
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
   nipNameEnquiryViaMiddleware,
+  nipInstantDebitViaMiddleware,
   escalateFraudRingViaMiddleware,
 } from "./middlewareBridge";
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
@@ -194,15 +218,47 @@ import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
 import {
-  strRouter,
-  velocityLimitsRouter,
-  interchangeRouter,
-  schemeMembershipRouter,
-  chargebackLifecycleRouter,
-  regulatoryReportsRouter,
+  strRouter as pspStrRouter,
+  velocityLimitsRouter as pspVelocityLimitsRouter,
+  interchangeRouter as pspInterchangeRouter,
+  schemeMembershipRouter as pspSchemeMembershipRouter,
+  chargebackLifecycleRouter as pspChargebackLifecycleRouter,
+  regulatoryReportsRouter as pspRegulatoryReportsRouter,
 } from './routers/psp-production';
+import { strRouter as strOpsRouter } from './routers/str';
+import { velocityLimitsRouter as velocityLimitsOpsRouter } from './routers/velocityLimits';
+import { interchangeRouter as interchangeOpsRouter } from './routers/interchange';
+import { schemeMembershipRouter as schemeMembershipOpsRouter } from './routers/schemeMembership';
+import { regulatoryReportsRouter as regulatoryReportsOpsRouter } from './routers/regulatoryReports';
+import { chargebackLifecycleRouter as chargebackLifecycleOpsRouter } from './routers/chargebackLifecycle';
 import { ecommerceRouter } from './routers/ecommerce';
 import { hostedCheckoutRouter } from './routers/hostedCheckout';
+import { apBillPayRouter } from './routers/apBillPay';
+import { apBillInboxRouter } from './routers/apBillInbox';
+import { apPayOverTimeRouter } from './routers/apPayOverTime';
+import { taxComplianceRouter } from './routers/taxCompliance';
+import { accountingSyncRouter } from './routers/accountingSync';
+import { apApprovalsRouter } from './routers/apApprovals';
+import { apVendorDirectoryRouter } from './routers/apVendorDirectory';
+import { remittanceAdviceRouter } from './routers/remittanceAdvice';
+import { arFeeChoiceRouter } from './routers/arFeeChoice';
+import { arPartialPaymentsRouter } from './routers/arPartialPayments';
+import { apRecurringRouter } from './routers/apRecurring';
+import { apVendorCardsRouter } from './routers/apVendorCards';
+import { apAssistantRouter } from './routers/apAssistant';
+import { syndicationApRouter } from './routers/syndicationAp';
+import { alertSubscriptionsRouter } from './routers/alertSubscriptions';
+// Paystack-parity wave (F-PARITY): REST v1 support, tokenization, refunds, splits, mandates, wallets, requests, recipients, DVA, risk, subscription extras
+import { cardTokenizationRouter } from './routers/cardTokenization';
+import { refundsRouter } from './routers/refunds';
+import { splitEngineRouter } from './routers/splitPayments';
+import { directDebitRouter } from './routers/directDebit';
+import { walletPayRouter } from './routers/walletPay';
+import { paymentRequestsRouter } from './routers/paymentRequests';
+import { transferRecipientsRouter } from './routers/transferRecipients';
+import { dedicatedAccountsRouter } from './routers/dedicatedAccounts';
+import { customerRiskRouter } from './routers/customerRisk';
+import { subscriptionExtrasRouter } from './routers/subscriptionExtras';
 import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -231,6 +287,26 @@ async function resolveUser(openId: string) {
   const user = await getUserByOpenId(openId);
   if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
   return user;
+}
+
+// R4 (spec #7/#9): step-up authentication for sensitive changes. When the
+// user has a passwordHash, the caller MUST present the current password and
+// have it verified (bcrypt, same verifyPassword path as auth.login). Users
+// without a password (pure SSO accounts) are not required to present one.
+async function requireCurrentPassword(
+  user: { passwordHash?: string | null },
+  currentPassword: string | undefined,
+  label: string,
+) {
+  if (!user.passwordHash) return;
+  if (!currentPassword) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: `Current password is required to change ${label}` });
+  }
+  const { verifyPassword } = await import('./securityUtils.js');
+  const { valid } = await verifyPassword(currentPassword, user.passwordHash, process.env.JWT_SECRET ?? "");
+  if (!valid) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect current password" });
+  }
 }
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
@@ -301,7 +377,7 @@ const authRouter = router({
           metadata: { email: input.email },
           ipAddress: ctx.req.ip ?? null,
         });
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, user: { id: user.id, email: user.email, name: user.name } };
     }),
 
@@ -315,6 +391,30 @@ const authRouter = router({
       const { COOKIE_NAME } = await import("../shared/const");
       const { getSessionCookieOptions, ID_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } = await import("./_core/cookies");
       const { ENV } = await import("./_core/env");
+
+      // R4 F6-1 (spec #8): revoke the current session token server-side by
+      // inserting its jti into jwt_revocation_list. The token is read from
+      // the session cookie BEFORE it is cleared; the jti claim exists on
+      // tokens issued after the sdk.ts jti work — tokens without a jti skip
+      // revocation (defensive; verifySession rejects listed jtis).
+      try {
+        const sessionToken = ctx.req.cookies?.[COOKIE_NAME] as string | undefined;
+        if (sessionToken) {
+          const parts = sessionToken.split(".");
+          if (parts.length === 3) {
+            const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { jti?: string; exp?: number };
+            if (claims.jti) {
+              const db = await getDb();
+              if (db) {
+                const jtiExpiresAt = claims.exp ? new Date(claims.exp * 1000) : new Date(Date.now() + 365 * 86400000);
+                await db.execute(sql`INSERT INTO jwt_revocation_list (jti, user_id, expires_at, reason) VALUES (${claims.jti}, ${ctx.user.id ?? null}, ${jtiExpiresAt}, ${'logout'}) ON CONFLICT (jti) DO NOTHING`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        logger.error("[auth] logout jti revocation failed (non-fatal):", e);
+      }
 
       // Clear the portal session cookie
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -347,6 +447,9 @@ const authRouter = router({
     .input(z.object({
       name: z.string().min(1).max(255).optional(),
       email: z.string().email().optional(),
+      // R4 (spec #9): changing the account email is credential-gated — when
+      // the user has a passwordHash the current password must be presented.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { getDb, schema } = await import('./db');
@@ -354,11 +457,51 @@ const authRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const user = await resolveUser(ctx.user.openId);
+      if (input.email) {
+        await requireCurrentPassword(user, input.currentPassword, 'account email');
+      }
       const [updated] = await db.update(schema.users)
         .set({ ...(input.name ? { name: input.name } : {}), ...(input.email ? { email: input.email } : {}), updatedAt: new Date() })
         .where(eq(schema.users.id, user.id))
         .returning();
+      if (input.email) {
+        publishAuditEvent({ action: 'auth.email.changed', userId: ctx.user.openId, targetId: String(user.id), metadata: { userId: user.id }, timestamp: new Date().toISOString() })
+          .catch((e) => logger.error('[audit] publishAuditEvent auth.email.changed failed:', e));
+      }
       return updated;
+    }),
+
+  // R4 F6-2 (spec #8): wire sdk.changeUserPassword. Verifies the current
+  // password (bcrypt), writes the new hash, and revokes the CURRENT session
+  // token's jti (decoded from the session cookie, same as logout) so the old
+  // session dies immediately.
+  changePassword: protectedProcedure
+    .input(z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8).max(128),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const { COOKIE_NAME } = await import("../shared/const");
+      const { changeUserPassword, decodeSessionClaims } = await import("./_core/sdk");
+      const sessionToken = ctx.req.cookies?.[COOKIE_NAME] as string | undefined;
+      const claims = sessionToken ? decodeSessionClaims(sessionToken) : null;
+      try {
+        await changeUserPassword({
+          userId: user.id,
+          currentPassword: input.currentPassword,
+          newPassword: input.newPassword,
+          currentJti: claims?.jti ?? null,
+          currentJtiExpiresAt: claims?.exp ? new Date(claims.exp * 1000) : null,
+        });
+      } catch (e) {
+        // changeUserPassword throws Error with user-safe messages — surface as
+        // BAD_REQUEST (wrong current password / SSO-only account), never 500.
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Password change failed" });
+      }
+      publishAuditEvent({ action: 'auth.password.changed', userId: ctx.user.openId, targetId: String(user.id), metadata: { userId: user.id }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent auth.password.changed failed:', e));
+      return { success: true };
     }),
 });
 
@@ -519,6 +662,10 @@ const transactionsRouter = router({
       retryCount: z.number().min(0).optional(),      // incremented on each retry for audit trail
     }))
     .mutation(async ({ ctx, input }) => {
+      // R4 (spec #13): test-only transaction factory — it inserts 'completed'
+      // transactions without any real payment, so it must not run in
+      // production mode. Gated behind PAYGATE_SIMULATION_MODE=true.
+      demoOrFail({ procedure: "transactions.createTest" }, "transactions.createTest");
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       if (merchant.isLive) {
@@ -612,7 +759,7 @@ const transactionsRouter = router({
           alertType: "velocity_breach",
           riskScore: fraudResult.risk_score,
           description: `Fraud scoring blocked transaction: ${fraudResult.signals.join(", ")}.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[fraud] alert persistence failed:", e));
         throw new TRPCError({
           code: "FORBIDDEN",
           message: `Transaction declined by fraud risk engine (score: ${fraudResult?.risk_score ?? "?"}/100). Signals: ${fraudResult?.signals?.join(", ") ?? "unknown"}.`,
@@ -639,7 +786,7 @@ const transactionsRouter = router({
           } else if (reserveResult && !reserveResult.all_reserved) {
             // Partial reservation — release and block transaction
             if (reserveResult.reservation_id) {
-              rustReleaseInventory(reserveResult.reservation_id).catch(() => {});
+              rustReleaseInventory(reserveResult.reservation_id).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
             }
             throw new TRPCError({
               code: "CONFLICT",
@@ -670,9 +817,18 @@ const transactionsRouter = router({
           if (redeemResult?.ok) {
             redeemedPoints = input.redeemPoints;
             pointsKoboValue = redeemResult.kobo_value;
+          } else {
+            // R4 F12: redemption was explicitly requested but refused — do
+            // NOT silently charge the full amount.
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Loyalty redemption was rejected (insufficient points or invalid request) — not charging" });
           }
         } catch (e) {
-          logger.warn("[loyalty] redemption service unavailable (fail-open):", (e as Error).message);
+          if (e instanceof TRPCError) throw e;
+          // R4 F12: fail CLOSED — the caller explicitly asked to redeem
+          // points; charging full price while the redemption service is down
+          // is a silent overcharge.
+          logger.error("[loyalty] redemption service unavailable — refusing to charge (fail closed):", (e as Error).message);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Loyalty redemption unavailable, not charging" });
         }
       }
 
@@ -711,7 +867,7 @@ const transactionsRouter = router({
         } catch (err) {
           // Transaction creation failed — release any held inventory reservation
           if (inventoryReservationId) {
-            rustReleaseInventory(inventoryReservationId).catch(() => {});
+            rustReleaseInventory(inventoryReservationId).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
           }
           throw err;
         }
@@ -725,7 +881,7 @@ const transactionsRouter = router({
             alertType: "velocity_breach",
             riskScore: fraudResult.risk_score,
             description: `High-risk transaction flagged for review. Signals: ${fraudResult.signals.join(", ")}.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[fraud] alert persistence failed:", e));
         }
         // Auto-earn loyalty points after successful transaction.
         // Rate: 1 point per ₦100 (10,000 kobo). Fail-open: never block the transaction.
@@ -746,7 +902,7 @@ const transactionsRouter = router({
                     ...(tx.metadata as object ?? {}),
                     earnedPoints: pointsToEarn,
                   },
-                }).catch(() => {});
+                }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
 
                 // Tier upgrade notification — check if customer crossed a tier boundary
                 // Fail-open: any error is swallowed
@@ -765,9 +921,9 @@ const transactionsRouter = router({
                     notifyOwner({
                       title: `Customer reached ${crossedTier.name} tier`,
                       content: `Customer ${loyaltyCustomerId} has crossed into the ${crossedTier.name} loyalty tier with ${newBalance.toLocaleString()} points (transaction ${tx.id}).`,
-                    }).catch(() => {});
+                    }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
                   }
-                } catch (_) { /* fail-open */ }
+                } catch (_) { /* fail-open — tier notification is best-effort; earn failure itself is logged by the outer .catch */ }
               }
             }).catch(e => logger.warn("[loyalty] earn failed (non-fatal):", e.message));
           }
@@ -926,6 +1082,64 @@ const customersRouter = router({
 
 // ─── Payouts Router ───────────────────────────────────────────────────────────
 
+/**
+ * Derives a deterministic idempotency key from the merchant + request payload.
+ * P0-7a: when the client does NOT supply an idempotencyKey, payout creation is
+ * still recorded under this hash-derived key, so a network retry of the exact
+ * same payload within 24h replays the original result instead of creating a
+ * second payout. A client that intentionally wants two identical payouts must
+ * pass an explicit, distinct idempotencyKey.
+ */
+function derivePayoutIdempotencyKey(operation: string, merchantId: string, payload: unknown): string {
+  const hash = crypto.createHash("sha256")
+    .update(JSON.stringify({ operation, merchantId, payload }))
+    .digest("hex");
+  return `auto_${operation}_${hash.slice(0, 48)}`;
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __payoutIdempotencyInternals = { derivePayoutIdempotencyKey };
+
+/**
+ * P1-7: maker-checker metadata persisted on the payout record.
+ * The payouts table has no dedicated initiator column, so the initiator (and
+ * the Temporal workflow id, when the bridge is used) are encoded in the
+ * free-text failure_reason column as `workflow:<id>|initiator:<openId>`.
+ * The column is only used for its original purpose once the payout reaches a
+ * terminal state (rejected/failed), at which point the meta is obsolete.
+ */
+function encodePayoutMeta(parts: { workflowId?: string | null; initiatorId?: string | null }): string | undefined {
+  const segs: string[] = [];
+  if (parts.workflowId) segs.push(`workflow:${parts.workflowId}`);
+  if (parts.initiatorId) segs.push(`initiator:${parts.initiatorId}`);
+  return segs.length > 0 ? segs.join("|") : undefined;
+}
+function parsePayoutMeta(failureReason: string | null | undefined): { workflowId?: string; initiatorId?: string } {
+  const out: { workflowId?: string; initiatorId?: string } = {};
+  if (!failureReason) return out;
+  for (const seg of failureReason.split("|")) {
+    if (seg.startsWith("workflow:")) out.workflowId = seg.slice("workflow:".length);
+    else if (seg.startsWith("initiator:")) out.initiatorId = seg.slice("initiator:".length);
+  }
+  return out;
+}
+
+/**
+ * P1-7 maker-checker: throws FORBIDDEN when the approver is the recorded
+ * initiator of the payout. Legacy rows without initiator metadata are allowed
+ * (nothing to compare against).
+ */
+function assertApproverIsNotInitiator(failureReason: string | null | undefined, approverOpenId: string): void {
+  const meta = parsePayoutMeta(failureReason);
+  if (meta.initiatorId && meta.initiatorId === approverOpenId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Separation of duties: the payout initiator cannot approve their own payout",
+    });
+  }
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __payoutMetaInternals = { encodePayoutMeta, parsePayoutMeta, assertApproverIsNotInitiator };
+
 const payoutsRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -957,10 +1171,16 @@ const payoutsRouter = router({
       accountNumber: z.string().optional(),
       accountName: z.string().optional(),
       narration: z.string().optional(),
+      // P0-7a: optional idempotency key. When provided it is honored (replay
+      // returns the original payout; a different payload with the same key is
+      // rejected). When omitted, a deterministic key is derived from the
+      // request hash so exact-payload retries within 24h still dedupe.
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      const execute = async () => {
       const feeAmount = Math.round(input.amount * 0.005);
       const payoutId = nanoid("pyo_");
       const reference = nanoid("PYO_");
@@ -986,6 +1206,8 @@ const payoutsRouter = router({
         narration: input.narration,
         feeAmount,
         status,
+        // P1-7: persist the initiator for maker-checker enforcement on approve.
+        ...(requiresApproval ? { failureReason: encodePayoutMeta({ initiatorId: ctx.user.openId }) } : {}),
       });
 
       // Fire-and-forget Kafka event for downstream consumers
@@ -1003,7 +1225,7 @@ const payoutsRouter = router({
         amount: input.amount,
         currency: input.currency,
         bankName: input.accountName ?? input.bankCode ?? 'Unknown Bank',
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
 
       // If approval required and bridge is available, start Temporal workflow.
       // The workflow handles TigerBeetle reservation, Kafka, Dapr, Fluvio, Lakehouse.
@@ -1023,7 +1245,7 @@ const payoutsRouter = router({
             initiatorId: ctx.user.openId,
           });
           // Store the Temporal workflow ID on the payout record for status polling
-          if (workflowResp) await updatePayout(payoutId, { failureReason: `workflow:${workflowResp.workflowId}` });
+          if (workflowResp) await updatePayout(payoutId, { failureReason: encodePayoutMeta({ workflowId: workflowResp.workflowId, initiatorId: ctx.user.openId }) });
         } catch (bridgeErr) {
           // Non-fatal: payout is already in pending_approval state in DB.
           // The portal UI will show the approval queue; the bridge can be
@@ -1032,8 +1254,33 @@ const payoutsRouter = router({
         }
       }
 
-      publishAuditEvent({ userId: ctx.user?.openId ?? 'unknown', merchantId: merchant.id, action: 'payout.created', resource: 'payout', resourceId: payoutId, result: 'success', metadata: { amount: input.amount, currency: input.currency, status } }).catch(() => {});
+      // Audit on money actions must never vanish silently — log on failure.
+      publishAuditEvent({ userId: ctx.user?.openId ?? 'unknown', merchantId: merchant.id, action: 'payout.created', resource: 'payout', resourceId: payoutId, result: 'success', metadata: { amount: input.amount, currency: input.currency, status } })
+        .catch((e) => logger.error('[audit] publishAuditEvent payout.created failed:', e));
       return payout;
+      };
+
+      // P0-7a: idempotency — pre-check BEFORE executing; on replay return the
+      // original payout. The underlying store uses INSERT ... ON CONFLICT DO
+      // NOTHING, so a same-key race (unique violation) replays the winner's
+      // result instead of double-creating.
+      const idemKey = input.idempotencyKey
+        ?? derivePayoutIdempotencyKey("payouts.create", merchant.id, {
+          amount: input.amount,
+          currency: input.currency,
+          bankCode: input.bankCode ?? null,
+          accountNumber: input.accountNumber ?? null,
+          accountName: input.accountName ?? null,
+          narration: input.narration ?? null,
+        });
+      return withIdempotency({
+        key: idemKey,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        operation: "payouts.create",
+        requestBody: { ...input, idempotencyKey: idemKey },
+        execute,
+      });
     }),
 
   createBulk: pbacProcedure('create_payout')
@@ -1046,10 +1293,14 @@ const payoutsRouter = router({
         accountName: z.string().optional(),
         narration: z.string().optional(),
       })).min(1).max(500),
+      // P0-7a: optional idempotency key for the whole batch (same semantics as
+      // payouts.create; when omitted a hash-derived key dedupes exact retries).
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      const execute = async () => {
       const results: Array<{ index: number; success: boolean; id?: string; error?: string }> = [];
       for (let i = 0; i < input.rows.length; i++) {
         const row = input.rows[i];
@@ -1079,6 +1330,17 @@ const payoutsRouter = router({
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
       return { total: input.rows.length, succeeded, failed, results };
+      };
+      const idemKey = input.idempotencyKey
+        ?? derivePayoutIdempotencyKey("payouts.createBulk", merchant.id, input.rows);
+      return withIdempotency({
+        key: idemKey,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        operation: "payouts.createBulk",
+        requestBody: { ...input, idempotencyKey: idemKey },
+        execute,
+      });
     }),
 
   approve: pbacProcedure('approve_payout')
@@ -1092,6 +1354,10 @@ const payoutsRouter = router({
       const payout = await getPayoutById(input.id);
       if (!payout || payout.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       if (payout.status !== "pending_approval") throw new TRPCError({ code: "BAD_REQUEST", message: "Payout is not awaiting approval" });
+
+      // P1-7 maker-checker (separation of duties): the user who initiated the
+      // payout may not approve it. Applies to both bridge and DB fallback paths.
+      assertApproverIsNotInitiator(payout.failureReason, ctx.user.openId);
 
       // If bridge is available, send Temporal signal which triggers:
       //   TigerBeetle CommitPayout → bank transfer → Kafka payout.approved
@@ -1110,8 +1376,58 @@ const payoutsRouter = router({
         }
       }
 
-      // Fallback: direct DB update (dev/sandbox or bridge unavailable)
-      await updatePayout(input.id, { status: "pending", processedAt: new Date() });
+      // Fallback: direct DB update (dev/sandbox or bridge unavailable).
+      // P1-7: no approval without a fund reservation — atomically reserve
+      // (payout amount + fee) from the merchant's settlement wallet and flip
+      // the status in the SAME transaction. The guarded UPDATE ... WHERE
+      // balance >= total makes the debit TOCTOU-safe under concurrency.
+      const database = await getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { payouts: payoutsTable } = await import("../drizzle/schema");
+      const reserveTotal = (Number(payout.amount) + Number(payout.feeAmount ?? 0)).toFixed(2);
+      await database.transaction(async (tx) => {
+        // Locate the merchant's active settlement wallet for this currency (locked).
+        const walletRes: any = await tx.execute(sql`
+          SELECT id, balance FROM wallets
+          WHERE merchant_id = ${merchant.id}
+            AND currency = ${payout.currency ?? 'NGN'}
+            AND status = 'active'
+          ORDER BY id
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const walletRows: any[] = walletRes?.rows ?? walletRes ?? [];
+        const wallet = walletRows[0];
+        if (!wallet) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `No active settlement wallet in ${payout.currency ?? 'NGN'} for this merchant — funds cannot be reserved, so the payout cannot be approved`,
+          });
+        }
+        // Guarded reservation debit — fails atomically if funds are insufficient.
+        const debitRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric - ${reserveTotal}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id} AND balance::numeric >= ${reserveTotal}::numeric
+          RETURNING balance
+        `);
+        const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+        if (!debitRows[0]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Insufficient settlement wallet balance to reserve ${reserveTotal} ${payout.currency ?? 'NGN'} for this payout`,
+          });
+        }
+        // Conditional status flip: only if still pending_approval (guards
+        // against a concurrent approve/reject racing this transaction).
+        const flipped = await tx.update(payoutsTable)
+          .set({ status: "pending", processedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(payoutsTable.id, input.id), eq(payoutsTable.status, "pending_approval")))
+          .returning({ id: payoutsTable.id });
+        if (flipped.length === 0) {
+          throw new TRPCError({ code: "CONFLICT", message: "Payout status changed concurrently — approval aborted" });
+        }
+      });
       const { logAuditEvent: logPayoutAudit } = await import('./db');
       await logPayoutAudit({
         merchantId: merchant.id,
@@ -1127,7 +1443,7 @@ const payoutsRouter = router({
         payoutId: input.id,
         amount: Number(payout.amount),
         currency: payout.currency ?? 'NGN',
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, via: "db" };
     }),
   reject: auditedProcedure
@@ -1185,11 +1501,20 @@ const payoutsRouter = router({
     .input(z.object({
       payoutApprovalEnabled: z.boolean(),
       payoutApprovalThreshold: z.number().min(100).optional(),
+      // R4 (spec #7): step-up — required when the user has a password set.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, input);
+      await requireCurrentPassword(user, input.currentPassword, 'payout approval settings');
+      const { currentPassword: _pw, ...updates } = input;
+      const result = await updateMerchant(merchant.id, updates);
+      publishAuditEvent({ action: 'payouts.approval_settings.updated', userId: ctx.user.openId, targetId: merchant.id, metadata: { merchantId: merchant.id, payoutApprovalEnabled: input.payoutApprovalEnabled, payoutApprovalThreshold: input.payoutApprovalThreshold ?? null }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent payouts.updateApprovalSettings failed:', e));
+      notifyOwner({ title: 'Payout approval settings updated', content: `Merchant ${merchant.id}: approval ${input.payoutApprovalEnabled ? 'ENABLED' : 'DISABLED'}${input.payoutApprovalThreshold != null ? `, threshold ${input.payoutApprovalThreshold}` : ''} (by ${user.email ?? user.id})` })
+        .catch((e) => logger.error('[notify] notifyOwner payouts.updateApprovalSettings failed:', e));
+      return result;
     }),
 
   batchStatus: protectedProcedure
@@ -1381,6 +1706,22 @@ const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // R4 F6/F7: permissions must come from the known PBAC vocabulary —
+      // the legacy "read"/"write" aliases or "<resource>:<action>" pairs from
+      // PBAC_POLICIES. Arbitrary strings are rejected.
+      if (input.permissions) {
+        const { PBAC_POLICIES } = await import("./pbac");
+        const validPerms = new Set<string>(["read", "write"]);
+        for (const [resource, policy] of Object.entries(PBAC_POLICIES)) {
+          for (const action of policy.actions as readonly string[]) {
+            validPerms.add(`${resource}:${action}`);
+          }
+        }
+        const unknown = input.permissions.filter((p) => !validPerms.has(p));
+        if (unknown.length > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Unknown API key permission(s): ${unknown.join(", ")}. Use "read", "write", or "<resource>:<action>" from the PBAC policy set.` });
+        }
+      }
       const rawKey = `${input.environment === "live" ? "sk_live" : "sk_test"}_${crypto.randomBytes(24).toString("hex")}`;
       const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
       const keyPrefix = rawKey.substring(0, 14);
@@ -1404,7 +1745,7 @@ const apiKeysRouter = router({
         resource: 'api_key',
         resourceId: apiKey.id,
         metadata: { name: input.name, environment: input.environment },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ...apiKey, rawKey };
     }),
 
@@ -1423,8 +1764,8 @@ const apiKeysRouter = router({
         resource: 'api_key',
         resourceId: input.id,
         metadata: {},
-      })).catch(() => {});
-      publishAuditEvent({ action: 'api_key.revoked', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
+      })).catch((e) => logger.error('[audit] logAuditEvent api_key.revoked failed:', e));
+      publishAuditEvent({ action: 'api_key.revoked', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch((e) => logger.error('[audit] publishAuditEvent api_key.revoked failed:', e));
       return { success: true };
     }),
 });
@@ -1472,7 +1813,7 @@ const webhooksRouter = router({
         resource: 'webhook',
         resourceId: (webhook as any).id,
         metadata: { url: input.url, events: input.events },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return webhook;
     }),
 
@@ -1491,8 +1832,8 @@ const webhooksRouter = router({
         resource: 'webhook',
         resourceId: input.id,
         metadata: {},
-      })).catch(() => {});
-      publishAuditEvent({ action: 'webhook.deleted', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
+      })).catch((e) => logger.error('[audit] logAuditEvent webhook.deleted failed:', e));
+      publishAuditEvent({ action: 'webhook.deleted', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch((e) => logger.error('[audit] publishAuditEvent webhook.deleted failed:', e));
       return { success: true };
     }),
 
@@ -1646,7 +1987,7 @@ const disputesRouter = router({
         resource: 'dispute',
         resourceId: input.id,
         metadata: { responseLength: input.merchantResponse.length },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       // Bridge: submit dispute response via Temporal + Kafka + Permify + Lakehouse
       if (isBridgeAvailable()) {
         submitDisputeViaMiddleware({
@@ -1729,7 +2070,7 @@ const disputesRouter = router({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.escalated', resource: 'dispute', resourceId: input.id,
         metadata: { reason: input.reason },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
   accept: auditedProcedure
@@ -1748,7 +2089,7 @@ const disputesRouter = router({
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.accepted', resource: 'dispute', resourceId: input.id, metadata: {},
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
 
@@ -1776,7 +2117,7 @@ const disputesRouter = router({
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'dispute.note_added', resource: 'dispute', resourceId: input.id, metadata: { visibility: input.visibility },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, noteId };
     }),
 
@@ -1895,33 +2236,79 @@ const virtualCardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      const last4 = Math.floor(1000 + Math.random() * 9000).toString();
-      const expYear = new Date().getFullYear() + 3;
       const cardId = nanoid("vcard_");
+      // FAIL LOUD — a virtual card MUST be issued by the real card issuer via
+      // the middleware bridge (Permify auth → TigerBeetle spending-limit
+      // reservation → issuer-assigned masked PAN → Kafka card.issued). Never
+      // generate a random PAN/expiry locally and persist it as an active card:
+      // the number exists nowhere at any issuer (mirrors
+      // consumerCardRouter.issue / virtualCardsMwRouter.issue).
+      if (!isBridgeAvailable()) {
+        // Simulated issuance only when PAYGATE_SIMULATION_MODE=true — the
+        // labelled demo payload is returned to the caller but NEVER persisted
+        // as a real card (no fabricated PAN enters the database).
+        const { demoOrFail } = await import('./_core/demoData');
+        return demoOrFail({
+          id: cardId,
+          merchantId: merchant.id,
+          brand: input.brand,
+          currency: input.currency,
+          spendLimit: input.spendLimit ?? null,
+          label: input.label ?? null,
+          status: 'simulated',
+          maskedPan: null,
+          expiryMonth: null,
+          expiryYear: null,
+          message: 'SIMULATED — card not issued by any issuer and not persisted',
+        }, 'virtualCards.create') as any;
+      }
+      // The issuer reserves the spending limit in TigerBeetle at issuance and
+      // rejects spending_limit=0 — validate up front for a clear error.
+      if (!input.spendLimit || input.spendLimit <= 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'spendLimit is required by the card issuer (spending-limit reservation)' });
+      }
+      const issued = await issueVirtualCardViaMiddleware({
+        cardId,
+        merchantId: merchant.id,
+        currency: input.currency,
+        spendingLimit: input.spendLimit,
+        label: input.label ?? '',
+        issuerId: ctx.user.openId,
+      }).catch((e) => { logger.error('[bridge] issueVirtualCard failed:', e); return null; });
+      // The issuer's idempotent-replay placeholder ("****-****-****-****") is
+      // not a real PAN — never persist it.
+      if (!issued || !issued.maskedPan || issued.maskedPan.includes('****-****-****-****')) {
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Virtual card issuance is temporarily unavailable (card issuer unreachable). Please try again later.',
+        });
+      }
+      if (issued.status !== 'active') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Card issuer did not confirm issuance (status: ${issued.status ?? 'unknown'}) — card not created`,
+        });
+      }
+      // Persist ONLY issuer-confirmed data. The issuer does not return an
+      // expiry and the schema columns are NOT NULL, so 0/0 is stored as an
+      // explicit "expiry pending from issuer" sentinel — never a fabricated
+      // plausible date. (Follow-up: make expiry_month/expiry_year nullable and
+      // backfill from the issuer webhook.)
       const card = await createVirtualCard({
         id: cardId,
         merchantId: merchant.id,
         tenantId: merchant.tenantId ?? "ten_default",
-        maskedPan: `4111 **** **** ${last4}`,
+        maskedPan: issued.maskedPan,
         brand: input.brand,
-        expiryMonth: 12,
-        expiryYear: expYear,
+        expiryMonth: 0,
+        expiryYear: 0,
         currency: input.currency,
         spendLimit: input.spendLimit,
         label: input.label,
       });
-      // Bridge: issue virtual card via Kafka + Permify + Lakehouse
-      if (isBridgeAvailable()) {
-        issueVirtualCardViaMiddleware({
-          cardId,
-          merchantId: merchant.id,
-          currency: input.currency,
-          spendingLimit: input.spendLimit ?? 0,
-          label: input.label ?? '',
-          issuerId: ctx.user.openId,
-        }).catch(e => logger.error('[bridge] issueVirtualCard failed (non-fatal):', e));
-      }
-      publishAuditEvent({ action: 'virtual_card.created', userId: ctx.user.openId, targetId: cardId, metadata: { merchantId: merchant.id, currency: input.currency, brand: input.brand }, timestamp: new Date().toISOString() }).catch(() => {});
+      // Audit on money-adjacent actions must never vanish silently.
+      publishAuditEvent({ action: 'virtual_card.created', userId: ctx.user.openId, targetId: cardId, metadata: { merchantId: merchant.id, currency: input.currency, brand: input.brand }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent virtual_card.created failed:', e));
       return card;
     }),
 
@@ -1953,8 +2340,82 @@ const virtualCardsRouter = router({
       const card = await getVirtualCardById(input.id);
       if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       if (card.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Card must be active to top up" });
-      const newBalance = Number(card.balance ?? 0) + input.amount;
-      await updateVirtualCard(input.id, { balance: newBalance });
+      // Card balance is stored in whole units (bigint column).
+      const creditUnits = Math.round(input.amount);
+      if (creditUnits <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Amount too small" });
+
+      // Funded top-up only: the merchant's settlement wallet in the card
+      // currency is debited (guarded, TOCTOU-safe) and the card balance is
+      // credited with a blind atomic increment — both in ONE transaction, so
+      // an unbacked card credit is impossible. The wallet ledger row carries
+      // a unique reference per top-up.
+      const database = await getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const debitAmount = creditUnits.toFixed(2);
+      const topUpRef = `VCARD-TOPUP-${input.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const newBalance = await database.transaction(async (tx) => {
+        // Lock + locate the merchant's active settlement wallet for the card currency.
+        const walletRes: any = await tx.execute(sql`
+          SELECT id, balance, tenant_id AS "tenantId" FROM wallets
+          WHERE merchant_id = ${merchant.id}
+            AND currency = ${card.currency}
+            AND status = 'active'
+          ORDER BY id
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const walletRows: any[] = walletRes?.rows ?? walletRes ?? [];
+        const wallet = walletRows[0];
+        if (!wallet) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `No active settlement wallet in ${card.currency} — card top-up requires a funded wallet`,
+          });
+        }
+        // Guarded debit — the balance check happens under the row lock.
+        const debitRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric - ${debitAmount}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id} AND balance::numeric >= ${debitAmount}::numeric
+          RETURNING balance
+        `);
+        const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+        if (!debitRows[0]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Insufficient settlement wallet balance to fund this card top-up (${debitAmount} ${card.currency})`,
+          });
+        }
+        // Atomic blind increment on the card (no read-modify-write).
+        const creditRes: any = await tx.execute(sql`
+          UPDATE virtual_cards
+          SET balance = balance + ${creditUnits}, updated_at = now()
+          WHERE id = ${card.id} AND merchant_id = ${merchant.id} AND status = 'active'
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Card credit failed" });
+        }
+        // Wallet ledger row for the funding debit.
+        const { walletTransactions } = await import("../drizzle/schema");
+        await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId ?? card.tenantId,
+          type: "debit",
+          amount: debitAmount,
+          currency: card.currency,
+          balanceBefore: String(wallet.balance),
+          balanceAfter: String(debitRows[0].balance),
+          description: `Virtual card top-up (${card.maskedPan})`,
+          reference: topUpRef,
+          channel: "virtual_card",
+          counterpartyId: card.id,
+          status: "completed",
+        }).returning();
+        return Number(creditRows[0].balance);
+      });
+      publishAuditEvent({ action: 'virtual_card.topped_up', userId: ctx.user.openId, targetId: card.id, metadata: { merchantId: merchant.id, amount: creditUnits, currency: card.currency, reference: topUpRef }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, newBalance };
     }),
 
@@ -2016,7 +2477,7 @@ const paymentLinksRouter = router({
           creatorId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] createPaymentLink failed (non-fatal):', e));
       }
-      publishAuditEvent({ action: 'payment_link.created', userId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'payment_link.created', userId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return link;
     }),
 
@@ -2119,7 +2580,7 @@ const teamRouter = router({
         resource: 'team_member',
         resourceId: String((member as any).id ?? ''),
         metadata: { email: input.email, role: input.role },
-      })).catch(() => {});
+      })).catch((e) => logger.error('[audit] logAuditEvent team.member_invited failed:', e));
       // Send invite email
       const { ENV: envConfig } = await import('./_core/env');
       const portalUrl = envConfig.merchantPortalUrl ?? 'https://app.paygate.ng';
@@ -2133,7 +2594,7 @@ const teamRouter = router({
           inviteUrl,
         });
         return sendEmail({ to: input.email, ...tpl });
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ...member as any, inviteUrl };
     }),
 
@@ -2152,7 +2613,7 @@ const teamRouter = router({
         resource: 'team_member',
         resourceId: String(input.id),
         metadata: {},
-      })).catch(() => {});
+      })).catch((e) => logger.error('[audit] logAuditEvent team.member_removed failed:', e));
           return { success: true };
     }),
   updateRole: protectedProcedure
@@ -2179,7 +2640,7 @@ const teamRouter = router({
         resource: 'team_member',
         resourceId: String(input.id),
         metadata: { newRole: input.role },
-      })).catch(() => {});
+      })).catch((e) => logger.error('[audit] logAuditEvent team.role_updated failed:', e));
       return updated;
     }),
   acceptInvite: publicProcedure
@@ -2235,7 +2696,7 @@ const settingsRouter = router({
         resource: 'merchant',
         resourceId: merchant.id,
         metadata: { fields: Object.keys(input) },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return updated;
     }),
 
@@ -2271,11 +2732,22 @@ const settingsRouter = router({
       settlementBankCode: z.string().optional().nullable(),
       settlementAccountNumber: z.string().optional().nullable(),
       settlementAccountName: z.string().optional().nullable(),
+      // R4 (spec #7): step-up — required when the user has a password set.
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, input);
+      // Settlement account / schedule changes redirect the merchant's payout
+      // destination — credential step-up is mandatory when a password exists.
+      await requireCurrentPassword(user, input.currentPassword, 'settlement schedule or settlement account');
+      const { currentPassword: _pw, ...updates } = input;
+      const result = await updateMerchant(merchant.id, updates);
+      publishAuditEvent({ action: 'settlement.schedule.updated', userId: ctx.user.openId, targetId: merchant.id, metadata: { merchantId: merchant.id, settlementFrequency: input.settlementFrequency ?? null, accountChanged: !!(input.settlementBankCode || input.settlementAccountNumber || input.settlementAccountName) }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent settings.updateSettlementSchedule failed:', e));
+      notifyOwner({ title: 'Settlement schedule / account updated', content: `Merchant ${merchant.id} settlement configuration was changed (by ${user.email ?? user.id}). If this was not you, contact support immediately.` })
+        .catch((e) => logger.error('[notify] notifyOwner settings.updateSettlementSchedule failed:', e));
+      return result;
     }),
 
   // Update the merchant-level default soundbox language (en | yo | ha | ig)
@@ -2542,14 +3014,14 @@ const merchantAnalyticsRouter = router({
       if (input.groupBy === 'rail') {
         const rows = await db
           .select({
-            rail: interchangeFeeRecords.rail,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            rail: interchangeFeeRecords.scheme,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
           .where(baseWhere)
-          .groupBy(interchangeFeeRecords.rail);
+          .groupBy(interchangeFeeRecords.scheme);
         const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
         const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
         return { groupBy: 'rail', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
@@ -2559,8 +3031,8 @@ const merchantAnalyticsRouter = router({
         const rows = await db
           .select({
             cardType: interchangeFeeRecords.cardType,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
@@ -2571,16 +3043,16 @@ const merchantAnalyticsRouter = router({
         return { groupBy: 'cardType', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
       }
 
-      // day or month grouping — use DATE_FORMAT for MySQL-compatible syntax
+      // day or month grouping — Postgres to_char (not MySQL date_format)
       const truncFn = input.groupBy === 'month'
-        ? drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m')`
-        : drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m-%d')`;
+        ? drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM')`
+        : drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM-DD')`;
 
       const rows = await db
         .select({
           period: truncFn,
-          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
           txnCount: drizzleSql<number>`count(*)`,
         })
         .from(interchangeFeeRecords)
@@ -2613,13 +3085,13 @@ const merchantAnalyticsRouter = router({
       const [strBacklog, recentBreaches, activeSchemes] = await Promise.all([
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(strRecords)
-          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.status, 'pending'))),
+          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.submissionStatus, 'pending'))),
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(velocityBreaches)
           .where(drizzleAnd(drizzleEq(velocityBreaches.merchantId, merchant.id), drizzleGte(velocityBreaches.createdAt, since24h))),
         db.select({ scheme: schemeMemberships.scheme, status: schemeMemberships.status })
           .from(schemeMemberships)
-          .where(drizzleEq(schemeMemberships.merchantId, merchant.id)),
+          .where(drizzleEq(schemeMemberships.memberId, merchant.id)),
       ]);
 
       return {
@@ -2631,10 +3103,17 @@ const merchantAnalyticsRouter = router({
     }),
 });
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
-const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
-const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
+const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
 
 async function bridgeFetch(path: string, method: string, body?: unknown) {
+  // R4 (spec #16): no default internal key — when MIDDLEWARE_INTERNAL_KEY is
+  // unset we must not authenticate with a known-default credential. Fail
+  // closed: log and return null (callers treat null as "bridge unreachable").
+  if (!BRIDGE_KEY) {
+    logger.error("[Bridge] MIDDLEWARE_INTERNAL_KEY is not set — refusing to call middleware bridge (fail closed)");
+    return null;
+  }
   try {
     const res = await fetch(`${BRIDGE_URL}${path}`, {
       method,
@@ -2654,6 +3133,47 @@ async function bridgeFetch(path: string, method: string, body?: unknown) {
     // Bridge not running — degrade gracefully
     logger.warn("[Bridge] Unavailable:", e.message);
     return null;
+  }
+}
+
+/**
+ * Call a rail endpoint on the middleware bridge and FAIL LOUD when the rail
+ * cannot be reached. Unlike bridgeFetch (which degrades to null), rail
+ * procedures must never fall back to fabricated quotes or identities.
+ */
+async function railBridgeCall(path: string, method: "GET" | "POST", body: unknown, rail: string) {
+  let result: unknown = null;
+  try {
+    result = await bridgeFetch(path, method, body);
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: ${e?.message ?? "middleware bridge error"}` });
+  }
+  if (result == null) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: middleware bridge unreachable` });
+  }
+  return result;
+}
+
+/**
+ * Request a live FX quote directly from a rail gateway. FAILS LOUD
+ * (SERVICE_UNAVAILABLE) when the gateway is unconfigured or unreachable —
+ * hardcoded rates must never be served as quotes.
+ */
+async function railGatewayQuote(gatewayUrl: string, apiKey: string, rail: string, payload: Record<string, unknown>) {
+  if (!gatewayUrl) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway is not configured — live quote unavailable` });
+  }
+  try {
+    const resp = await fetch(`${gatewayUrl}/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) throw new Error(`gateway responded HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway unreachable — live quote unavailable (${e?.message ?? "error"})` });
   }
 }
 
@@ -2783,7 +3303,7 @@ const middlewareRouter = router({
       .input(z.object({ clientId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const result = await bridgeFetch(`/v1/auth/keycloak/clients/${input.clientId}/secret`, 'POST', {});
-        publishAuditEvent({ action: 'webhook.secret.rotated', userId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch(() => {});
+        publishAuditEvent({ action: 'webhook.secret.rotated', userId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         if (!result) return { rotated: false, fallback: true, newSecret: null };
         return { rotated: true, newSecret: (result as any).value ?? null };
       }),
@@ -2906,22 +3426,22 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        const since = new Date(Date.now() - input.loginAnomalyWindowMinutes * 60 * 1000);
+        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
         const events = await getKeycloakEvents({
           limit: 1000,
           eventType: "LOGIN_ERROR",
           fromDate: since,
         });
         const count = events.length;
-        const exceeded = count >= input.loginAnomalyThreshold;
+        const exceeded = count >= input.threshold;
         if (exceeded) {
           const { notifyOwner } = await import("./_core/notification");
           await notifyOwner({
             title: "⚠️ Auth Anomaly Detected",
-            content: `${count} login failures in the last ${input.loginAnomalyWindowMinutes} minutes (threshold: ${input.loginAnomalyThreshold}). Check /security/auth-events for details.`,
+            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
           });
         }
-        return { count, exceeded, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold, since };
+        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
       }),
 
     // ── Active Keycloak sessions list (admin) ──
@@ -3001,17 +3521,17 @@ const middlewareRouter = router({
         const user = await resolveUser(ctx.user.openId);
         // Get old values for audit log
         const oldConfig = await getAnomalyConfig(user.id);
-        await setAnomalyConfig(user.id, input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
         // Record audit entry
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: false,
           oldWindowMinutes: oldConfig.loginAnomalyWindowMinutes,
           oldThreshold: oldConfig.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
-        return { ok: true, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold };
+        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
       }),
 
     // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
@@ -3045,15 +3565,15 @@ const middlewareRouter = router({
         }
                 // Get old global config for audit log
         const oldGlobal = await getGlobalAnomalyConfig();
-        await setGlobalAnomalyConfig(input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
         const user = await resolveUser(ctx.user.openId);
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: true,
           oldWindowMinutes: oldGlobal.loginAnomalyWindowMinutes,
           oldThreshold: oldGlobal.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
         return { ok: true };
       }),
@@ -3214,7 +3734,7 @@ const fraudRiskRouter = router({
         await notifyOwner({
           title: `Fraud Alert Escalated`,
           content: `Alert ${input.id} has been escalated to investigating status by ${ctx.user.openId}.`,
-        }).catch(() => {}); // non-blocking
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e)); // non-blocking
       }
       return { success: true };
     }),
@@ -3261,7 +3781,7 @@ const fraudRiskRouter = router({
         await notifyOwner({
           title: `🚨 High-Risk Fraud Alert (score: ${input.riskScore})`,
           content: `New ${input.alertType} fraud alert created with risk score ${input.riskScore}${input.description ? ': ' + input.description : ''}.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
       // Broadcast to SSE fraud alert clients
       try {
@@ -3397,8 +3917,17 @@ const fraudRiskRouter = router({
     }),
   // Seed realistic demo fraud alerts for first-time dashboard population.
   // Only inserts when the merchant has fewer than 3 existing alerts.
-  seedDemoAlerts: protectedProcedure
+  // ADMIN-ONLY + explicit env opt-in: seeds FABRICATED fraud alerts. Any
+  // authenticated merchant being able to inject fake fraud signals into the
+  // alerts feed would corrupt risk dashboards and downstream ML features.
+  seedDemoAlerts: adminProcedure
     .mutation(async ({ ctx }) => {
+      if (process.env.ALLOW_DEMO_SEED !== 'true') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Demo alert seeding is disabled. Set ALLOW_DEMO_SEED=true to enable (never in production).',
+        });
+      }
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
@@ -3408,20 +3937,41 @@ const fraudRiskRouter = router({
       const existing = await db.select().from(fraudAlerts).where(dEq(fraudAlerts.merchantId, merchant.id)).limit(3);
       if (existing.length >= 3) return { seeded: 0, message: 'Already has alerts' };
       const DEMO_ALERTS = [
-        { riskScore: 92, riskLevel: 'high' as const, alertType: 'card_testing', description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionId: `TXN-DEMO-${Date.now()}-1`, transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
-        { riskScore: 78, riskLevel: 'high' as const, alertType: 'account_takeover', description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionId: `TXN-DEMO-${Date.now()}-2`, transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
-        { riskScore: 65, riskLevel: 'medium' as const, alertType: 'velocity_breach', description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionId: `TXN-DEMO-${Date.now()}-3`, transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
-        { riskScore: 88, riskLevel: 'high' as const, alertType: 'synthetic_identity', description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionId: `TXN-DEMO-${Date.now()}-4`, transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
-        { riskScore: 45, riskLevel: 'low' as const, alertType: 'unusual_pattern', description: 'Transaction amount 3× above customer average — flagged for review', transactionId: `TXN-DEMO-${Date.now()}-5`, transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
+        { riskScore: 92, alertType: 'card_testing' as const, description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
+        { riskScore: 78, alertType: 'account_takeover' as const, description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
+        { riskScore: 65, alertType: 'velocity_breach' as const, description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
+        { riskScore: 88, alertType: 'identity_mismatch' as const, description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
+        { riskScore: 45, alertType: 'unusual_location' as const, description: 'Transaction from unusual location (Ibadan, NG) at 3× customer average amount — flagged for review', transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
       ];
       let seeded = 0;
       for (const alert of DEMO_ALERTS) {
         try {
-          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id });
+          await db.insert(fraudAlerts).values({
+            id: `FA-DEMO-${Date.now()}-${seeded + 1}`,
+            tenantId: merchant.tenantId ?? 'ten_default',
+            merchantId: merchant.id,
+            transactionId: null, // demo alerts are never linked to real transactions
+            alertType: alert.alertType,
+            status: alert.status,
+            riskScore: alert.riskScore,
+            description: `[DEMO] ${alert.description}`,
+            // Tagged as demo so downstream consumers can filter them out.
+            metadata: {
+              demo: true,
+              isDemo: true,
+              transactionAmount: alert.transactionAmount,
+              transactionCurrency: alert.transactionCurrency,
+              customerEmail: alert.customerEmail,
+              customerIp: alert.customerIp,
+              deviceFingerprint: alert.deviceFingerprint,
+              location: alert.location,
+            },
+            resolvedAt: alert.status === 'resolved' ? new Date() : null,
+          });
           seeded++;
         } catch { /* skip duplicates */ }
       }
-      return { seeded, message: `Seeded ${seeded} demo fraud alerts` };
+      return { seeded, message: `Seeded ${seeded} demo fraud alerts (tagged metadata.demo=true)` };
     }),
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
@@ -3596,7 +4146,7 @@ const complianceKycRouter = router({
               signal: AbortSignal.timeout(10000),
             });
             if (bvnResp.ok) {
-              const bvnResult = await bvnResp.json();
+              const bvnResult = await bvnResp.json() as any;
               update.bvnMatchScore = bvnResult.match_score ?? null;
               update.bvnVerifiedAt = new Date();
               update.bvnVerificationStatus = bvnResult.status ?? 'not_found'; // 'matched'|'mismatch'|'not_found'
@@ -3677,7 +4227,7 @@ const complianceKycRouter = router({
                 title: 'KYC Duplicate Identity Detected',
                 content: `Submission ${input.id} shares a face embedding with ${searchResult.closest_match_id} ` +
                   `(distance: ${searchResult.distance?.toFixed(3)}). Manual review required.`,
-              }).catch(() => {});
+              }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
             }
           } catch (e: any) {
             logger.warn(`[kyc.updateStatus] DeepFace embedding registration failed (non-fatal): ${e.message}`);
@@ -3705,7 +4255,7 @@ const complianceKycRouter = router({
           content: `KYC submission ${input.id} has been ${input.status}${
             input.rejectionReason ? `: ${input.rejectionReason}` : ''
           }.`,
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
       return { success: true };
     }),
@@ -3721,7 +4271,7 @@ const complianceKycRouter = router({
         merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
         action: 'fraudModel.promoted', resource: 'fraud_model', resourceId: input.modelName,
         metadata: { version: input.version ?? 'latest' },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       await notifyOwner({
         title: `Fraud Model Promoted: ${input.modelName}`,
         content: `Model "${input.modelName}" (v${input.version ?? 'latest'}) promoted to production by ${user.email ?? user.openId}.`,
@@ -3758,7 +4308,7 @@ const complianceKycRouter = router({
           signal: AbortSignal.timeout(60000),
         });
         if (!resp.ok) throw new Error(`OCR service error: ${resp.status}`);
-        const result = await resp.json();
+        const result = await resp.json() as any;
         await updateKycSubmission(input.submissionId, merchant.id, { status: 'under_review' });
         logger.info(`[kyc.extractDocument] sub=${input.submissionId} confidence=${result.overall_confidence ?? result.confidence}`);
         return result;
@@ -3903,7 +4453,7 @@ const complianceKycRouter = router({
             signal: AbortSignal.timeout(30000),
           });
           if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
-          const result = await resp.json();
+          const result = await resp.json() as any;
           livenessScore = result.liveness_score ?? 0;
           adaptedDecision =
             result.decision === 'real' && livenessScore < adaptiveThreshold
@@ -3931,7 +4481,7 @@ const complianceKycRouter = router({
         if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
+            rejectionReason: `Liveness check failed: ${(result as any)?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -4421,7 +4971,7 @@ const bnplRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch(() => {});
+      notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true };
     }),
 
@@ -4430,7 +4980,12 @@ const bnplRouter = router({
       loanId: z.string(),
       amount: z.number().positive(),
       method: z.enum(['card', 'bank_transfer', 'wallet', 'cash']).default('bank_transfer'),
-      reference: z.string().optional(),
+      // R4 F4-11: REQUIRED — this records an externally-received repayment, so
+      // a real payment reference must exist; otherwise the write is unbacked
+      // value fabrication.
+      paymentReference: z.string().min(4).max(128),
+      // R4 F4-11: REQUIRED — replay-safe recording of an external payment.
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -4439,19 +4994,35 @@ const bnplRouter = router({
       const { bnplLoans } = await import('../drizzle/schema');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
-      const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
-      if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
-      const newPaid = Number(loan.paidAmount ?? 0) + input.amount;
-      const remaining = Number(loan.principalAmount) - newPaid;
-      const newStatus = remaining <= 0 ? 'paid' : 'active';
-      const nextPaymentAt = remaining > 0 ? new Date(Date.now() + 30 * 86400000) : null;
-      await db.update(bnplLoans).set({
-        paidAmount: newPaid,
-        status: newStatus,
-        nextPaymentAt: nextPaymentAt ?? undefined,
-        updatedAt: new Date(),
-      }).where(eq(bnplLoans.id, input.loanId));
-      return { success: true, newPaid, remaining: Math.max(0, remaining), status: newStatus };
+      const execute = async () => db.transaction(async (tx) => {
+        // R4 F4-11: read-modify-write moved inside ONE transaction; the
+        // guarded UPDATE (id + merchant + still-repayable status in the WHERE
+        // clause) is the authority, not the earlier read.
+        const [loan] = await tx.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
+        if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
+        if (loan.status === 'paid' || loan.status === 'cancelled') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `Loan is already ${loan.status} — no repayment can be recorded` });
+        }
+        const newPaid = Number(loan.paidAmount ?? 0) + input.amount;
+        const remaining = Number(loan.principalAmount) - newPaid;
+        const newStatus = remaining <= 0 ? 'paid' : 'active';
+        const nextPaymentAt = remaining > 0 ? new Date(Date.now() + 30 * 86400000) : null;
+        const updated = await tx.update(bnplLoans).set({
+          paidAmount: newPaid,
+          status: newStatus,
+          nextPaymentAt: nextPaymentAt ?? undefined,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(bnplLoans.id, input.loanId),
+          eq(bnplLoans.merchantId, merchant.id),
+          sql`${bnplLoans.status} NOT IN ('paid', 'cancelled')`,
+        )).returning({ id: bnplLoans.id });
+        if (!updated[0]) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Loan status changed concurrently — retry the repayment' });
+        }
+        return { success: true, newPaid, remaining: Math.max(0, remaining), status: newStatus, paymentReference: input.paymentReference };
+      });
+      return withIdempotency({ key: input.idempotencyKey, merchantId: merchant.id, operation: 'bnpl.recordRepayment', requestBody: input, execute });
     }),
 
   getLoan: protectedProcedure
@@ -4499,7 +5070,7 @@ const bnplRouter = router({
       notifyOwner({
         title: 'BNPL Loan Restructured',
         content: `Loan ${input.loanId} restructured to ${input.newTenureMonths} months. Reason: ${input.reason}`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, newMonthlyInstalment: monthlyInstalment, newMaturityDate, remaining };
     }),
 });
@@ -4598,7 +5169,7 @@ const mobileMoneyReconRouter = router({
         resource: 'mobile_money_recon',
         resourceId: merchant.id,
         metadata: { ids: input.ids, reconciled },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, reconciled, total: input.ids.length };
     }),
 });
@@ -4769,7 +5340,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const { upsertFxAlert } = await import('./db');
       const pair = `${input.baseCurrency}/${input.targetCurrency}`;
-      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.loginAnomalyThreshold });
+      const alert = await upsertFxAlert({ merchantId: merchant.id, pair, direction: input.direction, threshold: input.threshold });
       return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
@@ -4783,7 +5354,13 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const rates = await getLatestFxRates(input.fromCurrency);
       const targetRate = rates.find(r => r.targetCurrency === input.toCurrency);
-      const rate = targetRate ? parseFloat(targetRate.rate) : 1;
+      // R4 F13 (spec #20): fail loud when no stored rate exists for the pair —
+      // a silent 1:1 fallback with a real 0.8% fee is a fabricated conversion
+      // (mirrors the crossBorder.getQuote polarity).
+      if (!targetRate) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `FX rate not available for ${input.fromCurrency}/${input.toCurrency}` });
+      }
+      const rate = parseFloat(targetRate.rate);
       const convertedAmount = input.amount * rate;
       const fee = input.amount * 0.008;
       const conversionId = nanoid('fxconv_');
@@ -4808,7 +5385,7 @@ const fxRouter = router({
         resource: 'fx_conversion',
         resourceId: conversionId,
         metadata: { fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, conversionId, fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee };
     }),
   savePreferences: protectedProcedure
@@ -4849,7 +5426,7 @@ const fxRouter = router({
       if (triggered.length > 0) {
         await notifyOwner({
           title: `FX Rate Alert Triggered (${triggered.length})`,
-          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.loginAnomalyThreshold})`).join("\n"),
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
         });
       }
       return { triggered, checkedAt: new Date().toISOString() };
@@ -4946,94 +5523,382 @@ const walletRouter = router({
       amount: z.number().positive(),
       currency: z.string().default("NGN"),
       note: z.string().optional(),
-      idempotencyKey: z.string().min(8).optional(),
+      // R4 (spec #6): REQUIRED — a wallet transfer without an idempotency key
+      // cannot be made retry-safe; the raw-execute bypass is removed.
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletByUserId, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
       const senderWallet = await getOrCreateWallet(String(ctx.user.id));
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const execute = async () => {
-        const balance = parseFloat(senderWallet.balance);
-        if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
-        const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-        const newBalance = (balance - input.amount).toFixed(2);
-        await updateWalletBalance(senderWallet.id, newBalance);
-        const tx = await createWalletTransaction({
-          walletId: senderWallet.id,
-          tenantId: "ten_default",
-          type: "debit",
-          amount: String(input.amount),
-          currency: input.currency,
-          balanceBefore: String(balance),
-          balanceAfter: newBalance,
-          description: input.note ?? `Transfer to ${input.recipientId}`,
-          reference: ref,
-          channel: "p2p",
-          counterpartyId: input.recipientId,
-          status: "completed",
-        });
-        // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse
-        if (isBridgeAvailable()) {
-          p2pTransferViaMiddleware({
-            transferId: ref,
-            senderWalletId: String(senderWallet.id),
-            receiverWalletId: input.recipientId,
-            senderUserId: ctx.user.openId,
-            receiverUserId: input.recipientId,
-            amount: Number(input.amount),
-            currency: input.currency,
-            narration: input.note ?? '',
-          }).catch(e => logger.error('[bridge] p2pTransfer failed (non-fatal):', e));
+        const amount = input.amount.toFixed(2);
+        // Idempotent reference: the idempotency key is REQUIRED (see input
+        // schema), so retries with the same key reuse the same reference.
+        const ref = `P2P-${input.idempotencyKey}`;
+        // wallet_transactions is UNIQUE (tenant_id, reference) — the two
+        // double-entry legs therefore get per-leg references derived from the
+        // shared group reference. Replay lookups key off the debit leg.
+        const debitRef = `${ref}:debit`;
+        const creditRef = `${ref}:credit`;
+        // Idempotency pre-check: if this reference was already processed, replay.
+        const existing = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
+        if (existing) {
+          return { success: true, reference: ref, transaction: existing, idempotentReplay: true };
         }
-        return { success: true, reference: ref, transaction: tx };
+        // Recipient wallet must exist in the same currency (create if first use).
+        const recipientWallet = await getWalletByUserId(input.recipientId, input.currency)
+          ?? await getOrCreateWallet(input.recipientId, senderWallet.tenantId, input.currency);
+        if (!recipientWallet) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Recipient wallet not found" });
+        }
+        if (recipientWallet.id === senderWallet.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer to your own wallet" });
+        }
+        if (recipientWallet.currency !== senderWallet.currency) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Currency mismatch between sender and recipient wallets" });
+        }
+
+        // Single atomic transaction: guarded sender debit (TOCTOU-safe),
+        // recipient credit, and double-entry ledger rows.
+        const result = await database.transaction(async (tx) => {
+          // Guarded debit — the balance check happens under the row lock.
+          const debitRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric - ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${senderWallet.id} AND balance::numeric >= ${amount}::numeric
+            RETURNING balance
+          `);
+          const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+          if (!debitRows[0]) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+          }
+          const senderBalanceAfter = String(debitRows[0].balance);
+
+          const creditRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric + ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${recipientWallet.id}
+            RETURNING balance
+          `);
+          const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+          if (!creditRows[0]) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Recipient wallet credit failed" });
+          }
+          const recipientBalanceAfter = String(creditRows[0].balance);
+
+          // Double-entry ledger: one debit leg + one credit leg, grouped by the
+          // shared transfer reference via per-leg suffixed references (the
+          // (tenant_id, reference) unique constraint forbids identical refs).
+          const { walletTransactions } = await import("../drizzle/schema");
+          const [debitLeg] = await tx.insert(walletTransactions).values({
+            walletId: senderWallet.id,
+            tenantId: senderWallet.tenantId,
+            type: "debit",
+            amount,
+            currency: input.currency,
+            balanceBefore: senderWallet.balance,
+            balanceAfter: senderBalanceAfter,
+            description: input.note ?? `Transfer to ${input.recipientId}`,
+            reference: debitRef,
+            channel: "p2p",
+            counterpartyId: input.recipientId,
+            status: "completed",
+          }).returning();
+          await tx.insert(walletTransactions).values({
+            walletId: recipientWallet.id,
+            tenantId: recipientWallet.tenantId,
+            type: "credit",
+            amount,
+            currency: input.currency,
+            balanceBefore: recipientWallet.balance,
+            balanceAfter: recipientBalanceAfter,
+            description: input.note ?? `Transfer from ${ctx.user.openId}`,
+            reference: creditRef,
+            channel: "p2p",
+            counterpartyId: String(ctx.user.id),
+            status: "completed",
+          }).returning();
+          return debitLeg;
+        }).catch(async (err: any) => {
+          // Unique-violation on (tenant_id, reference) → concurrent replay.
+          if (err?.code === "23505") {
+            const prior = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
+            if (prior) return { replay: prior } as const;
+          }
+          throw err;
+        });
+
+        if ("replay" in (result as any)) {
+          return { success: true, reference: ref, transaction: (result as any).replay, idempotentReplay: true };
+        }
+
+        // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse.
+        // S15b: the PG money legs are already committed above — the bridge
+        // replication MUST NOT be fire-and-forget. Await it; on failure log a
+        // loud RECONCILIATION REQUIRED signal with full context so ops can
+        // reconcile TigerBeetle against Postgres (never silently swallowed).
+        if (isBridgeAvailable()) {
+          try {
+            await p2pTransferViaMiddleware({
+              transferId: ref,
+              senderWalletId: String(senderWallet.id),
+              receiverWalletId: input.recipientId,
+              senderUserId: ctx.user.openId,
+              receiverUserId: input.recipientId,
+              amount: Number(input.amount),
+              currency: input.currency,
+              narration: input.note ?? '',
+            });
+          } catch (e) {
+            logger.error('[bridge] RECONCILIATION REQUIRED: PG p2p transfer committed but TigerBeetle replication failed', {
+              reference: ref,
+              transferId: ref,
+              senderWalletId: String(senderWallet.id),
+              receiverWalletId: input.recipientId,
+              senderUserId: ctx.user.openId,
+              amount: Number(input.amount),
+              currency: input.currency,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+        return { success: true, reference: ref, transaction: result, idempotentReplay: false };
       };
-      if (input.idempotencyKey) {
-        return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
-      }
-      return execute();
+      // R4 (spec #6): unconditional idempotency wrap — no raw-execute bypass.
+      return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
     }),
   topUp: protectedProcedure
     .input(z.object({
       amount: z.number().positive().max(10_000_000),
       currency: z.string().default("NGN"),
       channel: z.enum(["card", "bank_transfer", "ussd"]).default("bank_transfer"),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
+      const { isStripeConfigured, getStripe } = await import("./stripe");
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Wallet top-up unavailable: card payments (Stripe) are not configured",
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      let verifiedMetadata: Record<string, string> = {};
+      try {
+        if (input.paymentReference.startsWith("pi_")) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== "succeeded") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+          verifiedMetadata = (pi.metadata ?? {}) as Record<string, string>;
+        } else if (input.paymentReference.startsWith("cs_")) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== "paid") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? "";
+          verifiedMetadata = (session.metadata ?? {}) as Record<string, string>;
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id",
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? "unknown error"}`,
+        });
+      }
+
+      // Exact amount/currency match — no partial or cross-currency credits.
+      const expectedMinor = Math.round(input.amount * 100);
+      if (verifiedAmountMinor !== expectedMinor || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${expectedMinor} ${input.currency.toUpperCase()})`,
+        });
+      }
+
+      // S15b: the verified payment must be BOUND to this caller via Stripe
+      // metadata (user_id or merchant_id). Without binding, one succeeded
+      // PaymentIntent could be presented by anyone to credit many wallets.
+      const boundUserId = String(verifiedMetadata.user_id ?? "");
+      let callerBound = boundUserId !== "" && boundUserId === String(ctx.user.id);
+      if (!callerBound && verifiedMetadata.merchant_id) {
+        const callerMerchant = await getMerchantByOwnerId(ctx.user.id).catch(() => null);
+        callerBound = Boolean(callerMerchant) && String(verifiedMetadata.merchant_id) === String(callerMerchant!.id);
+      }
+      if (!callerBound) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Payment reference is not bound to your account — create the payment through your own top-up session",
+        });
+      }
+
       const wallet = await getOrCreateWallet(String(ctx.user.id));
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
-      const ref = `TOPUP-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const balanceBefore = parseFloat(wallet.balance);
-      const newBalance = (balanceBefore + input.amount).toFixed(2);
-      await updateWalletBalance(wallet.id, newBalance);
-      const tx = await createWalletTransaction({
-        walletId: wallet.id,
-        tenantId: "ten_default",
-        type: "credit",
-        amount: String(input.amount),
-        currency: input.currency,
-        balanceBefore: String(balanceBefore),
-        balanceAfter: newBalance,
-        description: `Top-up via ${input.channel}`,
-        reference: ref,
-        channel: input.channel,
-        status: "completed",
-      });
-      // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse
-      if (isBridgeAvailable()) {
-        creditWalletViaMiddleware({
-          walletId: String(wallet.id),
-          userId: ctx.user.openId,
-          amount: Number(input.amount),
-          currency: input.currency,
-          reference: ref,
-          description: `Top-up via ${input.channel}`,
-        }).catch(e => logger.error('[bridge] creditWallet failed (non-fatal):', e));
+
+      // Idempotent on the PSP reference: one Stripe payment → one credit.
+      const ref = `TOPUP-${input.paymentReference}`;
+      const existing = await getWalletTransactionByReference(wallet.tenantId, ref);
+      if (existing) {
+        return { success: true, reference: ref, newBalance: null, transaction: existing, idempotentReplay: true };
       }
-      return { success: true, reference: ref, newBalance, transaction: tx };
+
+      // Atomic credit + ledger row in a single transaction.
+      const result = await database.transaction(async (tx) => {
+        const creditRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric + ${input.amount.toFixed(2)}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id}
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet credit failed" });
+        }
+        const newBalance = String(creditRows[0].balance);
+        const { walletTransactions } = await import("../drizzle/schema");
+        const [ledgerRow] = await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId,
+          type: "credit",
+          amount: input.amount.toFixed(2),
+          currency: input.currency,
+          balanceBefore: wallet.balance,
+          balanceAfter: newBalance,
+          description: `Top-up via ${input.channel} (Stripe ${input.paymentReference})`,
+          reference: ref,
+          channel: input.channel,
+          status: "completed",
+        }).returning();
+        return { newBalance, ledgerRow };
+      }).catch(async (err: any) => {
+        if (err?.code === "23505") {
+          const prior = await getWalletTransactionByReference(wallet.tenantId, ref);
+          if (prior) return { replay: prior } as const;
+        }
+        throw err;
+      });
+
+      if ("replay" in (result as any)) {
+        return { success: true, reference: ref, newBalance: null, transaction: (result as any).replay, idempotentReplay: true };
+      }
+
+      // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse.
+      // S15b: PG credit is already committed — await the bridge replication;
+      // on failure log a loud RECONCILIATION REQUIRED signal with full
+      // context (never silently swallowed).
+      if (isBridgeAvailable()) {
+        try {
+          await creditWalletViaMiddleware({
+            walletId: String(wallet.id),
+            userId: ctx.user.openId,
+            amount: Number(input.amount),
+            currency: input.currency,
+            reference: ref,
+            description: `Top-up via ${input.channel}`,
+          });
+        } catch (e) {
+          logger.error('[bridge] RECONCILIATION REQUIRED: PG wallet top-up committed but TigerBeetle replication failed', {
+            reference: ref,
+            walletId: String(wallet.id),
+            userId: ctx.user.openId,
+            amount: Number(input.amount),
+            currency: input.currency,
+            channel: input.channel,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+      const credited = result as { newBalance: string; ledgerRow: unknown };
+      return { success: true, reference: ref, newBalance: credited.newBalance, transaction: credited.ledgerRow, idempotentReplay: false };
     }),
 });
-// ─── Cross-Border Routerr ──────────────────────────────────────────────────────────
+// ─── Cross-Border Router ──────────────────────────────────────────────────────
+
+// ─── Integer money / FX arithmetic (P2-2) ─────────────────────────────────────
+// No float multiplication on monetary amounts. All corridor math is done with
+// scaled-integer BigInt arithmetic. Rounding is ROUND-HALF-UP at exactly these
+// defined points:
+//   1. Parsing a decimal string to a scaled integer (first discarded digit).
+//   2. fee_minor    = round_half_up(source_minor * FEE_BPS / 10_000).
+//   3. rate_scaled  = round_half_up(tgt_rate_scaled * RATE_SCALE / src_rate_scaled).
+//   4. target_minor = round_half_up((source_minor - fee_minor) * rate_scaled / RATE_SCALE).
+const FX_RATE_SCALE = 1_000_000n; // FX rates carried at 6 decimal places
+const MINOR_UNIT_SCALE = 100n;    // major → minor units (kobo/cents)
+const CROSS_BORDER_FEE_BPS = 150n; // 1.5% corridor fee
+
+/** Parse a non-negative decimal string into a scaled integer, half-up on the first discarded digit. */
+function parseScaledDecimal(value: string, scale: bigint): bigint {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith("-");
+  const [intPartRaw, fracPart = ""] = trimmed.replace(/^[-+]/, "").split(".");
+  const intPart = intPartRaw.replace(/[^0-9]/g, "") || "0";
+  const fracDigits = scale.toString().length - 1;
+  const fracClean = fracPart.replace(/[^0-9]/g, "");
+  const kept = (fracClean + "0".repeat(fracDigits)).slice(0, fracDigits);
+  let result = BigInt(intPart) * scale + BigInt(kept || "0");
+  // Round half-up if the first discarded digit is >= 5.
+  if (fracClean.length > fracDigits && fracClean[fracDigits] >= "5") result += 1n;
+  return negative ? -result : result;
+}
+
+/** Format a scaled integer back to a plain decimal string with the scale's precision. */
+function formatScaledDecimal(value: bigint, scale: bigint): string {
+  const fracDigits = scale.toString().length - 1;
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const intPart = abs / scale;
+  const fracPart = (abs % scale).toString().padStart(fracDigits, "0");
+  return `${negative ? "-" : ""}${intPart}.${fracPart}`;
+}
+
+/**
+ * Corridor quote math in integer minor units (kobo/cents) — replaces the old
+ * parseFloat/toFixed float math. Returns strings at fixed precision:
+ * exchangeRate (6dp), fee + targetAmount (2dp, round-half-up).
+ * Returns null when the source rate is non-positive (unusable corridor).
+ */
+function computeCorridorAmounts(sourceAmount: string, srcRate: string, tgtRate: string): {
+  exchangeRate: string; fee: string; targetAmount: string;
+} | null {
+  const srcScaled = parseScaledDecimal(srcRate, FX_RATE_SCALE);
+  const tgtScaled = parseScaledDecimal(tgtRate, FX_RATE_SCALE);
+  if (srcScaled <= 0n) return null;
+  const sourceMinor = parseScaledDecimal(sourceAmount, MINOR_UNIT_SCALE);
+  // Fee: 1.5% of source, half-up at the minor unit.
+  const feeMinor = (sourceMinor * CROSS_BORDER_FEE_BPS + 5_000n) / 10_000n;
+  // Cross rate = tgtRate / srcRate, carried at 6dp, half-up.
+  const rateScaled = (tgtScaled * FX_RATE_SCALE + srcScaled / 2n) / srcScaled;
+  // Target minor units, half-up.
+  const netMinor = sourceMinor - feeMinor;
+  const targetMinor = (netMinor * rateScaled + FX_RATE_SCALE / 2n) / FX_RATE_SCALE;
+  return {
+    exchangeRate: formatScaledDecimal(rateScaled, FX_RATE_SCALE),
+    fee: formatScaledDecimal(feeMinor, MINOR_UNIT_SCALE),
+    targetAmount: formatScaledDecimal(targetMinor, MINOR_UNIT_SCALE),
+  };
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __fxInternals = { parseScaledDecimal, formatScaledDecimal, computeCorridorAmounts };
 
 const crossBorderRouter = router({
   list: protectedProcedure
@@ -5048,7 +5913,13 @@ const crossBorderRouter = router({
     .input(z.object({
       sourceCurrency: z.string().length(3),
       targetCurrency: z.string().length(3),
-      amount: z.string(),
+      // P2-2: strict decimal shape — a bare z.string() let garbage like "abc"
+      // reach parseScaledDecimal, which silently coerced it to 0 and returned a
+      // plausible-looking zero quote. Reject anything that is not a positive
+      // decimal with at most 13 integer and 2 fractional digits.
+      amount: z.string()
+        .regex(/^\d{1,13}(\.\d{1,2})?$/, "amount must be a decimal with up to 13 integer and 2 fractional digits")
+        .refine((v) => parseScaledDecimal(v, MINOR_UNIT_SCALE) > 0n, { message: "amount must be greater than zero" }),
       rail: z.enum(["mojaloop", "brics_pay", "swift", "cips", "upi", "pix"]).default("mojaloop"),
     }))
     .query(async ({ input }) => {
@@ -5067,18 +5938,18 @@ const crossBorderRouter = router({
         expires_at: string;
         quote_id: string;
       };
-      // Fallback: derive from stored FX rates
+      // Fallback: derive from stored FX rates (integer minor-unit math, P2-2)
       const rates = await getLatestFxRates("USD");
       const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
       const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
       if (!srcRate || !tgtRate) throw new TRPCError({ code: "NOT_FOUND", message: "FX rate not available for this corridor" });
-      const srcToUsd = 1 / parseFloat(srcRate.rate);
-      const usdToTgt = parseFloat(tgtRate.rate);
-      const exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
-      const sourceAmt = parseFloat(input.amount);
-      const feeRate = 0.015;
-      const fee = (sourceAmt * feeRate).toFixed(2);
-      const targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+      const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
+      if (!computed) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid FX rate for this corridor" });
+      const { exchange_rate: exchangeRate, target_amount: targetAmount, fee } = {
+        exchange_rate: computed.exchangeRate,
+        target_amount: computed.targetAmount,
+        fee: computed.fee,
+      };
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
       return {
         exchange_rate: exchangeRate,
@@ -5096,36 +5967,64 @@ const crossBorderRouter = router({
       receiverIdType: z.string().default("MSISDN"),
       sourceCurrency: z.string(),
       targetCurrency: z.string(),
-      amount: z.string(),
+      // P2-2: strict decimal shape — a bare z.string() let garbage like "abc"
+      // reach parseScaledDecimal, which silently coerced it to 0 and persisted
+      // a zero-amount transfer as if it were real.
+      amount: z.string()
+        .regex(/^\d{1,13}(\.\d{1,2})?$/, "amount must be a decimal with up to 13 integer and 2 fractional digits")
+        .refine((v) => parseScaledDecimal(v, MINOR_UNIT_SCALE) > 0n, { message: "amount must be greater than zero" }),
       corridor: z.string(),
       rail: z.enum(["mojaloop", "brics_pay", "swift", "cips", "upi", "pix"]).default("mojaloop"),
       quoteId: z.string().optional(),
       senderName: z.string().optional(),
       receiverName: z.string().optional(),
-      idempotencyKey: z.string().min(8).optional(),
+      // P0-7b: REQUIRED — a cross-border transfer without an idempotency key
+      // cannot be made retry-safe, so the raw-execute path is removed entirely.
+      idempotencyKey: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const { createCrossBorderTransfer, updateCrossBorderTransferStatusByTransferId } = await import("./db");
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+
+      // R4 F13: quoteId was decorative. Locally issued quotes have the form
+      // QT-<epoch_ms>-<hex> and are valid for 5 minutes (see getQuote). There
+      // is no persistent quote store, so any other id is unverifiable — a
+      // provided quote that is malformed or expired is REJECTED rather than
+      // silently ignored.
+      if (input.quoteId) {
+        const qm = /^QT-(\d{10,})-[0-9a-f]{8}$/.exec(input.quoteId);
+        const issuedAtMs = qm ? Number(qm[1]) : NaN;
+        if (!qm || !Number.isFinite(issuedAtMs) || Date.now() - issuedAtMs > 5 * 60 * 1000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid or expired FX quote — request a fresh quote via crossBorder.getQuote" });
+        }
+      }
+
+      // P0-7b: the entire initiation is wrapped in atomic check-then-execute
+      // idempotency — the key row is claimed (INSERT ... ON CONFLICT DO NOTHING)
+      // BEFORE any transfer record is created, so a replay or concurrent
+      // duplicate never re-executes the transfer.
+      const execute = async () => {
       const transferId = `XB-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 
       // Derive exchange rate from stored FX rates for record-keeping
+      // (integer minor-unit math, P2-2 — no float multiplication on money)
       const rates = await getLatestFxRates("USD");
       const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
       const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
-      let exchangeRate = "1.0";
-      let targetAmount = input.amount;
-      let fee = "0";
-      if (srcRate && tgtRate) {
-        const srcToUsd = 1 / parseFloat(srcRate.rate);
-        const usdToTgt = parseFloat(tgtRate.rate);
-        exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
-        const sourceAmt = parseFloat(input.amount);
-        const feeRate = 0.015;
-        fee = (sourceAmt * feeRate).toFixed(2);
-        targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+      // R4 F13 (spec #20): fail loud when stored rates are missing —
+      // persisting a 1.0 rate / zero fee would fabricate the transfer record
+      // (mirrors the getQuote polarity above).
+      if (!srcRate || !tgtRate) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "FX rate not available for this corridor" });
       }
+      const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
+      if (!computed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid FX rate for this corridor" });
+      }
+      const exchangeRate = computed.exchangeRate;
+      const fee = computed.fee;
+      const targetAmount = computed.targetAmount;
 
       // Persist transfer record immediately
       const transfer = await createCrossBorderTransfer({
@@ -5162,8 +6061,13 @@ const crossBorderRouter = router({
       });
 
       // If bridge accepted the transfer, update status to submitted
-      if (bridgeResult?.status) {
-        await updateCrossBorderTransferStatusByTransferId(transferId, bridgeResult.status as string);
+      if ((bridgeResult as any)?.status) {
+        await updateCrossBorderTransferStatusByTransferId(transferId, (bridgeResult as any).status as string);
+      } else if (bridgeResult == null) {
+        // R4 F13 (spec #3/#4): the bridge is unreachable — do NOT report the
+        // transfer as "initiated". Mark it failed and fail loud; no funds move.
+        await updateCrossBorderTransferStatusByTransferId(transferId, "failed");
+        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Cross-border rail unavailable: middleware bridge unreachable — transfer marked failed, nothing was initiated" });
       }
 
       // Notify owner with transfer receipt
@@ -5177,40 +6081,32 @@ const crossBorderRouter = router({
           `Exchange Rate: ${exchangeRate}`,
           `Fee: ${fee} ${input.sourceCurrency}`,
           `Rail: ${input.rail}`,
-          `Bridge Status: ${bridgeResult?.status ?? "pending"}`,
+          `Bridge Status: ${(bridgeResult as any)?.status ?? "pending"}`,
         ].join("\n"),
-      }).catch(() => {}); // fire-and-forget
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e)); // fire-and-forget
 
       const result = {
         success: true,
         transferId,
         transfer,
-        bridgeStatus: bridgeResult?.status ?? "pending",
-        bridgeTransferId: bridgeResult?.mojaloop_transfer_id ?? bridgeResult?.brics_transfer_id ?? null,
+        bridgeStatus: (bridgeResult as any)?.status ?? "pending",
+        bridgeTransferId: (bridgeResult as any)?.mojaloop_transfer_id ?? (bridgeResult as any)?.brics_transfer_id ?? null,
       };
-      // Store idempotency record for this initiation
-      if (input.idempotencyKey) {
-        const { withIdempotency: _wi } = await import("./idempotency");
-        // Record already executed — just store the result for future replays
-        const { getDb } = await import("./db");
-        const { idempotencyRequests: idempotencyTable } = await import("../drizzle/schema");
-        const dbConn = await getDb();
-        if (!dbConn) throw new Error('Database unavailable');
-        if (dbConn) {
-          await dbConn.insert(idempotencyTable).values({
-            id: input.idempotencyKey,
-            merchantId: merchant.id,
-            tenantId: merchant.tenantId ?? "ten_default",
-            operation: "crossBorder.initiate",
-            requestHash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex"),
-            responseStatus: 200,
-            responseBody: result as any,
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            createdAt: new Date(),
-          }).onConflictDoNothing();
-        }
-      }
       return result;
+      };
+      // P0-7b: check-then-execute, unconditionally — the key is REQUIRED (see
+      // input schema), so withIdempotency always claims it atomically before
+      // executing; a replay with the same payload returns the original result
+      // and a same-key/different-payload request is rejected 409 — no double
+      // transfers, no raw-execute bypass.
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        operation: "crossBorder.initiate",
+        requestBody: input,
+        execute,
+      });
     }),
   getById: protectedProcedure
     .input(z.object({ transferId: z.string() }))
@@ -5245,9 +6141,26 @@ const crossBorderRouter = router({
     }),
 
   // ── Status update (webhook callback from bridge) ──
-  updateStatus: protectedProcedure
-    .input(z.object({ transferId: z.string(), status: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+  // This endpoint mutates ANY transfer's status by transferId, so it must never
+  // be callable by an authenticated end user — it is an internal callback for
+  // the Go middleware bridge. Authenticated via MIDDLEWARE_INTERNAL_KEY with a
+  // constant-time comparison; FAILS CLOSED when the key is not configured
+  // (same pattern as reconciliation.createAlert, VULN-037).
+  updateStatus: publicProcedure
+    .input(z.object({
+      internalKey: z.string(),
+      transferId: z.string(),
+      status: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+      const { timingSafeEqual } = await import("crypto");
+      const keysMatch = expectedKey.length > 0 &&
+        input.internalKey.length === expectedKey.length &&
+        timingSafeEqual(Buffer.from(input.internalKey), Buffer.from(expectedKey));
+      if (!keysMatch) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
+      }
       const { updateCrossBorderTransferStatusByTransferId } = await import("./db");
       await updateCrossBorderTransferStatusByTransferId(input.transferId, input.status);
       return { success: true };
@@ -5255,15 +6168,52 @@ const crossBorderRouter = router({
   // ── CIPS (China Interbank Payment System) dedicated procedures ──
   // ── Rail Health Monitor ──────────────────────────────────────────────────────
   getRailHealth: protectedProcedure.query(async () => {
-    const rails = [
-      { id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS", latencyMs: 120 + Math.floor(Math.random() * 80), uptime: 99.7, status: "operational" as const },
-      { id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP", latencyMs: 3200 + Math.floor(Math.random() * 800), uptime: 99.95, status: "operational" as const },
-      { id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR", latencyMs: 450 + Math.floor(Math.random() * 150), uptime: 99.9, status: "operational" as const },
-      { id: "cips", name: "CIPS", region: "China", currency: "CNY", latencyMs: 890 + Math.floor(Math.random() * 200), uptime: 99.8, status: "operational" as const },
-      { id: "upi", name: "UPI", region: "India", currency: "INR", latencyMs: 340 + Math.floor(Math.random() * 100), uptime: 99.85, status: "operational" as const },
-      { id: "pix", name: "PIX", region: "Brazil", currency: "BRL", latencyMs: 510 + Math.floor(Math.random() * 120), uptime: 99.6, status: "operational" as const },
-      { id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi", latencyMs: 1200 + Math.floor(Math.random() * 400), uptime: 98.5, status: Math.random() > 0.9 ? "degraded" as const : "operational" as const },
-    ];
+    // Live rail health comes from real probes of the middleware bridge's
+    // rail-health endpoints. Latency is the measured probe round-trip; uptime
+    // is only reported when a real source exists (none today → null). Rails
+    // without a probe are reported as "unknown" — never simulated.
+    type RailHealth = {
+      id: string; name: string; region: string; currency: string;
+      latencyMs: number | null; uptime: number | null;
+      status: "operational" | "degraded" | "down" | "unknown";
+      note?: string;
+    };
+    const probe = async (meta: { id: string; name: string; region: string; currency: string }, path: string): Promise<RailHealth> => {
+      const started = Date.now();
+      try {
+        const res = await fetch(`${BRIDGE_URL}${path}`, {
+          headers: { "X-Internal-Key": BRIDGE_KEY },
+          signal: AbortSignal.timeout(4000),
+        });
+        const latencyMs = Date.now() - started;
+        const body: any = await res.json().catch(() => null);
+        const upstreamStatus = typeof body?.status === "string" ? body.status : null;
+        let status: RailHealth["status"];
+        if (res.ok && (upstreamStatus === null || upstreamStatus === "healthy")) {
+          status = latencyMs > 2000 ? "degraded" : "operational";
+        } else if (upstreamStatus === "unhealthy" || upstreamStatus === "unavailable") {
+          status = "down";
+        } else {
+          // e.g. gateway unconfigured — the probe cannot determine rail state
+          status = "unknown";
+        }
+        return { ...meta, latencyMs, uptime: null, status };
+      } catch {
+        return { ...meta, latencyMs: null, uptime: null, status: "unknown", note: "health probe unreachable" };
+      }
+    };
+    const unknown = (meta: { id: string; name: string; region: string; currency: string }): RailHealth => ({
+      ...meta, latencyMs: null, uptime: null, status: "unknown", note: "no live health probe configured for this rail",
+    });
+    const rails: RailHealth[] = await Promise.all([
+      probe({ id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS" }, "/v1/mojaloop/health"),
+      Promise.resolve(unknown({ id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP" })),
+      Promise.resolve(unknown({ id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR" })),
+      probe({ id: "cips", name: "CIPS", region: "China", currency: "CNY" }, "/v1/cips/health"),
+      probe({ id: "upi", name: "UPI", region: "India", currency: "INR" }, "/v1/upi/health"),
+      probe({ id: "pix", name: "PIX", region: "Brazil", currency: "BRL" }, "/v1/pix/health"),
+      Promise.resolve(unknown({ id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi" })),
+    ]);
     return { rails, checkedAt: new Date().toISOString() };
   }),
   cips: router({
@@ -5275,18 +6225,13 @@ const crossBorderRouter = router({
       }))
       .query(async ({ input }) => {
         const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.cipsUrl}/quote`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.cipsApiKey },
-            body: JSON.stringify({ source_currency: input.sourceCurrency, target_currency: "CNY", amount: input.amount }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const rate = 0.0048;
-        const fee = (parseFloat(input.amount) * 0.012).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "cips", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        // Live quote from the CIPS gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.cipsUrl, ENV.cipsApiKey, "CIPS", {
+          source_currency: input.sourceCurrency,
+          target_currency: "CNY",
+          amount: input.amount,
+          receiver_bank_code: input.receiverBankCode,
+        });
       }),
     validateReceiver: protectedProcedure
       .input(z.object({ bankCode: z.string(), accountNumber: z.string() }))
@@ -5299,27 +6244,21 @@ const crossBorderRouter = router({
     validateVpa: protectedProcedure
       .input(z.object({ vpa: z.string().min(3) }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.upiGatewayUrl}/vpa/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.upiApiKey },
-            body: JSON.stringify({ vpa: input.vpa }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const parts = input.vpa.split("@");
-        const handle = parts[0];
-        const bank = parts.length > 1 ? parts[1] : "upi";
-        return { valid: !!handle && !!bank, vpa: input.vpa, name: `${handle} (${bank})`, rail: "upi" };
+        // Real VPA resolution via the middleware bridge's UPI gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a payee identity.
+        return railBridgeCall(`/v1/upi/vpa/resolve?vpa=${encodeURIComponent(input.vpa)}`, "GET", undefined, "UPI");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0047;
-        const fee = (parseFloat(input.amount) * 0.010).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "upi", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the UPI gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.upiGatewayUrl, ENV.upiApiKey, "UPI", {
+          source_currency: input.sourceCurrency,
+          target_currency: "INR",
+          amount: input.amount,
+        });
       }),
   }),
   // ── PIX (Brazil Instant Payment System) dedicated procedures ──
@@ -5327,24 +6266,21 @@ const crossBorderRouter = router({
     validateKey: protectedProcedure
       .input(z.object({ pixKey: z.string().min(3), keyType: z.enum(["cpf", "cnpj", "phone", "email", "random"]).default("random") }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.pixGatewayUrl}/keys/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.pixApiKey },
-            body: JSON.stringify({ key: input.pixKey, key_type: input.keyType }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        return { valid: input.pixKey.length >= 3, key: input.pixKey, key_type: input.keyType, name: "PIX Receiver", rail: "pix" };
+        // Real PIX key lookup via the middleware bridge's PIX gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a receiver identity.
+        return railBridgeCall("/v1/pix/key/lookup", "POST", { key: input.pixKey, key_type: input.keyType }, "PIX");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0033;
-        const fee = (parseFloat(input.amount) * 0.011).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "pix", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the PIX gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.pixGatewayUrl, ENV.pixApiKey, "PIX", {
+          source_currency: input.sourceCurrency,
+          target_currency: "BRL",
+          amount: input.amount,
+        });
       }),
   }),
 });
@@ -5431,28 +6367,52 @@ const nipRouter = router({
         return { accountName: cached.accountName, bankCode: input.bankCode, accountNumber: input.accountNumber, fromCache: true };
       }
 
-      // In production, call NIBSS NIP gateway via the middleware bridge.
-      // In dev/sandbox, simulate a successful lookup with a plausible name.
-      let accountName: string;
-      let sessionId: string | undefined;
-
-      if (isBridgeAvailable()) {
-        const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
-        if (nipResult) {
-          accountName = nipResult.accountName;
-          sessionId = nipResult.sessionId;
-        } else {
-          // Bridge unavailable — fall through to sandbox simulation
-          accountName = `ACCOUNT ${input.accountNumber.slice(-4)}`;
-        }
-      } else {
-        // Sandbox simulation: derive a deterministic name from account number
-        const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-        accountName = names[parseInt(input.accountNumber.slice(-1), 10) % names.length];
-        sessionId = `SIM_${Date.now()}`;
+      // Real NIBSS NIP name enquiry via the middleware bridge ONLY.
+      // No simulated names — an unconfigured or failing upstream is a hard
+      // SERVICE_UNAVAILABLE and every failure is logged for audit.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry is unavailable: payment middleware bridge not configured",
+        });
       }
 
-      // Cache for 24 hours
+      const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
+      if (!nipResult || !nipResult.accountName) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: nipResult ? "EMPTY_UPSTREAM_RESPONSE" : "UPSTREAM_UNAVAILABLE",
+          errorMessage: nipResult
+            ? "NIBSS name enquiry returned an empty account name"
+            : "NIBSS name enquiry failed — bridge unreachable or upstream error",
+          errorSource: "nibss",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry failed: upstream NIBSS lookup unavailable or returned no account name",
+        });
+      }
+
+      const accountName = nipResult.accountName;
+      const sessionId = nipResult.sessionId;
+
+      // Cache the REAL NIBSS result for 24 hours
       await cacheNipAccount({
         id: `nip_cache_${nanoid()}`,
         tenantId,
@@ -5488,7 +6448,28 @@ const nipRouter = router({
 
       const errors: Array<{ attempt: number; errorCode: string; errorMessage: string }> = [];
       let accountName: string | null = null;
+      let sessionId: string | undefined;
       const maxAttempts = input.maxAttempts;
+
+      // Real NIBSS name enquiry via the middleware bridge ONLY — no
+      // simulated successes. Unconfigured bridge fails immediately.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 0,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP account resolution unavailable: payment middleware bridge not configured",
+        });
+      }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // Exponential backoff: 0ms, 500ms, 1500ms for attempts 1, 2, 3
@@ -5497,26 +6478,28 @@ const nipRouter = router({
         }
 
         try {
-          // Attempt NIBSS name enquiry
-          const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-          // Simulate occasional failures: last digit 9 fails on attempt 1, succeeds on attempt 2
-          const lastDigit = parseInt(input.accountNumber.slice(-1), 10);
-          const shouldFail = (lastDigit === 9 && attempt === 1);
+          // Attempt real NIBSS name enquiry via the bridge
+          const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
 
-          if (shouldFail) {
-            throw new Error("NIBSS_TIMEOUT: Name enquiry service temporarily unavailable");
+          if (!nipResult || !nipResult.accountName) {
+            throw new Error(
+              nipResult
+                ? "EMPTY_UPSTREAM_RESPONSE: NIBSS returned an empty account name"
+                : "UPSTREAM_UNAVAILABLE: NIBSS name enquiry failed — bridge unreachable or upstream error",
+            );
           }
 
-          accountName = names[lastDigit % names.length];
+          accountName = nipResult.accountName;
+          sessionId = nipResult.sessionId;
 
-          // Cache successful result
+          // Cache the REAL successful result for 24 hours
           await cacheNipAccount({
             id: `nip_cache_${nanoid()}`,
             tenantId,
             bankCode: input.bankCode,
             accountNumber: input.accountNumber,
             accountName,
-            sessionId: `SIM_${Date.now()}`,
+            sessionId,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
             createdAt: new Date(),
           });
@@ -5691,17 +6674,26 @@ const settlementsRouter = router({
       return settlement;
     }),
 
-  create: protectedProcedure
+  create: pbacProcedure('trigger_settlement')
     .input(z.object({
       amount: z.number().min(100),
       currency: z.string().length(3).default("NGN"),
       bankCode: z.string().optional(),
       accountNumber: z.string().optional(),
       accountName: z.string().optional(),
+      // R4 F8/F3-14: overriding the configured settlement destination is a
+      // high-risk change — requires credential step-up (same as item 11b).
+      currentPassword: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // R4 F8/F3-14: a destination override (bank/account other than the
+      // merchant's configured settlement account) must not be accepted
+      // without step-up authentication.
+      if (input.bankCode || input.accountNumber || input.accountName) {
+        await requireCurrentPassword(user, input.currentPassword, 'settlement destination override');
+      }
       const tenantId = merchant.tenantId ?? "ten_default";
       // Determine SLA deadline from tenant config (default 2 hours = CBN NIP requirement)
       const slaHours = 2;
@@ -5748,7 +6740,7 @@ const settlementsRouter = router({
           logger.error("[bridge] triggerSettlement failed (non-fatal):", err);
         }
       }
-      publishAuditEvent({ action: 'settlement.created', userId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'settlement.created', userId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return settlement;
     }),
 
@@ -5776,7 +6768,7 @@ const settlementsRouter = router({
   }),
 
   // Retry a failed or sla_breached settlement by re-triggering the middleware bridge
-  retry: protectedProcedure
+  retry: pbacProcedure('trigger_settlement')
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -6530,20 +7522,24 @@ const posRouter = router({
       // Create a main transaction record
       const txId = nanoid('txn_');
       const feeKobo = Math.round(input.amountKobo * 0.015);
+      // R4 F11#12: there is NO acquirer integration — a masked PAN alone is
+      // not an authorization. Recording 'completed' card revenue with a
+      // fabricated completedAt was a lie. The honest record is 'pending'
+      // until a real acquirer confirmation arrives (none exists today).
       await createTransaction({
         id: txId, merchantId: merchant.id, tenantId: merchant.tenantId ?? 'ten_default',
         reference: `POS-${input.terminalId}-${Date.now()}`,
-        amount: input.amountKobo, currency: 'NGN', status: 'completed',
+        amount: input.amountKobo, currency: 'NGN', status: 'pending',
         channel: input.channel as any, feeAmount: feeKobo,
-        netAmount: input.amountKobo - feeKobo, completedAt: new Date(),
-        description: `POS payment via ${terminals[0].label ?? input.terminalId}`,
+        netAmount: input.amountKobo - feeKobo,
+        description: `POS payment via ${terminals[0].label ?? input.terminalId} (authorization pending — no acquirer confirmation)`,
       });
       // Record POS transaction
       await db.insert(posTransactions).values({
         id: posId, terminalId: input.terminalId, merchantId: merchant.id,
         transactionId: txId, amountKobo: input.amountKobo, currency: 'NGN',
         channel: input.channel, maskedPan: input.maskedPan ?? null,
-        nipSessionId: input.nipSessionId ?? null, status: 'completed',
+        nipSessionId: input.nipSessionId ?? null, status: 'pending',
         receiptData: { txId, amount: input.amountKobo, channel: input.channel, timestamp: new Date().toISOString() },
       });
       // Update terminal totals
@@ -6552,7 +7548,15 @@ const posRouter = router({
         totalVolumeKobo: sql`total_volume_kobo + ${input.amountKobo}`,
         updatedAt: new Date(),
       }).where(eq(posTerminals.id, input.terminalId));
-      return { success: true, posTransactionId: posId, transactionId: txId, receiptUrl: `/api/pos/receipt/${posId}` };
+      return {
+        success: true,
+        posTransactionId: posId,
+        transactionId: txId,
+        receiptUrl: `/api/pos/receipt/${posId}`,
+        status: 'pending' as const,
+        authorizationRequired: true,
+        message: 'Payment recorded as pending — no acquirer authorization has been received; funds are not settled.',
+      };
     }),
 
   stats: protectedProcedure
@@ -6673,7 +7677,7 @@ const posRouter = router({
            COUNT(*) AS transaction_count,
            COALESCE(SUM(amount_kobo), 0) AS total_kobo,
            COUNT(DISTINCT terminal_id) AS terminal_count,
-           GROUP_CONCAT(DISTINCT channel ORDER BY channel SEPARATOR ',') AS channels
+           string_agg(DISTINCT channel, ',' ORDER BY channel) AS channels
          FROM pos_transactions
          WHERE merchant_id = ${merchant.id}
          GROUP BY DATE(created_at)
@@ -6760,17 +7764,30 @@ const posRouter = router({
       return listPtspBatches(merchant.id, input.limit);
     }),
 
-  // Called by Go NIBSS webhook when a batch is confirmed / failed
-  confirmBatch: protectedProcedure
+  // Called by Go NIBSS webhook when a batch is confirmed / failed.
+  // R4 F11#17: this mutates settlement batches unconditionally, so it must
+  // NEVER be callable by a merchant session — it is an internal callback for
+  // the Go bridge, which authenticates with X-Internal-Key. Verified with a
+  // constant-time comparison against MIDDLEWARE_INTERNAL_KEY; FAILS CLOSED
+  // when the key is not configured (pattern: crossBorder.updateStatus).
+  confirmBatch: publicProcedure
     .input(z.object({
       batchId:        z.string(),
       nibssReference: z.string(),
       status:         z.enum(['confirmed', 'failed', 'partial']),
       confirmedAt:    z.string(),
+      internalKey:    z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const user = await resolveUser(ctx.user.openId);
-      await requireMerchant(user.id);
+      const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+      const headerKey = ctx.req?.headers?.["x-internal-key"];
+      const presented = (Array.isArray(headerKey) ? headerKey[0] : headerKey) ?? input.internalKey ?? "";
+      const keysMatch = expectedKey.length > 0 &&
+        presented.length === expectedKey.length &&
+        crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expectedKey));
+      if (!keysMatch) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
+      }
       const { confirmPtspBatch } = await import('./db');
       await confirmPtspBatch(input.batchId, input.nibssReference, input.status, input.confirmedAt);
       await notifyOwner({
@@ -7029,11 +8046,29 @@ const agentBankingRouter = router({
   disburseCommissions: protectedProcedure.mutation(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
-    const result = await disburseAgentCommissions(merchant.id);
-    if (result.disbursed > 0) {
-      await notifyOwner({ title: "Commission Disbursement", content: `Disbursed to ${result.disbursed} sub-agents` }).catch(() => {});
+    // R4 F13 (money-correctness): disburseAgentCommissions throws
+    // NOT_IMPLEMENTED instead of silently zeroing accrued commission counters
+    // without crediting any wallet. Surface that honestly — do NOT reintroduce
+    // the silent zeroing path.
+    try {
+      await disburseAgentCommissions(merchant.id);
+      // Unreachable while the payout rail is unwired; kept for the future
+      // guarded-credit implementation.
+      return { disbursed: 0, totalDisbursedKobo: 0, count: 0, status: "ok" as const };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith("NOT_IMPLEMENTED")) {
+        return {
+          disbursed: 0,
+          totalDisbursedKobo: 0,
+          count: 0,
+          status: "not_implemented" as const,
+          message:
+            "Agent commission payout rail is not integrated — accrued commission counters were left intact and nothing was paid out.",
+        };
+      }
+      throw err;
     }
-    return result;
   }),
   kioskHealth: protectedProcedure.query(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
@@ -7141,7 +8176,7 @@ const restaurantRouter = router({
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
     const id = await createSplitBillSession({
       orderId: input.orderId, merchantId: merchant.id,
-      totalKobo: Number(order.total_kobo), splitCount: input.splitCount,
+      totalKobo: Number(order.totalKobo), splitCount: input.splitCount,
     });
     return getSplitBillSession(id!);
   }),
@@ -7320,7 +8355,7 @@ const restaurantRouter = router({
     notifyOwner({
       title: `New Online Order — ${input.customerName}`,
       content: `${input.items.length} item(s), total ₦${(totalKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}. Phone: ${input.customerPhone}${input.deliveryAddress ? `. Deliver to: ${input.deliveryAddress}` : ''}.`,
-    }).catch(() => {});
+    }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
     return { orderId, totalKobo };
   }),
 });
@@ -7370,9 +8405,11 @@ const kdsRouter = router({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Internal-Key': process.env.MIDDLEWARE_INTERNAL_KEY ?? '' },
           body: JSON.stringify({ merchantId: merchant.id, message: msg, language: lang }),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       }
-    } catch (_) {}
+    } catch (_) {
+      logger.error("[routers] soundbox announce failed:", _ instanceof Error ? _.message : _);
+    }
     return { ok: true };
   }),
 });
@@ -7810,7 +8847,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: id,
         metadata: { name: input.name, paymentTerms: input.paymentTerms },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { id, ok: true };
     }),
 
@@ -7854,7 +8891,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: input.id,
         metadata: { changes: Object.keys(input).filter(k => k !== 'id') },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 
@@ -7878,7 +8915,7 @@ const vendorRouter = router({
         resource: 'vendor',
         resourceId: input.id,
         metadata: {},
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 
@@ -7985,7 +9022,7 @@ const purchaseOrdersLocalRouter = router({
       await notifyOwner({
         title: `Purchase Order Created: ${input.itemName}`,
         content: `A new PO for ${input.quantity} ${input.unit}(s) of ${input.itemName} was created.${input.vendorName ? ` Vendor: ${input.vendorName}.` : ''} Total: ₦${(totalCostKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { id, ok: true };
     }),
 
@@ -8055,12 +9092,12 @@ const purchaseOrdersLocalRouter = router({
           notifyOwner({
             title: `PO Approved: ${po.item_name}`,
             content: `Purchase order for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr} has been approved. Estimated cost: ${totalNGN}. The vendor can now be contacted to fulfil the order.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         } else if (input.status === 'received') {
           notifyOwner({
             title: `PO Received: ${po.item_name}`,
             content: `Delivery confirmed for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr}. Total cost: ${totalNGN}. Inventory should be updated accordingly.`,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
         }
       }
       // Audit log
@@ -8072,7 +9109,7 @@ const purchaseOrdersLocalRouter = router({
         resource: 'purchase_order',
         resourceId: input.id,
         metadata: { status: input.status },
-      })).catch(() => {});
+      })).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { ok: true };
     }),
 });
@@ -8419,7 +9456,8 @@ const consumerWalletRouter = router({
     .input(z.object({
       amountKobo: z.number().int().positive().max(10_000_000_00), // max 10M NGN
       currency: z.string().length(3).default('NGN'),
-      reference: z.string().optional(),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -8427,12 +9465,143 @@ const consumerWalletRouter = router({
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
       const { eq, and, sql } = await import('drizzle-orm');
+      const { isStripeConfigured, getStripe } = await import('./stripe');
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Wallet top-up unavailable: card payments (Stripe) are not configured',
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      let verifiedMetadata: Record<string, string> = {};
+      // R4 S16 (live double-credit fix): the ledger dedupe reference is derived
+      // EXACTLY as the Stripe webhook derives it (`stripe:pi_<payment_intent>`
+      // when a payment intent is known, else `stripe:cs_<session_id>`) so the
+      // webhook auto-credit and this manual claim share ONE dedupe namespace —
+      // a claim after a webhook credit (or vice versa) is an idempotent replay,
+      // never a second credit. The unique index
+      // consumer_wallet_txns_wallet_reference_unique(wallet_id, reference)
+      // makes any residual race roll back instead of double-crediting.
+      let canonicalReference: string;
+      try {
+        if (input.paymentReference.startsWith('pi_')) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== 'succeeded') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+          verifiedMetadata = (pi.metadata ?? {}) as Record<string, string>;
+          canonicalReference = `stripe:pi_${typeof pi.id === 'string' && pi.id ? pi.id : input.paymentReference}`;
+        } else if (input.paymentReference.startsWith('cs_')) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== 'paid') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? '';
+          verifiedMetadata = (session.metadata ?? {}) as Record<string, string>;
+          const sessionPi = session.payment_intent;
+          const sessionPiId = typeof sessionPi === 'string' ? sessionPi : (sessionPi as { id?: string } | null)?.id;
+          canonicalReference = sessionPiId ? `stripe:pi_${sessionPiId}` : `stripe:cs_${input.paymentReference}`;
+        } else {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id',
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? 'unknown error'}`,
+        });
+      }
+
+      // R4 S16 (cross-flow reuse): only payments stamped by
+      // consumerStripeTopUp.createCheckout are consumer wallet top-ups.
+      // Subscription checkouts (wave34Router) also carry metadata.user_id —
+      // without this marker check they could be claimed as wallet top-ups.
+      if (verifiedMetadata.type !== 'consumer_wallet_topup') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Payment reference is not a consumer wallet top-up — create the payment through consumerStripeTopUp.createCheckout',
+        });
+      }
+
+      // Exact amount/currency match. R4 S16 (NGN rail): sessions created by
+      // consumerStripeTopUp charge a USD-CONVERTED amount (Stripe cannot
+      // charge NGN) and stamp the wallet-truth NGN kobo amount as
+      // metadata.ngn_amount_kobo — when present, match the claim against THAT
+      // (input currency stays NGN; the USD charge is only the rail detail).
+      // Otherwise keep the strict exact minor-unit + currency match against
+      // the Stripe charge itself (amountKobo is already the minor unit, the
+      // same unit Stripe reports in PaymentIntent.amount).
+      const ngnKoboMeta = parseInt(String(verifiedMetadata.ngn_amount_kobo ?? ''), 10);
+      const hasNgnKobo = Number.isInteger(ngnKoboMeta) && ngnKoboMeta > 0;
+      if (hasNgnKobo) {
+        if (input.amountKobo !== ngnKoboMeta || input.currency.toUpperCase() !== 'NGN') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Verified top-up (${ngnKoboMeta} NGN kobo) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
+          });
+        }
+      } else if (verifiedAmountMinor !== input.amountKobo || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
+        });
+      }
+
+      // S15b: the verified payment must be BOUND to this caller via Stripe
+      // metadata (user_id). Without binding, one succeeded PaymentIntent could
+      // be presented by anyone to credit many wallets.
+      const boundUserId = String(verifiedMetadata.user_id ?? '');
+      if (boundUserId === '' || boundUserId !== String(user.id)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Payment reference is not bound to your account — create the payment through your own top-up session',
+        });
+      }
+
+      // P0-6: atomic credit — blind increment (no read-modify-write) + ledger
+      // row in one transaction. Exactly-once on the PSP reference: durable
+      // ledger pre-check + an atomic idempotency claim for concurrent races.
+      // R4 S16: txRef is the CANONICAL webhook reference (`stripe:pi_<id>` /
+      // `stripe:cs_<id>`), NOT `TOPUP-<ref>` — the webhook auto-credit and this
+      // claim now collide on the same ledger key, so the second path replays.
+      const txRef = canonicalReference;
+      const existing = await db.select().from(consumerWalletTxns)
+        .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
+        .limit(1);
+      if (existing.length > 0) {
+        return { success: true, newBalanceKobo: existing[0].balanceAfterKobo, reference: txRef, idempotentReplay: true };
+      }
+      const execute = async () => db.transaction(async (tx) => {
+      // Defense-in-depth (R4 S16): re-check the dedupe key INSIDE the
+      // crediting transaction — a webhook auto-credit landing between the
+      // pre-check above and this transaction must replay, not double-credit.
+      // Any residual simultaneous-insert race is rolled back by the unique
+      // index consumer_wallet_txns_wallet_reference_unique(wallet_id, reference).
+      const dup = await tx.select().from(consumerWalletTxns)
+        .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
+        .limit(1);
+      if (dup.length > 0) {
+        return dup[0].balanceAfterKobo;
+      }
       // Get or create wallet
-      let [wallet] = await db.select().from(consumerWallets)
+      let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) {
-        const [created] = await db.insert(consumerWallets).values({
+        const [created] = await tx.insert(consumerWallets).values({
           id: nanoid('cw_'),
           userId: user.id,
           currency: input.currency,
@@ -8441,14 +9610,14 @@ const consumerWalletRouter = router({
         }).returning();
         wallet = created;
       }
-      // Update balance
-      const newBalance = wallet.balanceKobo + input.amountKobo;
-      await db.update(consumerWallets)
-        .set({ balanceKobo: newBalance, updatedAt: new Date() })
-        .where(eq(consumerWallets.id, wallet.id));
+      // Atomic increment
+      const creditRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${input.amountKobo}`, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      const newBalance = creditRows[0]?.balanceKobo ?? wallet.balanceKobo + input.amountKobo;
       // Record transaction
-      const txRef = input.reference ?? nanoid('wt_');
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8456,9 +9625,18 @@ const consumerWalletRouter = router({
         amountKobo: input.amountKobo,
         currency: input.currency,
         balanceAfterKobo: newBalance,
-        description: 'Wallet top-up',
+        description: `Wallet top-up (Stripe ${input.paymentReference})`,
         reference: txRef,
         status: 'completed',
+      });
+      return newBalance;
+      });
+      const newBalance = await withIdempotency({
+        key: `consumer-topup-${input.paymentReference}`,
+        merchantId: String(user.id),
+        operation: 'consumerWallet.topUp',
+        requestBody: input,
+        execute,
       });
       // Fire push notification
       try {
@@ -8544,33 +9722,71 @@ const p2pRouter = router({
       narration: z.string().max(100).optional(),
       currency: z.string().length(3).default('NGN'),
       saveBeneficiary: z.boolean().default(false),
-      idempotencyKey: z.string().min(8).max(64).optional(),
+      // R4 (spec #7): REQUIRED step-up — the consumer transaction PIN is
+      // verified (bcrypt + 5-attempt/15-min lockout, wave68 pattern) before
+      // any debit happens.
+      pin: z.string().min(4).max(6),
+      // REQUIRED — a money movement without an idempotency key cannot be made
+      // retry-safe; the raw-execute bypass is removed (unconditional wrap below).
+      idempotencyKey: z.string().min(8).max(64),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
-      const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
-      // Idempotency guard — prevents double-debit on network retries
+      const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries, consumerPins } = await import('../drizzle/schema');
+      const { eq, and, gte } = await import('drizzle-orm');
+      // ── Step 0: PIN step-up (R4 spec #7) — verified BEFORE any debit and
+      // outside the idempotency wrapper so a wrong-PIN failure is never
+      // cached as the stored response for the key. bcrypt compare with
+      // 5-attempt / 15-minute lockout (wave68 verifyPin pattern).
+      const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+      if (!pinRecord) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Please set your transaction PIN first' });
+      if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'PIN locked. Try again later.' });
+      }
+      const bcrypt = await import('bcryptjs');
+      const pinOk = await bcrypt.compare(input.pin, pinRecord.pinHash);
+      if (!pinOk) {
+        const fails = (pinRecord.failedAttempts ?? 0) + 1;
+        const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+        await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect PIN' });
+      }
+      if ((pinRecord.failedAttempts ?? 0) > 0 || pinRecord.lockedUntil) {
+        await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
+      }
+      // Idempotency guard — prevents double-debit on network retries. The key is
+      // REQUIRED (see input schema) and every execution goes through
+      // withIdempotency — there is no raw-execute bypass.
       const _p2pExecute = async () => {
-        // Check wallet balance
-      const [wallet] = await db.select().from(consumerWallets)
+      // CSPRNG STAN — Math.random is predictable and must never identify a
+      // money movement; node:crypto randomInt is used everywhere else in this file.
+      const railStan = String(crypto.randomInt(100000, 1000000)) + String(Date.now() % 1000000).padStart(6, '0');
+      const transferId = nanoid('p2p_');
+      // ── Step 1: ONE atomic transaction — guarded wallet debit (the balance
+      // check is folded into the debit itself, TOCTOU-safe, mirroring
+      // sendMoney's transferWalletFunds pattern), the transfer row
+      // ('processing'), and the pending debit ledger row. The NIP rail is NOT
+      // called here — no external I/O inside a DB transaction.
+      const { wallet, newBalance, debitTxnId } = await db.transaction(async (tx) => {
+        // Check wallet exists (authoritative balance check happens in the guarded UPDATE below)
+      const [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.amountKobo) {
+      // Guarded atomic debit — the WHERE clause enforces sufficient funds under the row lock
+      const debitRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.amountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.amountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
       }
-      // Deduct balance
-      const newBalance = wallet.balanceKobo - input.amountKobo;
-      await db.update(consumerWallets)
-        .set({ balanceKobo: newBalance, updatedAt: new Date() })
-        .where(eq(consumerWallets.id, wallet.id));
-      // Create transfer record
-      const transferId = nanoid('p2p_');
-      const ref = nanoid('ref_');
-      await db.insert(p2pTransfers).values({
+      const newBalance = debitRows[0].balanceKobo;
+      // Transfer record in 'processing' — the rail has not been called yet, so
+      // nothing is marked 'completed' and no NIBSS session ID is fabricated.
+      await tx.insert(p2pTransfers).values({
         id: transferId,
         senderId: user.id,
         senderWalletId: wallet.id,
@@ -8581,13 +9797,14 @@ const p2pRouter = router({
         amountKobo: input.amountKobo,
         currency: input.currency,
         narration: input.narration,
-        nipRef: ref,
-        status: 'completed',
-        completedAt: new Date(),
+        nipRef: railStan,
+        status: 'processing',
       });
-      // Record wallet debit
-      await db.insert(consumerWalletTxns).values({
-        id: nanoid('wt_'),
+      // Pending debit ledger row — flipped to 'completed' on rail success or
+      // 'reversed' (with a compensating refund row) on rail failure.
+      const debitTxnId = nanoid('wt_');
+      await tx.insert(consumerWalletTxns).values({
+        id: debitTxnId,
         walletId: wallet.id,
         userId: user.id,
         type: 'p2p_send',
@@ -8595,22 +9812,22 @@ const p2pRouter = router({
         currency: input.currency,
         balanceAfterKobo: newBalance,
         description: input.narration ?? `Transfer to ${input.recipientName}`,
-        reference: ref,
+        reference: railStan,
         counterpartyName: input.recipientName,
         counterpartyAccount: input.accountNumber,
-        status: 'completed',
+        status: 'pending',
       });
       // Save beneficiary if requested
       if (input.saveBeneficiary) {
-        const existing = await db.select().from(savedBeneficiaries)
+        const existing = await tx.select().from(savedBeneficiaries)
           .where(and(eq(savedBeneficiaries.userId, user.id), eq(savedBeneficiaries.accountNumber, input.accountNumber), eq(savedBeneficiaries.bankCode, input.bankCode)))
           .limit(1);
         if (existing.length > 0) {
-          await db.update(savedBeneficiaries)
-            .set({ transferCount: existing[0].transferCount + 1, lastUsedAt: new Date() })
+          await tx.update(savedBeneficiaries)
+            .set({ transferCount: sql`${savedBeneficiaries.transferCount} + 1`, lastUsedAt: new Date() })
             .where(eq(savedBeneficiaries.id, existing[0].id));
         } else {
-          await db.insert(savedBeneficiaries).values({
+          await tx.insert(savedBeneficiaries).values({
             id: nanoid('ben_'),
             userId: user.id,
             accountNumber: input.accountNumber,
@@ -8620,49 +9837,91 @@ const p2pRouter = router({
           });
         }
       }
-      // Fire-and-forget push notification to recipient
-      const amountNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-      import('./pushClient').then(async ({ notifyTokens }) => {
-        const dbInst = await getDb();
-        if (!dbInst) return;
-        const { devicePushTokens: dpt } = await import('../drizzle/schema');
-        const { eq, and } = await import('drizzle-orm');
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
-          .where(and(eq(dpt.userId, recipientUser.id), eq(dpt.isActive, true)));
-        if (tokens.length === 0) return;
-        await notifyTokens({
-          tokens: tokens.map(t => t.token),
-          notification: { title: '💸 Money Received', body: `You received ₦${amountNaira} from ${user.name ?? 'someone'}` },
-          type: 'transaction_completed',
-          data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
+      return { wallet, newBalance, debitTxnId };
+      });
+      // ── Step 2: NIP rail call OUTSIDE the transaction (external I/O never
+      // holds DB row locks). nipInstantDebitViaMiddleware is strict: it throws
+      // SERVICE_UNAVAILABLE when the rail is unavailable.
+      let rail: Awaited<ReturnType<typeof nipInstantDebitViaMiddleware>>;
+      try {
+        rail = await nipInstantDebitViaMiddleware({
+          creditAccountNumber: input.accountNumber,
+          creditBankCode: input.bankCode,
+          amountKobo: input.amountKobo,
+          narration: input.narration ?? `P2P transfer to ${input.recipientName}`,
+          stan: railStan,
+          merchantId: String(user.id),
         });
-      }).catch(() => {/* silent */});
-      // Fire-and-forget VAPID Web Push to recipient (browser/PWA subscribers)
-      import('./webPush').then(async ({ notifyUser: vapidNotifyUser }) => {
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const amtFmt = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-        await vapidNotifyUser(recipientUser.id, {
-          title: '\u{1F4B8} Money Received',
-          body: `You received \u20A6${amtFmt} from ${user.name ?? 'someone'}`,
-          tag: `p2p-receive-${transferId}`,
-          data: { url: '/consumer/wallet', transferId, reference: ref },
+        if (rail.status !== 'success' && rail.status !== 'simulated') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `Transfer rejected by payment rail: ${rail.responseMessage || rail.responseCode || 'unknown rail error'}`,
+          });
+        }
+      } catch (railErr: any) {
+        // ── Step 3: rail failure/rejection — ONE atomic compensating
+        // transaction: re-credit the sender (atomic increment, never a stale
+        // restore), append a 'refund' ledger row with the post-refund balance,
+        // mark the transfer 'failed' with the reason, and mark the original
+        // debit ledger row 'reversed'. The sender is ALWAYS made whole.
+        const failureReason = railErr instanceof TRPCError
+          ? railErr.message
+          : (railErr?.message ?? 'Payment rail unavailable');
+        await db.transaction(async (tx) => {
+          const creditRows = await tx.update(consumerWallets)
+            .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${input.amountKobo}`, updatedAt: new Date() })
+            .where(eq(consumerWallets.id, wallet.id))
+            .returning({ balanceKobo: consumerWallets.balanceKobo });
+          const refundBalance = creditRows[0]?.balanceKobo ?? (newBalance + input.amountKobo);
+          await tx.insert(consumerWalletTxns).values({
+            id: nanoid('wt_'),
+            walletId: wallet.id,
+            userId: user.id,
+            type: 'refund',
+            amountKobo: input.amountKobo,
+            currency: input.currency,
+            balanceAfterKobo: refundBalance,
+            description: `Refund — P2P transfer to ${input.recipientName} failed: ${failureReason}`,
+            reference: railStan,
+            counterpartyName: input.recipientName,
+            counterpartyAccount: input.accountNumber,
+            status: 'completed',
+          });
+          await tx.update(p2pTransfers)
+            .set({ status: 'failed', failureReason, updatedAt: new Date() })
+            .where(eq(p2pTransfers.id, transferId));
+          await tx.update(consumerWalletTxns)
+            .set({ status: 'reversed' })
+            .where(eq(consumerWalletTxns.id, debitTxnId));
         });
-      }).catch(() => {/* silent — VAPID not configured */});
+        throw railErr;
+      }
+      // ── Step 4: rail success — mark the transfer 'completed' with the REAL
+      // NIBSS session ID returned by the rail, and finalize the debit ledger row.
+      const ref = rail.sessionId || railStan;
+      await db.update(p2pTransfers)
+        .set({ status: 'completed', nipSessionId: rail.sessionId ?? null, nipRef: ref, completedAt: new Date(), updatedAt: new Date() })
+        .where(eq(p2pTransfers.id, transferId));
+      await db.update(consumerWalletTxns)
+        .set({ reference: ref, status: 'completed' })
+        .where(eq(consumerWalletTxns.id, debitTxnId));
+      return { transferId, ref, newBalance };
+      };
+      // Wrap the whole flow. NOTE: no "Money Received" notifications are
+      // sent here — the funds were disbursed to an EXTERNAL bank account via the
+      // NIP rail; no in-platform recipient wallet is credited by this flow, so
+      // notifying a platform user that they "received money" would be fabrication.
+      const _p2pExecuteWithNotify = async () => {
+        const { transferId, ref, newBalance } = await _p2pExecute();
         return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
       };
-      if (input.idempotencyKey) {
-        return withIdempotency({
-          key: input.idempotencyKey,
-          merchantId: String(user.id),
-          operation: 'p2p.send',
-          requestBody: input,
-          execute: _p2pExecute,
-        });
-      }
-      return _p2pExecute();
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: String(user.id),
+        operation: 'p2p.send',
+        requestBody: input,
+        execute: _p2pExecuteWithNotify,
+      });
     }),
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))
@@ -8746,7 +10005,7 @@ const p2pRouter = router({
       const header = 'Date,Type,Amount,Currency,Description,Reference,Status';
       const lines = rows.map((r: any) => [
         new Date(r.createdAt).toISOString(),
-        r.txType,
+        r.type,
         (r.amountKobo / 100).toFixed(2),
         r.currency,
         `"${(r.description ?? '').replace(/"/g, '""')}"`,
@@ -8805,20 +10064,23 @@ const redEnvelopeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, redEnvelopes } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const [wallet] = await db.select().from(consumerWallets)
+      const { eq, and, gte } = await import('drizzle-orm');
+      // P0-6: atomic transaction with guarded debit (TOCTOU-safe).
+      const created = await db.transaction(async (tx) => {
+      const [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.totalAmountKobo) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Insufficient balance' });
-      }
-      // Deduct from wallet
-      const newBalance = wallet.balanceKobo - input.totalAmountKobo;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      // Guarded atomic debit — the WHERE clause enforces sufficient funds under the row lock
+      const debitRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.totalAmountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.totalAmountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Insufficient balance' });
+      const newBalance = debitRows[0].balanceKobo;
       const envelopeId = nanoid('re_');
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
-      await db.insert(redEnvelopes).values({
+      await tx.insert(redEnvelopes).values({
         id: envelopeId,
         senderId: user.id,
         senderWalletId: wallet.id,
@@ -8830,7 +10092,7 @@ const redEnvelopeRouter = router({
         status: 'active',
         expiresAt,
       });
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8842,7 +10104,9 @@ const redEnvelopeRouter = router({
         reference: envelopeId,
         status: 'completed',
       });
-      return { envelopeId, shareUrl: `/consumer/red-envelope/${envelopeId}`, expiresAt };
+      return { envelopeId, expiresAt };
+      });
+      return { envelopeId: created.envelopeId, shareUrl: `/consumer/red-envelope/${created.envelopeId}`, expiresAt: created.expiresAt };
     }),
   claim: protectedProcedure
     .input(z.object({ envelopeId: z.string() }))
@@ -8851,31 +10115,77 @@ const redEnvelopeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, redEnvelopes, redEnvelopeClaims } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const [envelope] = await db.select().from(redEnvelopes).where(eq(redEnvelopes.id, input.envelopeId)).limit(1);
-      if (!envelope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Red envelope not found' });
-      if (envelope.status !== 'active') throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope is no longer active' });
-      if (new Date() > envelope.expiresAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope has expired' });
-      if (envelope.claimedSlots >= envelope.slots) throw new TRPCError({ code: 'BAD_REQUEST', message: 'All slots have been claimed' });
-      // Check if user already claimed
-      const alreadyClaimed = await db.select().from(redEnvelopeClaims)
+      const { eq, and, lt, gt } = await import('drizzle-orm');
+      // P0-6: EVERYTHING happens inside one transaction. The guarded UPDATE
+      // runs FIRST and takes the envelope row lock, so the duplicate-claim
+      // re-check and the exact-remaining computation below are fully
+      // serialized against concurrent claims — no proportional estimate, no
+      // oversell, no double-claim.
+      const { claimAmount, newBalance } = await db.transaction(async (tx) => {
+      // Guarded slot claim: atomically claims a slot only while the envelope is
+      // active, unexpired, and a slot is still free (row lock via UPDATE ...
+      // RETURNING). Any later throw in this transaction rolls this back,
+      // releasing the slot.
+      const claimed = await tx.update(redEnvelopes).set({
+        claimedSlots: sql`${redEnvelopes.claimedSlots} + 1`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(redEnvelopes.id, input.envelopeId),
+        eq(redEnvelopes.status, 'active'),
+        lt(redEnvelopes.claimedSlots, redEnvelopes.slots),
+        gt(redEnvelopes.expiresAt, new Date()),
+      )).returning({
+        claimedSlots: redEnvelopes.claimedSlots,
+        slots: redEnvelopes.slots,
+        totalAmountKobo: redEnvelopes.totalAmountKobo,
+        currency: redEnvelopes.currency,
+      });
+      const envelope = claimed[0];
+      if (!envelope) {
+        // The guard rejected the claim — read the row (no lock held by us) to
+        // return an honest reason.
+        const [existing] = await tx.select().from(redEnvelopes).where(eq(redEnvelopes.id, input.envelopeId)).limit(1);
+        if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Red envelope not found' });
+        if (existing.status !== 'active') throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope is no longer active' });
+        if (new Date() > existing.expiresAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope has expired' });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'All slots have been claimed' });
+      }
+      // Duplicate-claim re-check UNDER the row lock — throwing here rolls back
+      // the slot claimed above, so a repeat claimer cannot burn slots.
+      const alreadyClaimed = await tx.select().from(redEnvelopeClaims)
         .where(and(eq(redEnvelopeClaims.envelopeId, input.envelopeId), eq(redEnvelopeClaims.claimantId, user.id)))
         .limit(1);
       if (alreadyClaimed.length > 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'You have already claimed this red envelope' });
-      // Random amount (remaining / remaining slots, with some randomness)
-      const remaining = envelope.totalAmountKobo - (envelope.claimedSlots > 0
-        ? Math.floor(envelope.totalAmountKobo * envelope.claimedSlots / envelope.slots)
-        : 0);
-      const remainingSlots = envelope.slots - envelope.claimedSlots;
-      const minAmount = Math.max(1, Math.floor(remaining / remainingSlots / 2));
-      const maxAmount = remainingSlots === 1 ? remaining : Math.floor(remaining * 1.5 / remainingSlots);
-      const claimAmount = remainingSlots === 1 ? remaining : Math.floor(Math.random() * (maxAmount - minAmount + 1)) + minAmount;
+      // Exact remaining UNDER the lock: total minus the SUM of actual claim
+      // rows (there is no claimed_amount column — the claims table is the
+      // source of truth). The old proportional estimate
+      // (total * claimedSlots / slots) overpaid multi-slot envelopes by ~50%.
+      const sumRows = await tx.select({
+        claimedSum: sql<string | null>`COALESCE(SUM(${redEnvelopeClaims.amountKobo}), 0)`,
+      }).from(redEnvelopeClaims).where(eq(redEnvelopeClaims.envelopeId, input.envelopeId));
+      const claimedSoFar = Number(sumRows[0]?.claimedSum ?? 0);
+      const remaining = envelope.totalAmountKobo - claimedSoFar;
+      // Slots still free AFTER this claim — each must be able to receive at
+      // least 1 kobo, so this claim is capped accordingly.
+      const laterSlots = envelope.slots - envelope.claimedSlots;
+      let claimAmount: number;
+      if (laterSlots === 0) {
+        // Last slot pays the exact remainder — the envelope always sums to
+        // exactly totalAmountKobo.
+        claimAmount = remaining;
+      } else {
+        const maxPayable = remaining - laterSlots * 1;
+        claimAmount = maxPayable <= 1 ? maxPayable : crypto.randomInt(1, maxPayable + 1);
+      }
+      if (claimAmount <= 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Nothing left to claim in this red envelope' });
+      }
       // Get or create wallet
-      let [wallet] = await db.select().from(consumerWallets)
+      let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, envelope.currency)))
         .limit(1);
       if (!wallet) {
-        const [created] = await db.insert(consumerWallets).values({
+        const [created] = await tx.insert(consumerWallets).values({
           id: nanoid('cw_'),
           userId: user.id,
           currency: envelope.currency,
@@ -8884,22 +10194,24 @@ const redEnvelopeRouter = router({
         }).returning();
         wallet = created;
       }
-      const newBalance = wallet.balanceKobo + claimAmount;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
-      await db.insert(redEnvelopeClaims).values({
+      // Blind-increment credit (no read-modify-write).
+      const creditRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${claimAmount}`, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      const newBalance = creditRows[0]?.balanceKobo ?? wallet.balanceKobo + claimAmount;
+      if (envelope.claimedSlots >= envelope.slots) {
+        await tx.update(redEnvelopes).set({ status: 'fully_claimed', updatedAt: new Date() })
+          .where(eq(redEnvelopes.id, input.envelopeId));
+      }
+      await tx.insert(redEnvelopeClaims).values({
         id: nanoid('rec_'),
         envelopeId: input.envelopeId,
         claimantId: user.id,
         claimantWalletId: wallet.id,
         amountKobo: claimAmount,
       });
-      const newClaimedSlots = envelope.claimedSlots + 1;
-      await db.update(redEnvelopes).set({
-        claimedSlots: newClaimedSlots,
-        status: newClaimedSlots >= envelope.slots ? 'fully_claimed' : 'active',
-        updatedAt: new Date(),
-      }).where(eq(redEnvelopes.id, input.envelopeId));
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8910,6 +10222,8 @@ const redEnvelopeRouter = router({
         description: 'Red envelope claimed',
         reference: input.envelopeId,
         status: 'completed',
+      });
+      return { claimAmount, newBalance };
       });
       // Fire-and-forget push notification to claimer
       const envAmtNaira = (claimAmount / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
@@ -9014,14 +10328,20 @@ const consumerBillsRouter = router({
       amountKobo: z.number().int().positive().max(1_000_000_00),
       currency: z.string().length(3).default('NGN'),
       variationCode: z.string().optional(),
-      idempotencyKey: z.string().min(8).max(64).optional(),
+      // REQUIRED — a wallet debit without an idempotency key cannot be made
+      // retry-safe; the body below is unconditionally wrapped in withIdempotency.
+      idempotencyKey: z.string().min(8).max(64),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, billPayments } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
+      const { eq, and, gte } = await import('drizzle-orm');
+      // P0-7a: the entire payment is wrapped in withIdempotency (same pattern
+      // as payouts.create) — a replay returns the original result and never
+      // re-debits, re-calls the provider, or re-notifies.
+      const execute = async () => {
       const cat = BILL_CATEGORIES.find(c => c.code === input.category);
       const biller = cat?.billers.find(b => b.code === input.billerCode);
       if (!biller) throw new TRPCError({ code: 'NOT_FOUND', message: 'Biller not found' });
@@ -9029,11 +10349,18 @@ const consumerBillsRouter = router({
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.amountKobo) {
+      // P0-6: guarded atomic debit — the balance check is folded into the
+      // UPDATE's WHERE clause (TOCTOU-safe). The provider call below happens
+      // AFTER the atomic debit; on failure the refund is an atomic increment,
+      // never a restore of a stale pre-read balance.
+      const debitRows = await db.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.amountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.amountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
       }
-      const newBalance = wallet.balanceKobo - input.amountKobo;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      const newBalance = debitRows[0].balanceKobo;
       const billId = nanoid('bp_');
       // Call VTpass live API (graceful fallback to simulation when no credentials)
       const { vtpassPay } = await import('./vtpass');
@@ -9044,14 +10371,39 @@ const consumerBillsRouter = router({
         requestId: billId,
         variationCode: input.variationCode,
       });
-      // If VTpass hard-fails (not a graceful fallback), refund the wallet
+      // If VTpass hard-fails (not a graceful fallback), refund the wallet in ONE
+      // transaction: atomic re-credit PLUS a compensating 'refund' ledger row
+      // carrying the post-refund balance — the credit never happens without its
+      // audit trail.
       if (!vtResult.success) {
-        await db.update(consumerWallets).set({ balanceKobo: wallet.balanceKobo, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+        await db.transaction(async (tx) => {
+          const creditRows = await tx.update(consumerWallets)
+            .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${input.amountKobo}`, updatedAt: new Date() })
+            .where(eq(consumerWallets.id, wallet.id))
+            .returning({ balanceKobo: consumerWallets.balanceKobo });
+          const refundBalance = creditRows[0]?.balanceKobo ?? (newBalance + input.amountKobo);
+          await tx.insert(consumerWalletTxns).values({
+            id: nanoid('wt_'),
+            walletId: wallet.id,
+            userId: user.id,
+            type: 'refund',
+            amountKobo: input.amountKobo,
+            currency: input.currency,
+            balanceAfterKobo: refundBalance,
+            description: `Refund — ${biller.name} bill payment failed at provider`,
+            reference: billId,
+            counterpartyName: biller.name,
+            status: 'completed',
+          });
+        });
         throw new TRPCError({ code: 'BAD_REQUEST', message: vtResult.message ?? 'Bill payment failed at provider' });
       }
       const providerRef = vtResult.providerRef;
       const billStatus = vtResult.status;
-      await db.insert(billPayments).values({
+      // Success-path records in ONE transaction — the billPayments row and the
+      // debit ledger row are written atomically (never one without the other).
+      await db.transaction(async (tx) => {
+      await tx.insert(billPayments).values({
         id: billId,
         userId: user.id,
         walletId: wallet.id,
@@ -9065,7 +10417,7 @@ const consumerBillsRouter = router({
         status: billStatus,
         completedAt: billStatus === 'completed' ? new Date() : null,
       });
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -9078,7 +10430,9 @@ const consumerBillsRouter = router({
         counterpartyName: biller.name,
         status: billStatus,
       });
-      // Fire-and-forget push notification to payer
+      });
+      // Fire-and-forget push notification to payer — inside execute() so an
+      // idempotent replay (which never runs execute) does not re-notify.
       const billAmtNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
       import('./pushClient').then(async ({ notifyTokens }) => {
         const dbInst = await getDb();
@@ -9096,6 +10450,14 @@ const consumerBillsRouter = router({
         });
       }).catch(() => {/* silent */});
       return { success: true, billId, providerRef, status: billStatus, newBalanceKobo: newBalance };
+      };
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: String(user.id),
+        operation: 'bills.pay',
+        requestBody: input,
+        execute,
+      });
     }),
   verify: protectedProcedure
     .input(z.object({ billerCode: z.string(), customerReference: z.string().min(1).max(50) }))
@@ -9134,12 +10496,31 @@ const settlementSLARouter = router({
   acknowledge: protectedProcedure
     .input(z.object({ settlementId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // R4 F4-5: was an unscoped, unguarded status write on ANY settlement.
+      // Now the caller's merchant is resolved server-side, the update is
+      // scoped to that merchant, and only in-flight settlements
+      // (pending/processing/sla_breached) can be acknowledged-failed — a
+      // guarded status flip with a row-count check.
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
       const { getDb } = await import("./db");
       const { settlements } = await import("../drizzle/schema");
-      const { eq: eqFn } = await import("drizzle-orm");
+      const { and: andFn, eq: eqFn, inArray: inArrayFn } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      await db.update(settlements).set({ status: "failed", updatedAt: new Date() } as any).where(eqFn(settlements.id, input.settlementId));
+      const updated = await db.update(settlements)
+        .set({ status: "failed", updatedAt: new Date() } as any)
+        .where(andFn(
+          eqFn(settlements.id, input.settlementId),
+          eqFn(settlements.merchantId, merchant.id),
+          inArrayFn(settlements.status, ["pending", "processing", "sla_breached"] as any),
+        ))
+        .returning({ id: settlements.id });
+      if (!updated[0]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Settlement not found or not in an acknowledgeable state" });
+      }
+      publishAuditEvent({ action: 'settlement.acknowledged_failed', userId: ctx.user.openId, targetId: input.settlementId, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() })
+        .catch((e) => logger.error('[audit] publishAuditEvent settlement.acknowledged_failed failed:', e));
       return { success: true };
     }),
 });
@@ -9159,7 +10540,7 @@ const onboardingGateRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await updateMerchant(merchant.id, { onboardingStep: 5 });
-      notifyOwner({ title: `Merchant Went Live — ${merchant.businessName ?? merchant.id}`, content: `Merchant ${merchant.id} has completed onboarding and is now live.` }).catch(() => {});
+      notifyOwner({ title: `Merchant Went Live — ${merchant.businessName ?? merchant.id}`, content: `Merchant ${merchant.id} has completed onboarding and is now live.` }).catch((e) => logger.error("[routers] fire-and-forget async operation failed:", e instanceof Error ? e.message : e));
       return { success: true, message: "Your account is now live! Welcome to PayGate." };
     }),
 });
@@ -9218,6 +10599,45 @@ const tenantsRouter = router({
     }),
 });
 // tier6to8Router now imported at top
+// Wave 223 combined namespace: onboarding (dfsp/pisp/psp/posOperator onboarding,
+// settlement banks) merged with extensions (audit logs, revenue analytics, fx rates,
+// api rate limits, notification preferences, pos terminals, kyc documents,
+// merchant verification, bulk transfers). Both halves define `settlementBanks`;
+// the onboarding variant (richer create/update) takes precedence here.
+const wave223CombinedRouter = router({
+  ...wave223ExtRouter._def.record,
+  ...wave223Router._def.record,
+});
+
+// PSP Licence Holder namespaces merge the psp-production admin routers with the
+// newer per-domain operations routers (server/routers/{str,velocityLimits,
+// interchange,schemeMembership,regulatoryReports}.ts) that the client consoles
+// are wired against. On overlapping keys the operations variant wins.
+const strMergedRouter = router({
+  ...pspStrRouter._def.record,
+  ...strOpsRouter._def.record,
+});
+const velocityLimitsMergedRouter = router({
+  ...pspVelocityLimitsRouter._def.record,
+  ...velocityLimitsOpsRouter._def.record,
+});
+const interchangeMergedRouter = router({
+  ...pspInterchangeRouter._def.record,
+  ...interchangeOpsRouter._def.record,
+});
+const schemeMembershipMergedRouter = router({
+  ...pspSchemeMembershipRouter._def.record,
+  ...schemeMembershipOpsRouter._def.record,
+});
+const regulatoryReportsMergedRouter = router({
+  ...pspRegulatoryReportsRouter._def.record,
+  ...regulatoryReportsOpsRouter._def.record,
+});
+const chargebackLifecycleMergedRouter = router({
+  ...pspChargebackLifecycleRouter._def.record,
+  ...chargebackLifecycleOpsRouter._def.record,
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -9383,6 +10803,8 @@ export const appRouter = router({
   subscriptionsMwCore: wave90Routers.subscriptionsMwCore,
   // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
   middlewareDashboard: middlewareDashboardRouter,
+  // PayGate API proxy (gateway/kafka/redis/pool/PSP monitoring + alert rules)
+  paygate: proxyRouter,
   wave99: wave99Router,
   // Wave 104 — Admin Data Pipeline
   adminDataPipeline: adminDataPipelineRouter,
@@ -9460,21 +10882,89 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
-  // PSP Licence Holder — production routers
-  str: strRouter,
-  velocityLimits: velocityLimitsRouter,
-  interchange: interchangeRouter,
-  schemeMembership: schemeMembershipRouter,
-  chargebackLifecycle: chargebackLifecycleRouter,
-  regulatoryReports: regulatoryReportsRouter,
+  // PSP Licence Holder — production routers merged with operations routers
+  str: strMergedRouter,
+  velocityLimits: velocityLimitsMergedRouter,
+  interchange: interchangeMergedRouter,
+  schemeMembership: schemeMembershipMergedRouter,
+  chargebackLifecycle: chargebackLifecycleMergedRouter,
+  regulatoryReports: regulatoryReportsMergedRouter,
   // E-Commerce
   ecommerce: ecommerceRouter,
   // Hosted Checkout Payment Page
   hostedCheckout: hostedCheckoutRouter,
+  apBillPay: apBillPayRouter,
+  apBillInbox: apBillInboxRouter,
+  apPayOverTime: apPayOverTimeRouter,
+  taxCompliance: taxComplianceRouter,
+  accountingSync: accountingSyncRouter,
+  apApprovals: apApprovalsRouter,
+  apVendorDirectory: apVendorDirectoryRouter,
+  remittanceAdvice: remittanceAdviceRouter,
+  arFeeChoice: arFeeChoiceRouter,
+  arPartialPayments: arPartialPaymentsRouter,
+  apRecurring: apRecurringRouter,
+  apVendorCards: apVendorCardsRouter,
+  apAssistant: apAssistantRouter,
+  syndicationAp: syndicationApRouter,
+  alertSubscriptions: alertSubscriptionsRouter,
+  // Paystack-parity wave
+  cardTokenization: cardTokenizationRouter,
+  refunds: refundsRouter,
+  splitEngine: splitEngineRouter,
+  directDebit: directDebitRouter,
+  walletPay: walletPayRouter,
+  paymentRequests: paymentRequestsRouter,
+  transferRecipients: transferRecipientsRouter,
+  dva: dedicatedAccountsRouter,
+  customerRisk: customerRiskRouter,
+  subscriptionExtras: subscriptionExtrasRouter,
   // Wave 228 — PDF Export, Cashback/Rewards, API Docs
   pdfExport: pdfExportRouter,
   cashbackRewards: cashbackRewardsRouter,
   apiDocs: apiDocsRouter,
+  // Insider Threat detection
+  insiderThreat: insiderThreatRouter,
+  // Nexthub operations consoles
+  nexthubBilling: nexthubBillingRouter,
+  nexthubDfsps: nexthubDfspsRouter,
+  nexthubDisputes: nexthubDisputesRouter,
+  nexthubReconciliation: nexthubReconciliationRouter,
+  nexthubSecurity: nexthubSecurityRouter,
+  nexthubSettlement: nexthubSettlementRouter,
+  // Wave 211-217 domain routers (supply chain finance, G2P, energy vending)
+  scf: scfRouter,
+  g2p: g2pRouter,
+  energy: energyRouter,
+  remittance: remittanceRouter,
+  // Wave 211-217 domain routers — healthcare + CBDC (hardened round 3: tenant
+  // scoping, demoOrFail settlement gates, integer-kobo math)
+  healthcare: healthcareRouter,
+  cbdc: cbdcRouter,
+  // Previously orphaned routers with live client pages — registered after
+  // round-3 hardening (server-side merchant resolution, HMAC webhooks,
+  // terminal refund sign fix, mojaloop idempotency)
+  kyc: kycRouter,
+  mobileMoney: mobileMoneyRouter,
+  mojaloop: mojaloopRouter,
+  terminal: terminalRouter,
+  // Wave 221 — developer platform
+  wave221: wave221Router,
+  // Wave 223 — onboarding + extensions (combined namespace)
+  wave223: wave223CombinedRouter,
+  // Wave 218 — platform enhancements (previously orphaned, never mounted)
+  wave218: wave218Router,
+  // Wave 225 — Temporal saga wiring (previously orphaned, never mounted)
+  wave225: sagaWiringRouter,
+  // NIP banks — virtual account generation / status (standalone router;
+  // crud.nipBanks only covers list + resolveAccount)
+  nipBanks: nipBanksRouter,
+  // Regulator auth (previously orphaned, never mounted)
+  regulatorAuth: regulatorAuthRouter,
+  // Regulator portal — read-only oversight views (implemented for RegulatorDashboard)
+  regulatorPortal: regulatorPortalRouter,
+  // NIBSS — BVN verification (fail-loud live path via bridge)
+  nibss: nibssRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

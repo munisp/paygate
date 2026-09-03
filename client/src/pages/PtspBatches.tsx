@@ -1,11 +1,9 @@
-import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { RefreshCw, CheckCircle2, Clock, XCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { RefreshCw, CheckCircle2, Clock, XCircle, AlertCircle } from "lucide-react";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const statusColors: Record<string, string> = {
@@ -27,23 +25,15 @@ const statusIcons: Record<string, React.ReactNode> = {
 export default function PtspBatches() {
   const ptspInterval = useAdaptiveInterval(30000);
   const { isAuthenticated } = useAuth();
-  const [reconfirmingId, setReconfirmingId] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = trpc.pos.listBatches.useQuery(
+  const { data, isLoading, isError, error, refetch } = trpc.pos.listBatches.useQuery(
     { limit: 100 },
     { enabled: isAuthenticated, refetchInterval: ptspInterval , staleTime: 30_000 })
 
-  const confirmBatch = trpc.pos.confirmBatch.useMutation({
-    onSuccess: () => {
-      toast.success("Batch re-queued for NIBSS confirmation");
-      refetch();
-      setReconfirmingId(null);
-    },
-    onError: (e: any) => {
-      toast.error(e.message);
-      setReconfirmingId(null);
-    },
-  });
+  // NOTE: pos.confirmBatch is now internalKey-gated (middleware-only). A
+  // merchant browser session receives UNAUTHORIZED, so the "Re-confirm"
+  // action is intentionally not offered here — batches are confirmed
+  // exclusively by the NIBSS/middleware confirmation path.
 
   const batches: any[] = Array.isArray(data) ? data : [];
 
@@ -93,7 +83,16 @@ export default function PtspBatches() {
           <CardTitle>All Batches</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-700">Settlement batches unavailable</p>
+                <p className="text-xs text-red-600 mt-0.5">{error?.message}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading batches…</div>
           ) : batches.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">No settlement batches found</div>
@@ -135,24 +134,11 @@ export default function PtspBatches() {
                       <td className="py-3 pr-4 text-xs text-muted-foreground">
                         {batch.confirmedAt ? new Date(batch.confirmedAt).toLocaleString() : "—"}
                       </td>
-                      <td className="py-3">
+                      <td className="py-3 text-xs text-muted-foreground">
                         {(batch.status === "failed" || batch.status === "pending") && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={reconfirmingId === batch.id}
-                            aria-label="Refresh" onClick={() => {
-                              setReconfirmingId(batch.id);
-                              confirmBatch.mutate({
-                                batchId: batch.id,
-                                nibssReference: batch.nibssReference ?? "MANUAL-RECONFIRM",
-                                status: "confirmed",
-                                confirmedAt: new Date().toISOString(),
-                              });
-                            }}
-                          ><RotateCcw/>
-                            Re-confirm
-                          </Button>
+                          <span title="Batch confirmation is performed by the settlement middleware only (internal-key gated); merchant re-confirmation is no longer available.">
+                            Awaiting middleware confirmation
+                          </span>
                         )}
                       </td>
                     </tr>

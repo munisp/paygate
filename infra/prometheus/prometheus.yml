@@ -8,6 +8,7 @@ global:
 
 rule_files:
   - "paygate-alerts.yml"
+  - "alert-rules.yaml"
 
 alerting:
   alertmanagers:
@@ -102,18 +103,3 @@ scrape_configs:
       - targets: ['intl-remittance-service:8089']
     metrics_path: '/metrics'
 
-  # Wave 79 — Admin & Observability
-  - job_name: 'digital-gold-service'
-    static_configs:
-      - targets: ['digital-gold-service:8080']
-    metrics_path: '/metrics'
-
-  - job_name: 'mutual-funds-service'
-    static_configs:
-      - targets: ['mutual-funds-service:8081']
-    metrics_path: '/metrics'
-
-  - job_name: 'intl-remittance-service'
-    static_configs:
-      - targets: ['intl-remittance-service:8089']
-    metrics_path: '/metrics'

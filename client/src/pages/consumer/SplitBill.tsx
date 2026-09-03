@@ -35,7 +35,7 @@ export default function SplitBill() {
   const [createdSession, setCreatedSession] = useState<any>(null);
 
   const utils = trpc.useUtils();
-  const { data: sessions, isLoading } = trpc.splitBill.list.useQuery(undefined, { staleTime: 30_000 });
+  const { data: sessions, isLoading } = trpc.splitBill.list.useQuery({}, { staleTime: 30_000 });
   const SESSIONS_PAGE_SIZE = 10;
   const [sessionsPage, setSessionsPage] = useState(1);
   const allSessions = (sessions as any[]) ?? [];

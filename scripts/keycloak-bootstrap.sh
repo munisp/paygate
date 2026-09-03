@@ -18,12 +18,12 @@
 # Environment variables (with defaults):
 #   KEYCLOAK_URL             — http://localhost:8081
 #   KEYCLOAK_ADMIN           — admin
-#   KEYCLOAK_ADMIN_PASSWORD  — keycloak_admin_2026
+#   KEYCLOAK_ADMIN_PASSWORD  — (required, no default)
 #   KEYCLOAK_REALM           — paygate
 #   KEYCLOAK_CLIENT_ID       — merchant-portal
 #   KEYCLOAK_CLIENT_SECRET   — (auto-generated if empty)
 #   PAYGATE_ADMIN_EMAIL      — admin@paygate.local
-#   PAYGATE_ADMIN_PASSWORD   — Admin@PayGate2026!
+#   PAYGATE_ADMIN_PASSWORD   — (required, no default)
 #   PAYGATE_ADMIN_FIRST_NAME — PayGate
 #   PAYGATE_ADMIN_LAST_NAME  — Admin
 # =============================================================================
@@ -51,7 +51,7 @@ if [ "$HEALTH_CHECK" = true ]; then
   HC_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-merchant-portal}"
   HC_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
   HC_ADMIN="${KEYCLOAK_ADMIN:-admin}"
-  HC_ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}"
+  HC_ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-}"
 
   echo "[HealthCheck] Verifying Keycloak at $HC_URL/realms/$HC_REALM ..."
 
@@ -105,12 +105,12 @@ fi
 # ─── Configuration ────────────────────────────────────────────────────────────
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"
 KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
-KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}"
+KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD must be set — no default admin credentials allowed}"
 REALM="${KEYCLOAK_REALM:-paygate}"
 CLIENT_ID="${KEYCLOAK_CLIENT_ID:-merchant-portal}"
 CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
 PAYGATE_ADMIN_EMAIL="${PAYGATE_ADMIN_EMAIL:-admin@paygate.local}"
-PAYGATE_ADMIN_PASSWORD="${PAYGATE_ADMIN_PASSWORD:-Admin@PayGate2026!}"
+PAYGATE_ADMIN_PASSWORD="${PAYGATE_ADMIN_PASSWORD:?PAYGATE_ADMIN_PASSWORD must be set — no default admin credentials allowed}"
 PAYGATE_ADMIN_FIRST="${PAYGATE_ADMIN_FIRST_NAME:-PayGate}"
 PAYGATE_ADMIN_LAST="${PAYGATE_ADMIN_LAST_NAME:-Admin}"
 

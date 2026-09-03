@@ -8,22 +8,22 @@ x-airflow-common: &airflow-common
   image: apache/airflow:2.9.3-python3.11
   environment:
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@airflow-postgres:5432/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow_password@airflow-postgres:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_POSTGRES_PASSWORD:?must be set}@airflow-postgres:5432/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${AIRFLOW_POSTGRES_PASSWORD:?must be set}@airflow-postgres:5432/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@airflow-redis:6379/0
-    AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY="
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:?must be set}"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
-    AIRFLOW__WEBSERVER__SECRET_KEY: "paygate-airflow-secret-key-change-in-prod"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "${AIRFLOW_WEBSERVER_SECRET_KEY:?must be set}"
     # PayGate connections (injected as Airflow Variables)
     AIRFLOW_VAR_PG_HOST: "${PG_HOST:-postgres}"
     AIRFLOW_VAR_PG_USER: "${PG_USER:-paygate}"
-    AIRFLOW_VAR_PG_PASSWORD: "${PG_PASSWORD:-paygate_dev_password}"
+    AIRFLOW_VAR_PG_PASSWORD: "${PG_PASSWORD:?must be set}"
     AIRFLOW_VAR_PG_DATABASE: "${PG_DATABASE:-paygate}"
-    AIRFLOW_VAR_MIDDLEWARE_INTERNAL_KEY: "${MIDDLEWARE_INTERNAL_KEY:-dev-internal-key-change-in-prod}"
-    AIRFLOW_VAR_INTERNAL_API_KEY: "${INTERNAL_API_KEY:-dev-api-key-change-in-prod}"
+    AIRFLOW_VAR_MIDDLEWARE_INTERNAL_KEY: "${MIDDLEWARE_INTERNAL_KEY:?must be set}"
+    AIRFLOW_VAR_INTERNAL_API_KEY: "${INTERNAL_API_KEY:?must be set}"
     # Airflow Connections
     AIRFLOW_CONN_PAYGATE_API: "http://paygate-app:3000"
     AIRFLOW_CONN_FRAUD_SCORING_SERVICE: "http://fraud-scoring:8001"
@@ -31,7 +31,7 @@ x-airflow-common: &airflow-common
     AIRFLOW_CONN_AML_MONITOR_SERVICE: "http://aml-monitor:8003"
     AIRFLOW_CONN_ART_REASONING_SERVICE: "http://art-reasoning:8018"
     AIRFLOW_CONN_GO_BRIDGE: "http://go-bridge:4000"
-    AIRFLOW_CONN_PAYGATE_POSTGRES: "postgresql://paygate:${PG_PASSWORD:-paygate_dev_password}@postgres:5432/paygate"
+    AIRFLOW_CONN_PAYGATE_POSTGRES: "postgresql://paygate:${PG_PASSWORD:?must be set}@postgres:5432/paygate"
   volumes:
     - ./dags:/opt/airflow/dags
     - ./plugins:/opt/airflow/plugins
@@ -52,7 +52,7 @@ services:
     container_name: paygate-airflow-postgres
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_PASSWORD: "${AIRFLOW_POSTGRES_PASSWORD:?must be set}"
       POSTGRES_DB: airflow
     volumes:
       - airflow-postgres-data:/var/lib/postgresql/data
@@ -146,7 +146,7 @@ services:
           --lastname Admin \
           --role Admin \
           --email admin@paygate.ng \
-          --password "PayGate@Admin2024!"
+          --password "${AIRFLOW_ADMIN_PASSWORD:?must be set}"
         echo "Airflow initialized"
     restart: on-failure
 
@@ -159,8 +159,8 @@ services:
     environment:
       NIFI_WEB_HTTPS_PORT: "8443"
       SINGLE_USER_CREDENTIALS_USERNAME: "admin"
-      SINGLE_USER_CREDENTIALS_PASSWORD: "PayGate@NiFi2024!"
-      NIFI_SENSITIVE_PROPS_KEY: "paygate-nifi-sensitive-key-change-in-prod"
+      SINGLE_USER_CREDENTIALS_PASSWORD: "${NIFI_ADMIN_PASSWORD:?must be set}"
+      NIFI_SENSITIVE_PROPS_KEY: "${NIFI_SENSITIVE_PROPS_KEY:?must be set}"
       NIFI_JVM_HEAP_INIT: "512m"
       NIFI_JVM_HEAP_MAX: "2g"
     volumes:
@@ -192,7 +192,7 @@ services:
     environment:
       DBT_HOST: "${PG_HOST:-postgres}"
       DBT_USER: "${PG_USER:-paygate}"
-      DBT_PASSWORD: "${PG_PASSWORD:-paygate_dev_password}"
+      DBT_PASSWORD: "${PG_PASSWORD:?must be set}"
       DBT_DATABASE: "${PG_DATABASE:-paygate}"
     networks:
       - paygate-network

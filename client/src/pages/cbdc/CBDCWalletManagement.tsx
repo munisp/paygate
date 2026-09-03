@@ -12,30 +12,33 @@ import { Wallet, Plus, RefreshCw, Send, Activity, ArrowRightLeft } from "lucide-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 export default function CBDCWalletManagement() {
   const [createOpen, setCreateOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
-  const [form, setForm] = useState<Record<string, string>>({ ownerType: "BUSINESS", currency: "eNGN", rail: "eNaira" });
-  const [txForm, setTxForm] = useState<Record<string, string>>({ rail: "eNaira", currency: "eNGN" });
-  const [swapForm, setSwapForm] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<Record<string, string>>({ ownerType: "BUSINESS", currency: "eNGN", rail: "ENAIRA" });
+  const [txForm, setTxForm] = useState<Record<string, string>>({ rail: "ENAIRA", currency: "eNGN" });
+  const [swapForm, setSwapForm] = useState<Record<string, string>>({ swapType: "CBDC_TO_FIAT", sourceCurrency: "NGN", destCurrency: "NGN" });
 
   const { data: accounts, refetch, isLoading } = trpc.cbdc.listAccounts.useQuery({ rail: undefined });
   const { data: transfers } = trpc.cbdc.listTransfers.useQuery({ rail: undefined, status: undefined, limit: 50, offset: 0 });
   const { data: stats } = trpc.cbdc.getCBDCStats.useQuery();
 
   const createAccountMutation = trpc.cbdc.createAccount.useMutation({
-    onSuccess: () => { toast.success("CBDC account created."); setCreateOpen(false); setForm({ ownerType: "BUSINESS", currency: "eNGN", rail: "eNaira" }); refetch(); },
+    onSuccess: () => { toast.success("CBDC account created."); setCreateOpen(false); setForm({ ownerType: "BUSINESS", currency: "eNGN", rail: "ENAIRA" }); refetch(); },
     onError: (e) => toast.error(e.message),
   });
+  const transferKey = useIdempotencyKey();
   const transferMutation = trpc.cbdc.initiateTransfer.useMutation({
-    onSuccess: () => { toast.success("CBDC transfer initiated."); setTransferOpen(false); setTxForm({ rail: "eNaira", currency: "eNGN" }); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => { transferKey.reset(); toast.success("CBDC transfer initiated."); setTransferOpen(false); setTxForm({ rail: "ENAIRA", currency: "eNGN" }); refetch(); },
+    onError: (e) => { transferKey.reset(); toast.error(e.message); },
   });
+  const swapKey = useIdempotencyKey();
   const swapMutation = trpc.cbdc.initiateAtomicSwap.useMutation({
-    onSuccess: () => { toast.success("Atomic swap initiated."); setSwapOpen(false); setSwapForm({}); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => { swapKey.reset(); toast.success("Atomic swap initiated."); setSwapOpen(false); setSwapForm({ swapType: "CBDC_TO_FIAT", sourceCurrency: "NGN", destCurrency: "NGN" }); },
+    onError: (e) => { swapKey.reset(); toast.error(e.message); },
   });
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
@@ -151,7 +154,7 @@ export default function CBDCWalletManagement() {
             <div className="space-y-2"><Label>Rail <span className="text-destructive">*</span></Label>
               <Select value={form.rail} onValueChange={(v) => set("rail", v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="eNaira">eNaira</SelectItem><SelectItem value="BRICS">BRICS Bridge</SelectItem><SelectItem value="mBridge">mBridge</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="ENAIRA">eNaira</SelectItem><SelectItem value="ECB_TIPS">ECB TIPS</SelectItem><SelectItem value="DCEP">DCEP</SelectItem><SelectItem value="FEDNOW">FedNow</SelectItem><SelectItem value="SAND">SAND</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="space-y-2"><Label>Wallet ID <span className="text-destructive">*</span></Label><Input placeholder="e.g. WALLET-001" value={form.walletId ?? ""} onChange={(e) => set("walletId", e.target.value)} /></div>
@@ -188,11 +191,11 @@ export default function CBDCWalletManagement() {
             <div className="space-y-2"><Label>Rail</Label>
               <Select value={txForm.rail} onValueChange={(v) => setTx("rail", v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="eNaira">eNaira</SelectItem><SelectItem value="BRICS">BRICS Bridge</SelectItem><SelectItem value="mBridge">mBridge</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="ENAIRA">eNaira</SelectItem><SelectItem value="ECB_TIPS">ECB TIPS</SelectItem><SelectItem value="DCEP">DCEP</SelectItem><SelectItem value="FEDNOW">FedNow</SelectItem><SelectItem value="SAND">SAND</SelectItem></SelectContent>
               </Select>
             </div>
-            <div className="space-y-2"><Label>From Wallet ID <span className="text-destructive">*</span></Label><Input placeholder="Sender wallet ID" value={txForm.senderWalletId ?? ""} onChange={(e) => setTx("senderWalletId", e.target.value)} /></div>
-            <div className="space-y-2"><Label>To Wallet ID <span className="text-destructive">*</span></Label><Input placeholder="Receiver wallet ID" value={txForm.receiverWalletId ?? ""} onChange={(e) => setTx("receiverWalletId", e.target.value)} /></div>
+            <div className="space-y-2"><Label>From Wallet ID <span className="text-destructive">*</span></Label><Input placeholder="Sender wallet ID" value={txForm.senderWallet ?? ""} onChange={(e) => setTx("senderWallet", e.target.value)} /></div>
+            <div className="space-y-2"><Label>To Wallet ID <span className="text-destructive">*</span></Label><Input placeholder="Receiver wallet ID" value={txForm.receiverWallet ?? ""} onChange={(e) => setTx("receiverWallet", e.target.value)} /></div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Amount (kobo) <span className="text-destructive">*</span></Label><Input type="number" placeholder="e.g. 100000" value={txForm.amount ?? ""} onChange={(e) => setTx("amount", e.target.value)} /></div>
               <div className="space-y-2"><Label>Currency</Label>
@@ -202,11 +205,11 @@ export default function CBDCWalletManagement() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-2"><Label>Reference</Label><Input placeholder="Transfer reference" value={txForm.reference ?? ""} onChange={(e) => setTx("reference", e.target.value)} /></div>
+            <div className="space-y-2"><Label>Narration</Label><Input placeholder="Transfer narration" value={txForm.narration ?? ""} onChange={(e) => setTx("narration", e.target.value)} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
-            <Button onClick={() => transferMutation.mutate({ rail: txForm.rail, senderWalletId: txForm.senderWalletId, receiverWalletId: txForm.receiverWalletId, amount: parseInt(txForm.amount), currency: txForm.currency, reference: txForm.reference })} disabled={transferMutation.isPending}>
+            <Button onClick={() => transferMutation.mutate({ rail: txForm.rail as any, senderWallet: txForm.senderWallet, receiverWallet: txForm.receiverWallet, amount: Number(txForm.amount), currency: txForm.currency, narration: txForm.narration || undefined, idempotencyKey: transferKey.getKey() })} disabled={transferMutation.isPending || !txForm.senderWallet || !txForm.receiverWallet || !(Number(txForm.amount) > 0)}>
               {transferMutation.isPending ? "Initiating…" : "Initiate Transfer"}
             </Button>
           </DialogFooter>
@@ -218,18 +221,29 @@ export default function CBDCWalletManagement() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Initiate Atomic Swap</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Source Rail</Label><Input placeholder="e.g. eNaira" value={swapForm.sourceRail ?? ""} onChange={(e) => setSwap("sourceRail", e.target.value)} /></div>
-            <div className="space-y-2"><Label>Target Rail</Label><Input placeholder="e.g. BRICS" value={swapForm.targetRail ?? ""} onChange={(e) => setSwap("targetRail", e.target.value)} /></div>
-            <div className="space-y-2"><Label>Source Wallet ID</Label><Input placeholder="Source wallet" value={swapForm.sourceWalletId ?? ""} onChange={(e) => setSwap("sourceWalletId", e.target.value)} /></div>
-            <div className="space-y-2"><Label>Target Wallet ID</Label><Input placeholder="Target wallet" value={swapForm.targetWalletId ?? ""} onChange={(e) => setSwap("targetWalletId", e.target.value)} /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Amount (kobo)</Label><Input type="number" placeholder="e.g. 100000" value={swapForm.amount ?? ""} onChange={(e) => setSwap("amount", e.target.value)} /></div>
-              <div className="space-y-2"><Label>FX Rate</Label><Input type="number" step="0.0001" placeholder="e.g. 1.0" value={swapForm.fxRate ?? ""} onChange={(e) => setSwap("fxRate", e.target.value)} /></div>
+            <div className="space-y-2"><Label>Swap Type</Label>
+              <Select value={swapForm.swapType} onValueChange={(v) => setSwap("swapType", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="CBDC_TO_FIAT">CBDC → Fiat</SelectItem><SelectItem value="FIAT_TO_CBDC">Fiat → CBDC</SelectItem><SelectItem value="CBDC_TO_CBDC">CBDC → CBDC</SelectItem></SelectContent>
+              </Select>
             </div>
+            <div className="space-y-2"><Label>Source Rail</Label><Input placeholder="e.g. ENAIRA" value={swapForm.sourceRail ?? ""} onChange={(e) => setSwap("sourceRail", e.target.value)} /></div>
+            <div className="space-y-2"><Label>Destination Rail</Label><Input placeholder="e.g. ENAIRA" value={swapForm.destRail ?? ""} onChange={(e) => setSwap("destRail", e.target.value)} /></div>
+            <div className="space-y-2"><Label>Source Account / Wallet ID</Label><Input placeholder="Source account" value={swapForm.sourceAccountId ?? ""} onChange={(e) => setSwap("sourceAccountId", e.target.value)} /></div>
+            <div className="space-y-2"><Label>Destination Account / Wallet ID</Label><Input placeholder="Destination account" value={swapForm.destAccountId ?? ""} onChange={(e) => setSwap("destAccountId", e.target.value)} /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Source Amount</Label><Input type="number" placeholder="e.g. 1000" value={swapForm.sourceAmount ?? ""} onChange={(e) => setSwap("sourceAmount", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Dest Amount</Label><Input type="number" placeholder="e.g. 1000" value={swapForm.destAmount ?? ""} onChange={(e) => setSwap("destAmount", e.target.value)} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Source Currency</Label><Input placeholder="NGN" value={swapForm.sourceCurrency ?? ""} onChange={(e) => setSwap("sourceCurrency", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Dest Currency</Label><Input placeholder="NGN" value={swapForm.destCurrency ?? ""} onChange={(e) => setSwap("destCurrency", e.target.value)} /></div>
+            </div>
+            <p className="text-xs text-muted-foreground">The FX rate is computed by the server; the destination amount must match the server's quote.</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSwapOpen(false)}>Cancel</Button>
-            <Button onClick={() => swapMutation.mutate({ sourceRail: swapForm.sourceRail, targetRail: swapForm.targetRail, sourceWalletId: swapForm.sourceWalletId, targetWalletId: swapForm.targetWalletId, amount: parseInt(swapForm.amount), fxRate: parseFloat(swapForm.fxRate) })} disabled={swapMutation.isPending}>
+            <Button onClick={() => swapMutation.mutate({ swapType: swapForm.swapType as any, sourceRail: swapForm.sourceRail, destRail: swapForm.destRail, sourceAmount: Number(swapForm.sourceAmount), destAmount: Number(swapForm.destAmount), sourceCurrency: swapForm.sourceCurrency || "NGN", destCurrency: swapForm.destCurrency || "NGN", sourceAccountId: swapForm.sourceAccountId, destAccountId: swapForm.destAccountId, idempotency: swapKey.getKey() })} disabled={swapMutation.isPending || !swapForm.sourceRail || !swapForm.destRail || !swapForm.sourceAccountId || !swapForm.destAccountId || !(Number(swapForm.sourceAmount) > 0) || !(Number(swapForm.destAmount) > 0)}>
               {swapMutation.isPending ? "Initiating…" : "Initiate Swap"}
             </Button>
           </DialogFooter>

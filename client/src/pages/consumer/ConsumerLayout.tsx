@@ -6,7 +6,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
-import { toast } from "sonner";
   Wallet, Zap, Compass, Clock, User, Globe, Bell,
   CreditCard, FileText, Users, Gift, Tag, QrCode,
   ArrowDownLeft, RefreshCw, Shield, BarChart2,
@@ -14,6 +13,7 @@ import { toast } from "sonner";
   ChevronRight, Repeat, Lock, Fingerprint, Send, Settings, BookOpen,
   Coins, PieChart, TrendingUp, BarChart3
 } from "lucide-react";
+import { toast } from "sonner";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
 import { useAdaptiveInterval } from "@/lib/networkQuality";

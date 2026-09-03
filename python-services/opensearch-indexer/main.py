@@ -35,11 +35,36 @@ logging.basicConfig(
 )
 log = logging.getLogger("opensearch-indexer")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name, fallback_env=None):
+    """Fail closed: no hardcoded default credentials (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if not value and fallback_env:
+        value = os.getenv(fallback_env, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        log.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    log.warning("%s unset -- generated per-boot dev value; set %s to real credentials", var_name, var_name)
+    return value
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 KAFKA_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 OS_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200").rstrip("/")
 OS_USER = os.getenv("OPENSEARCH_USER", "admin")
-OS_PASS = os.getenv("OPENSEARCH_PASS", "admin")
+OS_PASS = _require_secret_env("OPENSEARCH_PASS")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 TOPICS = {
@@ -165,15 +190,20 @@ async def lifespan(app: FastAPI):
         await _os_client.aclose()
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate OpenSearch Indexer", version="1.0.0", lifespan=lifespan)
+setup_telemetry("opensearch-indexer", app)
 
 
 # ─── Auth dependency ──────────────────────────────────────────────────────────
 async def require_api_key(request: Request) -> None:
+    # Fail closed: key must be configured and presented; constant-time compare.
     if not INTERNAL_API_KEY:
-        return  # auth disabled in dev
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service misconfigured: INTERNAL_API_KEY not set")
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != INTERNAL_API_KEY:
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], INTERNAL_API_KEY):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
 
@@ -254,3 +284,30 @@ async def list_indices():
         return r.json() if r.status_code == 200 else []
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)

@@ -33,7 +33,7 @@ function formatNaira(kobo: number) {
 }
 
 export default function ConsumerSIPScheduler() {
-  const { data, refetch, isLoading } = trpc.sip.list.useQuery();
+  const { data, refetch, isLoading } = trpc.sip.list.useQuery({});
   const { data: summary } = trpc.sip.summary.useQuery();
   const [open, setOpen] = useState(false);
   const [historyPlanId, setHistoryPlanId] = useState<string | null>(null);

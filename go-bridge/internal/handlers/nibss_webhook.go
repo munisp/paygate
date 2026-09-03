@@ -43,9 +43,16 @@ if sigHeader == "" {
 writeError(w, http.StatusUnauthorized, "missing X-NIBSS-Signature header")
 return
 }
+// Fail closed: without a configured webhook secret we MUST NOT verify
+// signatures (an empty HMAC key would let any signature pass).
 secret := os.Getenv("NIBSS_WEBHOOK_SECRET")
 if secret == "" {
-secret = os.Getenv("MIDDLEWARE_INTERNAL_KEY") // fallback to internal key
+secret = os.Getenv("NIP_WEBHOOK_SECRET")
+}
+if secret == "" {
+slog.Error("[NIBSS Webhook] FATAL: NIBSS_WEBHOOK_SECRET/NIP_WEBHOOK_SECRET unset — rejecting webhook (fail closed)")
+writeError(w, http.StatusServiceUnavailable, "webhook secret not configured")
+return
 }
 if !verifyHMAC(rawBody, sigHeader, secret) {
 slog.Warn("[NIBSS Webhook] HMAC verification failed",
@@ -128,7 +135,11 @@ json.NewEncoder(w).Encode(map[string]interface{}{
 }
 
 // verifyHMAC validates the HMAC-SHA256 signature of the body.
+// An empty secret NEVER verifies — fail closed (defense in depth).
 func verifyHMAC(body []byte, signature, secret string) bool {
+if secret == "" {
+return false
+}
 mac := hmac.New(sha256.New, []byte(secret))
 mac.Write(body)
 expected := hex.EncodeToString(mac.Sum(nil))

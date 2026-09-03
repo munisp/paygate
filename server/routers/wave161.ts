@@ -17,12 +17,45 @@
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import {
-  offlineQueue, retryPolicies, networkQualityEvents,
+  offlineQueue, retryPolicies, networkQualityEvents, users,
 } from "../../drizzle/schema";
 import { eq, and, desc, gte, count, sql, or, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
+
+// ─── Tenant scoping helpers ───────────────────────────────────────────────────
+// Offline payment queue data must never cross tenants: client-supplied
+// merchantId inputs are ignored for non-admin callers and the merchant is
+// resolved server-side from the authenticated user.
+
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account for this user" });
+  return merchant.id;
+}
+
+/** Admin role re-checked from the DB (same pattern as server/adminRouter.ts). */
+async function isPlatformAdmin(openId: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [u] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
+  return u?.role === "admin";
+}
+
+/**
+ * Read scoping: platform admins may request any merchantId (or omit it for a
+ * platform-wide view); everyone else is locked to their own merchant.
+ */
+async function scopeMerchantId(openId: string, requested?: string): Promise<string | undefined> {
+  if (await isPlatformAdmin(openId)) return requested;
+  return resolveMerchantId(openId);
+}
 
 // ─── Exponential backoff helper ───────────────────────────────────────────────
 function computeNextRetry(attempts: number, policy: { initialDelayMs: number; backoffMultiplier: number; maxDelayMs: number }): Date {
@@ -56,8 +89,9 @@ export const wave161Router = router({
         const db = await getDb();
         if (!db) return { rows: [], total: 0 };
 
+        const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
         const conditions = [];
-        if (input.merchantId) conditions.push(eq(offlineQueue.merchantId, input.merchantId));
+        if (merchantId) conditions.push(eq(offlineQueue.merchantId, merchantId));
         if (input.status) conditions.push(eq(offlineQueue.status, input.status));
 
         const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -76,7 +110,7 @@ export const wave161Router = router({
 
     enqueue: protectedProcedure
       .input(z.object({
-        merchantId: z.string(),
+        merchantId: z.string().optional(), // ignored — resolved server-side
         operationType: z.string(),
         payload: z.record(z.string(), z.unknown()),
         priority: z.enum(["critical", "high", "normal", "low"]).default("normal"),
@@ -84,16 +118,17 @@ export const wave161Router = router({
         networkType: z.string().optional(),
         bandwidthKbps: z.number().int().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const policy = DEFAULT_POLICIES[input.operationType] ?? DEFAULT_POLICIES.default;
         const id = `oq_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
         await db.insert(offlineQueue).values({
           id,
-          merchantId: input.merchantId,
+          merchantId,
           operationType: input.operationType,
           payload: input.payload,
           priority: input.priority,
@@ -110,27 +145,34 @@ export const wave161Router = router({
       .input(z.object({
         ids: z.array(z.string()).min(1).max(100),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+        // Scope every mutation to the caller's own merchant — IDs belonging to
+        // other tenants are silently skipped and NOT counted as synced.
+        const merchantId = await resolveMerchantId(ctx.user.openId);
+        let synced = 0;
         for (const id of input.ids) {
-          await db.update(offlineQueue)
+          const updated = await db.update(offlineQueue)
             .set({ status: "synced", syncedAt: new Date(), updatedAt: new Date() })
-            .where(eq(offlineQueue.id, id));
+            .where(and(eq(offlineQueue.id, id), eq(offlineQueue.merchantId, merchantId)))
+            .returning({ id: offlineQueue.id });
+          synced += updated.length;
         }
 
-        return { synced: input.ids.length };
+        return { synced };
       }),
 
     retry: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const [item] = await db.select().from(offlineQueue)
-          .where(eq(offlineQueue.id, input.id)).limit(1);
+          .where(and(eq(offlineQueue.id, input.id), eq(offlineQueue.merchantId, merchantId))).limit(1);
 
         if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Queue item not found" });
         if (item.status === "synced") throw new TRPCError({ code: "BAD_REQUEST", message: "Already synced" });
@@ -151,14 +193,16 @@ export const wave161Router = router({
 
     cancel: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         await db.update(offlineQueue)
           .set({ status: "cancelled", updatedAt: new Date() })
           .where(and(
             eq(offlineQueue.id, input.id),
+            eq(offlineQueue.merchantId, merchantId),
             eq(offlineQueue.status, "pending"),
           ));
 
@@ -167,11 +211,12 @@ export const wave161Router = router({
 
     stats: protectedProcedure
       .input(z.object({ merchantId: z.string().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) return { total: 0, pending: 0, syncing: 0, synced: 0, failed: 0, cancelled: 0 };
 
-        const conditions = input.merchantId ? [eq(offlineQueue.merchantId, input.merchantId)] : [];
+        const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
+        const conditions = merchantId ? [eq(offlineQueue.merchantId, merchantId)] : [];
         const where = conditions.length > 0 ? and(...conditions) : undefined;
 
         const statusCounts = await db.select({
@@ -200,13 +245,14 @@ export const wave161Router = router({
   retryPolicy: router({
     list: protectedProcedure
       .input(z.object({ merchantId: z.string().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) return { policies: [] };
 
+        const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
         const rows = await db.select().from(retryPolicies)
-          .where(input.merchantId
-            ? or(eq(retryPolicies.merchantId, input.merchantId), isNull(retryPolicies.merchantId))
+          .where(merchantId
+            ? or(eq(retryPolicies.merchantId, merchantId), isNull(retryPolicies.merchantId))
             : isNull(retryPolicies.merchantId))
           .orderBy(retryPolicies.operationType);
 
@@ -238,14 +284,21 @@ export const wave161Router = router({
         maxDelayMs: z.number().int().min(1000).max(3_600_000),
         enabled: z.boolean().default(true),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+        // Non-admins can only manage their own merchant's retry policies.
+        // Only a platform admin may set a policy for another merchant or a
+        // global (merchantId = null) default policy.
+        const merchantId = (await isPlatformAdmin(ctx.user.openId))
+          ? (input.merchantId ?? null)
+          : await resolveMerchantId(ctx.user.openId);
 
         const id = `rp_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
         await db.insert(retryPolicies).values({
           id,
-          merchantId: input.merchantId ?? null,
+          merchantId,
           operationType: input.operationType,
           maxAttempts: input.maxAttempts,
           initialDelayMs: input.initialDelayMs,
@@ -262,7 +315,7 @@ export const wave161Router = router({
   networkQuality: router({
     report: protectedProcedure
       .input(z.object({
-        merchantId: z.string(),
+        merchantId: z.string().optional(), // ignored — resolved server-side
         deviceId: z.string().optional(),
         networkType: z.enum(["wifi", "4g", "3g", "2g", "offline", "unknown"]),
         bandwidthKbps: z.number().int().optional(),
@@ -271,14 +324,15 @@ export const wave161Router = router({
         wsConnected: z.boolean().default(true),
         wsFallbackActive: z.boolean().default(false),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+        const merchantId = await resolveMerchantId(ctx.user.openId);
         const id = `nq_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
         await db.insert(networkQualityEvents).values({
           id,
-          merchantId: input.merchantId,
+          merchantId,
           deviceId: input.deviceId ?? null,
           networkType: input.networkType,
           bandwidthKbps: input.bandwidthKbps ?? null,
@@ -298,13 +352,16 @@ export const wave161Router = router({
       }),
 
     getStatus: protectedProcedure
-      .input(z.object({ merchantId: z.string() }))
-      .query(async ({ input }) => {
+      .input(z.object({ merchantId: z.string().optional() }))
+      .query(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) return { online: true, transport: "websocket", latencyMs: null, bandwidthKbps: null };
 
+        const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
+        if (!merchantId) return { online: true, transport: "websocket", latencyMs: null, bandwidthKbps: null };
+
         const [latest] = await db.select().from(networkQualityEvents)
-          .where(eq(networkQualityEvents.merchantId, input.merchantId))
+          .where(eq(networkQualityEvents.merchantId, merchantId))
           .orderBy(desc(networkQualityEvents.createdAt))
           .limit(1);
 
@@ -329,18 +386,21 @@ export const wave161Router = router({
 
     history: protectedProcedure
       .input(z.object({
-        merchantId: z.string(),
+        merchantId: z.string().optional(),
         hours: z.number().int().min(1).max(168).default(24),
         limit: z.number().int().min(1).max(500).default(100),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const db = await getDb();
         if (!db) return { rows: [] };
+
+        const merchantId = await scopeMerchantId(ctx.user.openId, input.merchantId);
+        if (!merchantId) return { rows: [] };
 
         const since = new Date(Date.now() - input.hours * 3_600_000);
         const rows = await db.select().from(networkQualityEvents)
           .where(and(
-            eq(networkQualityEvents.merchantId, input.merchantId),
+            eq(networkQualityEvents.merchantId, merchantId),
             gte(networkQualityEvents.createdAt, since),
           ))
           .orderBy(desc(networkQualityEvents.createdAt))

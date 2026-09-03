@@ -137,13 +137,37 @@ func TestPTSPConfirmationWebhook_EmptyBody(t *testing.T) {
 	}
 }
 
+// TestVerifyHMAC_EmptySecret asserts the NEW fail-closed contract:
+// an empty secret must NEVER verify, even with a "correct" empty-key HMAC.
+// (Previously this test asserted the insecure empty-key contract.)
 func TestVerifyHMAC_EmptySecret(t *testing.T) {
 	body := []byte(`{"batch_id":"b1"}`)
 	mac := hmac.New(sha256.New, []byte(""))
 	mac.Write(body)
 	sig := hex.EncodeToString(mac.Sum(nil))
-	if !verifyHMAC(body, sig, "") {
-		t.Error("expected HMAC to be valid with empty secret")
+	if verifyHMAC(body, sig, "") {
+		t.Error("expected HMAC with empty secret to be rejected (fail closed)")
+	}
+}
+
+// TestPTSPConfirmationWebhook_UnconfiguredSecret asserts that when no webhook
+// secret is configured the endpoint fails closed with 503 instead of
+// verifying with an empty/default key.
+func TestPTSPConfirmationWebhook_UnconfiguredSecret(t *testing.T) {
+	os.Unsetenv("NIBSS_WEBHOOK_SECRET")
+	os.Unsetenv("NIP_WEBHOOK_SECRET")
+
+	payload := NIBSSConfirmationPayload{
+		BatchID: "batch_001", Status: "confirmed", Reference: "NIBSS-REF-001",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/v1/pos/settlement/confirm", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-NIBSS-Signature", "any-signature")
+	w := httptest.NewRecorder()
+	PTSPConfirmationWebhook(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when webhook secret unset, got %d", w.Code)
 	}
 }
 

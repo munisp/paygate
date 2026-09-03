@@ -42,7 +42,7 @@ export default function PlanLimitsPage() {
     features: "",
   });
 
-  const { data: plans, refetch, isLoading } = trpc.wave32.planLimits.list.useQuery();
+  const { data: plans, refetch, isLoading } = trpc.wave32.planLimits.list.useQuery({});
 
   const upsertMutation = trpc.wave32.planLimits.upsert.useMutation({
     onSuccess: () => {

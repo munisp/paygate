@@ -159,25 +159,22 @@ export const consumerNotifPrefsRouter = router({
       const user = await getUserByOpenId(ctx.user.openId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
-      const setParts: string[] = [];
+      // Parameterized SET clauses — column names come from the whitelisted
+      // COLUMN_MAP (safe as sql.raw identifiers); every VALUE (booleans,
+      // quiet-hour strings, digest enum) is bound as a parameter. No
+      // string-built SQL, no manual quote-escaping.
+      const setParts: ReturnType<typeof sql>[] = [];
       for (const [key, col] of Object.entries(COLUMN_MAP)) {
         const val = (input as any)[key];
         if (val === undefined) continue;
-        if (typeof val === "boolean") {
-          setParts.push(`${col} = ${val}`);
-        } else {
-          // string values (quiet hours times)
-          setParts.push(`${col} = '${String(val).replace(/'/g, "''")}'`);
-        }
+        setParts.push(sql`${sql.raw(col)} = ${val}`);
       }
       if (setParts.length === 0) return { updated: false };
 
       await db.execute(
-        sql.raw(
-          `UPDATE consumer_notification_prefs
-           SET ${setParts.join(", ")}, updated_at = now()
-           WHERE user_id = ${user.id}`
-        )
+        sql`UPDATE consumer_notification_prefs
+            SET ${sql.join(setParts, sql`, `)}, updated_at = now()
+            WHERE user_id = ${user.id}`
       );
       return { updated: true };
     }),

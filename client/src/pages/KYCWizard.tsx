@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type Step = "document" | "selfie" | "liveness" | "review";
 
@@ -37,9 +38,10 @@ export default function KYCWizard() {
   const stepIndex = STEPS.findIndex((s) => s.id === currentStep);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
+  const { user } = useAuth();
   // isLoading tracks submission state for loading UI feedback
   const isLoading = submitting;
-  const submitKyc = trpc.kyc?.submitWizard?.useMutation?.({
+  const submitKyc = trpc.consumerKyc.submit.useMutation({
     onSuccess: () => {
       toast.success("KYC submitted successfully. We'll review within 24 hours.");
       navigate("/compliance");
@@ -64,13 +66,24 @@ export default function KYCWizard() {
       toast.error("Please enter your document number.");
       return;
     }
+    if (documentType !== "nin" && documentType !== "bvn") {
+      toast.error("Only NIN or BVN submissions are supported right now.");
+      return;
+    }
+    const nameParts = (user?.name ?? "").trim().split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] ?? "";
+    if (!firstName) {
+      toast.error("Your profile is missing a name. Please update your profile first.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await submitKyc?.mutateAsync?.({
-        documentType,
-        documentNumber,
-        selfieUrl: selfieUrl ?? "",
-        livenessSessionId: livenessSessionId ?? "",
+      await submitKyc.mutateAsync({
+        nin: documentType === "nin" ? documentNumber : undefined,
+        bvn: documentType === "bvn" ? documentNumber : undefined,
+        selfieUrl: selfieUrl && selfieUrl.startsWith("http") ? selfieUrl : undefined,
+        firstName,
+        lastName: nameParts.slice(1).join(" ") || firstName,
       });
     } finally {
       setSubmitting(false);

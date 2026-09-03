@@ -51,6 +51,8 @@ try:
     from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
     PUSH_REQUESTS = Counter("paygate_push_requests_total", "Total push requests", ["channel", "result"])
     PUSH_LATENCY = Histogram("paygate_push_duration_seconds", "Push request duration")
+    ALERT_DISPATCH = Counter("paygate_alert_dispatch_total", "Alertmanager alerts dispatched to Novu", ["channel", "severity"])
+    ALERT_DISPATCH_FAILURES = Counter("paygate_alert_dispatch_failures_total", "Alertmanager alert dispatches that failed", ["channel", "severity"])
     METRICS_ENABLED = True
 except ImportError:
     METRICS_ENABLED = False
@@ -154,6 +156,10 @@ class DispatchResult(BaseModel):
     failure_count: int
     total_tokens: int
     invalid_tokens: list[str] = Field(default_factory=list)
+    # True when NO real delivery happened (FCM unconfigured). Callers and
+    # metrics must treat simulated=True as delivery failure — never success.
+    simulated: bool = False
+    detail: Optional[str] = None
 
 # ─── FCM dispatch ─────────────────────────────────────────────────────────────
 def send_fcm_multicast(tokens: list[str], notification: PushNotification, data: dict) -> DispatchResult:
@@ -162,8 +168,18 @@ def send_fcm_multicast(tokens: list[str], notification: PushNotification, data: 
         return DispatchResult(success_count=0, failure_count=0, total_tokens=0)
     app = get_fcm_app()
     if app is None:
-        logger.info(f"[FCM] Simulated push to {len(tokens)} tokens: {notification.title}")
-        return DispatchResult(success_count=len(tokens), failure_count=0, total_tokens=len(tokens))
+        # FAIL LOUD: report total failure — never fabricate delivery of
+        # debit/fraud/OTP alerts that were never sent.
+        logger.error(
+            f"[FCM] UNCONFIGURED — push to {len(tokens)} tokens NOT delivered: {notification.title}"
+        )
+        return DispatchResult(
+            success_count=0,
+            failure_count=len(tokens),
+            total_tokens=len(tokens),
+            simulated=True,
+            detail="FCM is not configured (no Firebase credentials); notification was NOT delivered",
+        )
     try:
         from firebase_admin import messaging
         # Convert data values to strings (FCM requirement)
@@ -217,8 +233,14 @@ def send_fcm_topic(topic: str, notification: PushNotification, data: dict) -> Di
     """Send FCM topic message."""
     app = get_fcm_app()
     if app is None:
-        logger.info(f"[FCM] Simulated topic push to {topic}: {notification.title}")
-        return DispatchResult(success_count=1, failure_count=0, total_tokens=1)
+        logger.error(f"[FCM] UNCONFIGURED — topic push to {topic} NOT delivered: {notification.title}")
+        return DispatchResult(
+            success_count=0,
+            failure_count=1,
+            total_tokens=1,
+            simulated=True,
+            detail="FCM is not configured (no Firebase credentials); topic message was NOT delivered",
+        )
     try:
         from firebase_admin import messaging
         str_data = {k: str(v) for k, v in data.items()}
@@ -282,15 +304,25 @@ def verify_api_key(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Push service starting up")
-    get_fcm_app()  # Eager init
+    if get_fcm_app() is None:
+        # Loud startup alert: every notification will report simulated=True /
+        # failure_count=total until Firebase credentials are configured.
+        logger.error(
+            "FCM IS UNCONFIGURED (no FIREBASE_CREDENTIALS_JSON / FIREBASE_CREDENTIALS / ADC). "
+            "Push notifications will NOT be delivered; dispatches report failure_count=total."
+        )
     yield
     logger.info("Push service shutting down")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Push Notification Service",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("push-service", app)
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/health")
@@ -319,7 +351,7 @@ async def notify_merchant(req: NotifyMerchantRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type, "merchant_id": req.merchant_id}
     result = send_fcm_multicast(tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="merchant", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="merchant", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     logger.info(f"[push] merchant={req.merchant_id} sent={result.success_count} failed={result.failure_count}")
     return result
@@ -336,7 +368,7 @@ async def notify_consumer(req: NotifyConsumerRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type, "user_id": str(req.user_id)}
     result = send_fcm_multicast(tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="consumer", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="consumer", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     logger.info(f"[push] consumer user_id={req.user_id} sent={result.success_count} failed={result.failure_count}")
     return result
@@ -348,7 +380,7 @@ async def notify_tokens(req: NotifyTokensRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type}
     result = send_fcm_multicast(req.tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="tokens", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="tokens", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     return result
 
@@ -359,7 +391,7 @@ async def notify_topic(req: NotifyTopicRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type}
     result = send_fcm_topic(req.topic, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="topic", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="topic", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     return result
 
@@ -368,8 +400,13 @@ async def register_token(req: RegisterTokenRequest, request: Request):
     verify_api_key(request)
     db = await get_db()
     if db is None:
-        logger.info(f"[push] Simulated token registration: {req.device_id}")
-        return {"registered": True, "simulated": True}
+        # FAIL LOUD: a token that is not persisted can never receive pushes —
+        # pretending it registered breaks every future notification to this device.
+        logger.error(f"[push] Token registration FAILED (DB unavailable): device={req.device_id}")
+        raise HTTPException(
+            status_code=503,
+            detail="Token store unavailable — device token was NOT registered",
+        )
     try:
         await db.execute(
             """
@@ -396,7 +433,11 @@ async def deregister_token(req: DeregisterTokenRequest, request: Request):
     verify_api_key(request)
     db = await get_db()
     if db is None:
-        return {"deregistered": True, "simulated": True}
+        logger.error("[push] Token deregistration FAILED (DB unavailable)")
+        raise HTTPException(
+            status_code=503,
+            detail="Token store unavailable — device token was NOT deregistered",
+        )
     try:
         await db.execute(
             "UPDATE device_push_tokens SET is_active = false, updated_at = NOW() WHERE token = $1",
@@ -406,6 +447,122 @@ async def deregister_token(req: DeregisterTokenRequest, request: Request):
     except Exception as e:
         logger.error(f"[push] Token deregistration error: {e}")
         raise HTTPException(status_code=500, detail="Token deregistration failed")
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
+
+# ─── Novu alert bridge (Alertmanager webhook receiver) ──────────────────────
+# POST /alerts/webhook accepts an Alertmanager v4 webhook payload and, for each
+# alert, triggers the Novu workflow "paygate-alert" to a subscriber whose id is
+# the merchant/tenant resolved from alert labels. FAIL-LOUD: any Novu error or
+# missing configuration results in HTTP 502 — no fabricated delivery.
+NOVU_API_URL = os.getenv("NOVU_API_URL", "http://novu-api:3000").rstrip("/")
+NOVU_API_KEY = os.getenv("NOVU_API_KEY", "")
+NOVU_WORKFLOW_ID = "paygate-alert"
+
+
+def resolve_alert_tenant(labels: dict) -> Optional[str]:
+    """Resolve tenant/merchant identity from alert labels."""
+    return labels.get("tenant_id") or labels.get("merchant_id")
+
+
+async def dispatch_alert_to_novu(tenant_id: str, alert: dict) -> None:
+    """Trigger the paygate-alert Novu workflow for one alert. Raises on failure."""
+    import httpx
+    labels = alert.get("labels", {}) or {}
+    annotations = alert.get("annotations", {}) or {}
+    severity = labels.get("severity", "warning")
+    channel = labels.get("channel", "in_app")
+    payload = {
+        "alertname": labels.get("alertname", "unknown"),
+        "severity": severity,
+        "summary": annotations.get("summary", labels.get("alertname", "")),
+        "startsAt": alert.get("startsAt", ""),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{NOVU_API_URL}/v1/events/trigger",
+                headers={
+                    "Authorization": f"ApiKey {NOVU_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "name": NOVU_WORKFLOW_ID,
+                    "to": {"subscriberId": tenant_id},
+                    "payload": payload,
+                },
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Novu trigger returned HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception:
+        if METRICS_ENABLED:
+            ALERT_DISPATCH_FAILURES.labels(channel=channel, severity=severity).inc()
+        raise
+    if METRICS_ENABLED:
+        ALERT_DISPATCH.labels(channel=channel, severity=severity).inc()
+
+
+@app.post("/alerts/webhook")
+async def alerts_webhook(request: Request):
+    if not NOVU_API_KEY:
+        logger.error("[alerts] NOVU_API_KEY not configured — refusing to fabricate delivery")
+        raise HTTPException(status_code=502, detail="Novu API key not configured; alert NOT dispatched")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    alerts = body.get("alerts", [])
+    if not isinstance(alerts, list):
+        raise HTTPException(status_code=400, detail="'alerts' must be a list")
+    dispatched = 0
+    errors = []
+    for alert in alerts:
+        labels = alert.get("labels", {}) or {}
+        tenant_id = resolve_alert_tenant(labels)
+        if not tenant_id:
+            logger.warning(f"[alerts] alert without tenant label skipped: {labels.get('alertname')}")
+            errors.append("missing tenant label")
+            continue
+        try:
+            await dispatch_alert_to_novu(str(tenant_id), alert)
+            dispatched += 1
+        except Exception as e:
+            logger.error(f"[alerts] Novu dispatch failed for tenant {tenant_id}: {e}")
+            errors.append(str(e))
+    if errors:
+        # FAIL LOUD: at least one alert was NOT delivered — Alertmanager must retry.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Novu dispatch failed for {len(errors)}/{len(alerts)} alerts: {errors[0]}",
+        )
+    return {"dispatched": dispatched}
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8096"))

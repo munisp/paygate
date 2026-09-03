@@ -40,8 +40,11 @@ export default function PINSetup() {
   const [, navigate] = useLocation();
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  // Changing an existing PIN requires the current PIN (server-side ATO guard).
+  const [currentPin, setCurrentPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
   const [done, setDone] = useState(false);
 
   const utils = trpc.useUtils();
@@ -54,6 +57,7 @@ export default function PINSetup() {
       setDone(true);
       setPin("");
       setConfirmPin("");
+      setCurrentPin("");
       utils.consumerPin.isSet.invalidate();
     },
     onError: (e: { message: string }) => toast.error(e.message),
@@ -62,7 +66,8 @@ export default function PINSetup() {
   const handleSubmit = () => {
     if (pin.length !== 4) { toast.error("PIN must be exactly 4 digits"); return; }
     if (pin !== confirmPin) { toast.error("PINs do not match"); return; }
-    setOrChange.mutate({ pin });
+    if (isSet && currentPin.length !== 4) { toast.error("Enter your current 4-digit PIN"); return; }
+    setOrChange.mutate({ pin, ...(isSet ? { currentPin } : {}) });
   };
 
   return (
@@ -94,6 +99,12 @@ export default function PINSetup() {
                   : "Set a 4-digit PIN to secure your transfers and bill payments."}
               </p>
             </div>
+            {isSet && (
+              <div className="space-y-1.5">
+                <Label>Current PIN</Label>
+                <PinInput value={currentPin} onChange={setCurrentPin} placeholder="••••" show={showCurrent} onToggleShow={() => setShowCurrent(s => !s)} />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>New PIN</Label>
               <PinInput value={pin} onChange={setPin} show={showPin} onToggleShow={() => setShowPin(s => !s)} />
@@ -106,7 +117,7 @@ export default function PINSetup() {
               <p className="text-xs text-destructive">PINs do not match</p>
             )}
             <Button className="w-full" onClick={handleSubmit}
-              disabled={pin.length !== 4 || confirmPin.length !== 4 || pin !== confirmPin || setOrChange.isPending}>
+              disabled={pin.length !== 4 || confirmPin.length !== 4 || pin !== confirmPin || (isSet && currentPin.length !== 4) || setOrChange.isPending}>
               {setOrChange.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
               {isSet ? "Change PIN" : "Set PIN"}
             </Button>

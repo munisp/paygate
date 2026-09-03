@@ -45,7 +45,7 @@ const PROTOCOL_SAMPLES: Record<string, string> = {
 };
 
 export default function ProtocolValidator() {
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [protocol, setProtocol] = useState("ISO 20022 pacs.008");
   const [payload, setPayload] = useState(PROTOCOL_SAMPLES["ISO 20022 pacs.008"]);
   const [result, setResult] = useState<{ valid: boolean; errors: string[]; warnings: string[]; info: string[] } | null>(null);

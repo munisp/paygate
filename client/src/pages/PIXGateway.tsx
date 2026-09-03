@@ -14,6 +14,7 @@ import {
   QrCode, DollarSign, Globe, Zap, Copy,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 type PixKeyType = "cpf" | "cnpj" | "phone" | "email" | "random";
 
@@ -95,12 +96,14 @@ export default function PIXGateway() {
     { enabled: step === "quote" && !!amount && parseFloat(amount, { staleTime: 30_000 }) > 0 }
   );
 
+  const initiateKey = useIdempotencyKey();
   const initiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
+      initiateKey.reset();
       setStep("done");
       toast.success("PIX transfer initiated!");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => { initiateKey.reset(); toast.error(err.message); },
   });
 
   const keyResult = validateQuery.data;
@@ -127,7 +130,7 @@ export default function PIXGateway() {
       receiverIdType: keyType.toUpperCase(),
       corridor: `${sourceCurrency}_BRL`,
       receiverName: keyResult.name ?? "PIX Receiver",
-      idempotencyKey: `pix_${Date.now()}`,
+      idempotencyKey: initiateKey.getKey(),
     });
   };
 

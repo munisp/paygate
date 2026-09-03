@@ -21,6 +21,7 @@ import { getDb, schema } from "./db";
 import { router, protectedProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { logger } from "./logger";
+import { withIdempotency } from "./idempotency";
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
 
@@ -47,7 +48,9 @@ async function bridgeCall<T>(
 }
 
 function generateId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  // CSPRNG ids — Math.random is predictable and collision-prone, which on a
+  // money path can surface as duplicate primary keys or guessable payout ids.
+  return `${prefix}_${crypto.randomUUID()}`;
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -197,12 +200,28 @@ export const usdcRouter = router({
         `/v1/usdc/balance?wallet=${wallet.walletAddress}&network=${network}`
       );
 
+      // R4 F5: a null bridge result means the balance is UNKNOWN — reporting
+      // "0.00" would fabricate an empty account (and could green-light spends
+      // against an unverifiable balance). Fail loud instead.
+      if (!result) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "USDC balance unavailable — settlement bridge unreachable. Balance NOT reported as zero.",
+        });
+      }
+      if (typeof result.balance_usdc !== "string" || typeof result.balance_lamports !== "number") {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "USDC balance unavailable — settlement bridge returned a malformed balance payload.",
+        });
+      }
+
       return {
         hasWallet: true,
         walletAddress: wallet.walletAddress,
         network: wallet.network,
-        balanceLamports: result?.balance_lamports ?? 0,
-        balanceUsdc: result?.balance_usdc ?? "0.00",
+        balanceLamports: result.balance_lamports,
+        balanceUsdc: result.balance_usdc,
       };
     }),
 
@@ -214,48 +233,74 @@ export const usdcRouter = router({
       amountUsdc: z.number().positive().max(1_000_000),
       reference: z.string().max(128).optional(),
       network: z.enum(["mainnet", "devnet"]).default("mainnet"),
+      // Idempotency key — REQUIRED for this money movement (spec #6). A retry
+      // with the same key replays the stored response and NEVER creates a
+      // second payout.
+      idempotencyKey: z.string().min(8).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
       const merchantId = ctx.user.openId;
-      const amountLamports = Math.round(input.amountUsdc * 1_000_000); // USDC has 6 decimals
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      // USDC has 6 decimals: dollars → base units (stored in amount_lamports,
+      // a bigint column — no overflow at the 1,000,000 USDC cap).
+      const amountLamports = Math.round(input.amountUsdc * 1_000_000);
 
-      // Create the payout record in pending state
-      const payoutId = generateId("upay");
-      await db
-        .insert(schema.usdcPayouts)
-        .values({
-          id: payoutId,
-          merchantId,
-          recipientWallet: input.recipientWallet,
-          amountLamports,
-          reference: input.reference,
-          network: input.network,
-          status: "pending",
-          initiatedAt: new Date(),
-          updatedAt: new Date(),
-        });
+      const execute = async () => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
-      // Trigger the Temporal workflow via Go bridge
-      const workflowResult = await bridgeCall<{
-        workflow_id: string;
-        run_id: string;
-        status: string;
-      }>(
-        "POST",
-        "/v1/usdc/payout",
-        {
-          payout_id: payoutId,
-          merchant_id: merchantId,
-          recipient_wallet: input.recipientWallet,
-          amount_lamports: amountLamports,
-          reference: input.reference ?? "",
-          network: input.network,
+        // Create the payout record in pending state
+        const payoutId = generateId("upay");
+        await db
+          .insert(schema.usdcPayouts)
+          .values({
+            id: payoutId,
+            merchantId,
+            recipientWallet: input.recipientWallet,
+            amountLamports,
+            reference: input.reference,
+            network: input.network,
+            status: "pending",
+            initiatedAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+        // Trigger the Temporal workflow via Go bridge
+        const workflowResult = await bridgeCall<{
+          workflow_id: string;
+          run_id: string;
+          status: string;
+        }>(
+          "POST",
+          "/v1/usdc/payout",
+          {
+            payout_id: payoutId,
+            merchant_id: merchantId,
+            recipient_wallet: input.recipientWallet,
+            amount_lamports: amountLamports,
+            reference: input.reference ?? "",
+            network: input.network,
+          }
+        );
+
+        if (!workflowResult?.workflow_id) {
+          // FAIL LOUD — previously the payout row stayed 'pending' forever and
+          // the caller got a success-shaped response even though no workflow
+          // was started (the payout would never execute or be retried).
+          await db
+            .update(schema.usdcPayouts)
+            .set({
+              status: "failed",
+              failureReason: "Payout workflow could not be started — bridge unavailable or returned no workflow_id",
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.usdcPayouts.id, payoutId));
+          logger.error(`[usdc] payout ${payoutId} FAILED to start workflow (merchant=${merchantId} amount=${amountLamports})`);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "USDC payout could not be initiated — settlement workflow unavailable. No funds moved; safe to retry (use a new idempotency key).",
+          });
         }
-      );
 
-      if (workflowResult) {
         await db
           .update(schema.usdcPayouts)
           .set({
@@ -265,16 +310,26 @@ export const usdcRouter = router({
             updatedAt: new Date(),
           })
           .where(eq(schema.usdcPayouts.id, payoutId));
-      }
 
-      logger.info(`[usdc] payout initiated payoutId=${payoutId} merchant=${merchantId} amount=${amountLamports} recipient=${input.recipientWallet}`);
+        logger.info(`[usdc] payout initiated payoutId=${payoutId} merchant=${merchantId} amount=${amountLamports} recipient=${input.recipientWallet}`);
 
-      return {
-        payoutId,
-        status: workflowResult?.status ?? "pending",
-        temporalWorkflowId: workflowResult?.workflow_id,
-        message: "Payout initiated. Track status with usdc.getPayoutStatus.",
+        return {
+          payoutId,
+          status: workflowResult.status,
+          temporalWorkflowId: workflowResult.workflow_id,
+          message: "Payout initiated. Track status with usdc.getPayoutStatus.",
+        };
       };
+
+      // Exactly-once (idempotency key is REQUIRED): claim the key atomically —
+      // concurrent/duplicate retries replay, never re-execute.
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId,
+        operation: "usdc.initiatePayout",
+        requestBody: input,
+        execute,
+      });
     }),
 
   getPayoutStatus: protectedProcedure

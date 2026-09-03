@@ -23,6 +23,7 @@ import {
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
 import { publishAuditEvent } from "../auditEvents";
+import { logger } from "../logger";
 
 // ─── 1. UBO Management Router ─────────────────────────────────────────────────
 export const uboMgmtRouter = router({
@@ -79,7 +80,7 @@ export const uboMgmtRouter = router({
         targetId: row.id,
         metadata: { verificationId: input.verificationId, fullName: input.fullName, ownershipPct: input.ownershipPct },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave174] audit event kyb.ubo.added failed", e));
       return row;
     }),
 
@@ -188,7 +189,14 @@ Respond with JSON only.`,
         flagReason = parsed.reason ?? null;
         resultJson = JSON.stringify(parsed);
       } catch (e: any) {
-        resultJson = JSON.stringify({ error: e.message });
+        // FAIL LOUD — a failed screening MUST NOT be persisted as a completed
+        // (unflagged) screening-of-record. Downstream risk scoring consumes
+        // `flagged`; silently recording a pass on provider error is an AML breach.
+        logger.error(`[adverseMedia] Screening provider error for "${input.name}": ${e?.message}`);
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Adverse media screening provider is unavailable — screening NOT completed. Retry or escalate to manual review.",
+        });
       }
 
       const [row] = await db.insert(adverseMediaScreenings).values({
@@ -209,7 +217,7 @@ Respond with JSON only.`,
           targetId: input.entityId,
           metadata: { entityType: input.entityType, name: input.name, reason: flagReason },
           timestamp: new Date().toISOString(),
-        }).catch(() => {});
+        }).catch((e) => logger.error("[wave174] audit event compliance.adverse_media.flagged failed", e));
       }
 
       return { id: row.id, flagged, flagReason, query };
@@ -261,7 +269,7 @@ export const temporalCheckRouter = router({
       const db = (await getDb())!;
       const [submission] = await db.select().from(kycSubmissions)
         .where(and(
-          eq(kycSubmissions.submissionId, input.submissionId),
+          eq(kycSubmissions.id, input.submissionId),
           eq(kycSubmissions.merchantId, ctx.user.tenantId ?? ""),
         )).limit(1);
       if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
@@ -274,36 +282,37 @@ export const temporalCheckRouter = router({
         note: string | null;
       }> = [];
 
+      // Fields extracted from the document via OCR (fullName/dateOfBirth live in ocr_extracted_data)
+      const ocrData = (submission.ocrExtractedData ?? {}) as { fullName?: string; dateOfBirth?: string };
+
       // Check 1: Document expiry
-      if (submission.documentExpiresAt) {
-        const expired = new Date(submission.documentExpiresAt) < new Date();
+      if (submission.documentExpiryDate) {
+        const expired = new Date(submission.documentExpiryDate) < new Date();
         checks.push({
           checkType: "doc_expiry",
-          fieldA: new Date(submission.documentExpiresAt).toISOString().slice(0, 10),
+          fieldA: new Date(submission.documentExpiryDate).toISOString().slice(0, 10),
           fieldB: new Date().toISOString().slice(0, 10),
           passed: !expired,
           note: expired ? "Document has expired" : null,
         });
       }
 
-      // Check 2: BVN name match (if bvnValidated and bvnName stored)
-      if ((submission as any).bvnValidated && (submission as any).bvnName && submission.fullName) {
-        const bvnName: string = (submission as any).bvnName ?? "";
-        const docName: string = submission.fullName ?? "";
-        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
-        const similarity = normalize(bvnName) === normalize(docName);
+      // Check 2: BVN cross-validation result (matched | mismatch | not_found)
+      if (submission.bvnVerificationStatus && submission.bvnVerificationStatus !== "skipped" && ocrData.fullName) {
+        const docName: string = ocrData.fullName;
+        const matched = submission.bvnVerificationStatus === "matched";
         checks.push({
           checkType: "name_mismatch",
           fieldA: docName,
-          fieldB: bvnName,
-          passed: similarity,
-          note: !similarity ? `Document name "${docName}" does not match BVN name "${bvnName}"` : null,
+          fieldB: `bvn_status=${submission.bvnVerificationStatus}`,
+          passed: matched,
+          note: !matched ? `Document name "${docName}" does not match the BVN record` : null,
         });
       }
 
       // Check 3: DOB plausibility (must be 18–120 years old)
-      if (submission.dateOfBirth) {
-        const dob = new Date(submission.dateOfBirth);
+      if (ocrData.dateOfBirth) {
+        const dob = new Date(ocrData.dateOfBirth);
         const ageMs = Date.now() - dob.getTime();
         const ageYears = ageMs / (365.25 * 24 * 3600 * 1000);
         const plausible = ageYears >= 18 && ageYears <= 120;
@@ -437,7 +446,7 @@ export const kybRiskScoreRouter = router({
         targetId: input.verificationId,
         metadata: { compositeScore, riskBand },
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((e) => logger.error("[wave174] audit event kyb.risk_score.computed failed", e));
 
       return row;
     }),

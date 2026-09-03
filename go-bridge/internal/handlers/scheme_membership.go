@@ -26,25 +26,25 @@ import (
 
 // SchemeMembership describes the PSP's principal membership with a card scheme.
 type SchemeMembership struct {
-	Scheme            string    `json:"scheme"`              // visa, mastercard, verve
-	MembershipType    string    `json:"membership_type"`     // principal, associate, sponsored
-	MemberID          string    `json:"member_id"`           // scheme-assigned member ID
-	BINRanges         []BINRange `json:"bin_ranges"`
-	SponsoredMerchants []string `json:"sponsored_merchants"`
-	Status            string    `json:"status"`              // active, suspended, terminated
-	EffectiveFrom     time.Time `json:"effective_from"`
-	RenewalDate       time.Time `json:"renewal_date"`
-	ContactEmail      string    `json:"contact_email"`
-	ComplianceOfficer string    `json:"compliance_officer"`
+	Scheme             string     `json:"scheme"`          // visa, mastercard, verve
+	MembershipType     string     `json:"membership_type"` // principal, associate, sponsored
+	MemberID           string     `json:"member_id"`       // scheme-assigned member ID
+	BINRanges          []BINRange `json:"bin_ranges"`
+	SponsoredMerchants []string   `json:"sponsored_merchants"`
+	Status             string     `json:"status"` // active, suspended, terminated
+	EffectiveFrom      time.Time  `json:"effective_from"`
+	RenewalDate        time.Time  `json:"renewal_date"`
+	ContactEmail       string     `json:"contact_email"`
+	ComplianceOfficer  string     `json:"compliance_officer"`
 }
 
 // BINRange defines a range of BINs owned by the PSP.
 type BINRange struct {
-	Low     string `json:"low"`
-	High    string `json:"high"`
-	Scheme  string `json:"scheme"`
+	Low      string `json:"low"`
+	High     string `json:"high"`
+	Scheme   string `json:"scheme"`
 	CardType string `json:"card_type"`
-	Country string `json:"country"`
+	Country  string `json:"country"`
 }
 
 // BINLookupResult is the result of a BIN lookup.
@@ -101,7 +101,7 @@ func GetSchemeMembership(w http.ResponseWriter, r *http.Request) {
 // Looks up card scheme, type, and issuer from the first 6-8 digits of a PAN.
 func BINLookup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		BIN        string `json:"bin"`         // first 6-8 digits
+		BIN        string `json:"bin"` // first 6-8 digits
 		MerchantID string `json:"merchant_id"`
 	}
 	if err := decodeBody(r, &req); err != nil {
@@ -161,7 +161,7 @@ func SubmitSchemeDispute(w http.ResponseWriter, r *http.Request) {
 		ChargebackID    string   `json:"chargeback_id"`
 		Scheme          string   `json:"scheme"`
 		DisputeType     string   `json:"dispute_type"` // chargeback, pre_arbitration, arbitration
-		ARN              string  `json:"arn"`           // acquirer reference number
+		ARN             string   `json:"arn"`          // acquirer reference number
 		TransactionDate string   `json:"transaction_date"`
 		AmountKobo      int64    `json:"amount_kobo"`
 		Currency        string   `json:"currency"`
@@ -207,16 +207,16 @@ func SubmitSchemeDispute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish to Kafka
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
-		"chargeback_id":  req.ChargebackID,
-		"scheme":         req.Scheme,
-		"dispute_type":   req.DisputeType,
-		"scheme_ref":     ref,
-		"submitted_at":   time.Now().UTC(),
-		"merchant_id":    req.MerchantID,
+		"chargeback_id": req.ChargebackID,
+		"scheme":        req.Scheme,
+		"dispute_type":  req.DisputeType,
+		"scheme_ref":    ref,
+		"submitted_at":  time.Now().UTC(),
+		"merchant_id":   req.MerchantID,
 	})
-	_ = kc.Publish(ctx, "scheme.dispute.submitted", string(eventData))
+	_ = kc.Publish(ctx, "scheme.dispute.submitted", "", string(eventData))
 
 	slog.Info("[scheme] dispute submitted",
 		"chargeback_id", req.ChargebackID,

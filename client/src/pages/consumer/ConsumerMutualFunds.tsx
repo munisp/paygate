@@ -18,6 +18,7 @@ import {
   Info,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 export default function ConsumerMutualFunds() {
   const [selectedFund, setSelectedFund] = useState<string | null>(null);
@@ -30,26 +31,47 @@ export default function ConsumerMutualFunds() {
   const { data: portfolio, refetch: refetchPortfolio } =
     trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
 
-  const investMutation = trpc.newFeatures.mutualFunds.invest.useMutation({
+  // Money-moving invest/redeem go through the hardened wave34
+  // consumerFinancial.funds router, which REQUIRES an idempotency key.
+  const { data: cfPortfolio, refetch: refetchCfPortfolio } =
+    trpc.consumerFinancial.funds.getPortfolio.useQuery();
+
+  const investKey = useIdempotencyKey();
+  const investMutation = trpc.consumerFinancial.funds.invest.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`Invested ₦${(d.amountKobo / 100).toLocaleString()} in ${d.fundName}`);
+      investKey.reset();
+      toast.success(`Invested ₦${(d.amountKobo / 100).toLocaleString()} in ${selectedFund}`);
       setInvestAmount("");
       setSelectedFund(null);
       refetchPortfolio();
+      refetchCfPortfolio();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { investKey.reset(); toast.error(e.message); },
   });
 
-  const redeemMutation = trpc.newFeatures.mutualFunds.redeem.useMutation({
-    onSuccess: (d: any) => {
+  const redeemKey = useIdempotencyKey();
+  const redeemMutation = trpc.consumerFinancial.funds.redeem.useMutation({
+    onSuccess: (d: any, vars: any) => {
+      redeemKey.reset();
       toast.success(
-        `Redeemed ${d.units} units — proceeds: ₦${(d.proceedsKobo / 100).toLocaleString()}`,
+        `Redeemed ${vars.units} units — proceeds: ₦${(d.proceedsKobo / 100).toLocaleString()}`,
       );
       setRedeemUnits("");
       refetchPortfolio();
+      refetchCfPortfolio();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { redeemKey.reset(); toast.error(e.message); },
   });
+
+  // The wave34 redeem endpoint is keyed by investment id, not fund id —
+  // resolve the caller's active investment for the selected fund.
+  const resolveInvestmentId = (fundId: string): string | null => {
+    const investments: any[] = (cfPortfolio as any)?.investments ?? [];
+    const match = investments.find(
+      (i) => (i.fund_id ?? i.fundId) === fundId && (i.status ?? "active") === "active",
+    );
+    return match ? String(match.id) : null;
+  };
 
   const formatKobo = (k: number) =>
     `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -283,7 +305,8 @@ export default function ConsumerMutualFunds() {
                                 e.stopPropagation();
                                 investMutation.mutate({
                                   fundId: fund.fundId,
-                                  amountKobo: parseFloat(investAmount) * 100,
+                                  amountKobo: Math.round(parseFloat(investAmount) * 100),
+                                  idempotencyKey: investKey.getKey(),
                                 });
                               }}
                               disabled={!investAmount || investMutation.isPending}
@@ -295,9 +318,15 @@ export default function ConsumerMutualFunds() {
                               variant="outline"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const investmentId = resolveInvestmentId(fund.fundId);
+                                if (!investmentId) {
+                                  toast.error("No active investment found for this fund");
+                                  return;
+                                }
                                 redeemMutation.mutate({
-                                  fundId: fund.fundId,
+                                  investmentId,
                                   units: parseFloat(redeemUnits),
+                                  idempotencyKey: redeemKey.getKey(),
                                 });
                               }}
                               disabled={!redeemUnits || redeemMutation.isPending}

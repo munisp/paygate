@@ -9,6 +9,16 @@ name = "tigerbeetle-recon"
 path = "src/main.rs"
 
 [dependencies]
+
+# OpenTelemetry (OTEL_IMPLEMENTATION_SPEC §5)
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.28"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1"] }
 rdkafka = { version = "0.36", features = ["cmake-build"] }

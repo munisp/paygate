@@ -7,13 +7,17 @@
  * 5. BNPL Overdue Alert: marks overdue instalments and applies late fee every hour
  * 6. STR 24h Deadline Monitor: alerts compliance team and auto-retries NFIU submission every 15 minutes
  * 7. Interchange Fee Auto-Calculation: calculates fees for completed transactions every 5 minutes
+ * 8. AP Recurring Bill Executor: claims due ap_recurring_schedules and generates bills every hour
  */
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
+import { apBills, apBillLineItems, merchantNotifications } from "../drizzle/schema";
+import { auditLog } from "./auditTrail";
 import { logger } from "./logger";
 import { sendEmail } from "./emailService";
 import { notifyOwner } from "./_core/notification";
 import { isSuppressedWorkerError } from './workerErrorFilter';
+import { buyDigitalGoldViaMiddleware, isBridgeAvailable } from "./middlewareBridge";
 
 // ─── SIP Executor ─────────────────────────────────────────────────────────────
 
@@ -22,14 +26,37 @@ async function executeDueSipPlans() {
   if (!db) return;
 
   try {
-    // Find all active SIP plans whose next_execution_at is in the past
+    // Claim-then-execute: atomically advance next_execution_at for the plans we
+    // pick up (FOR UPDATE SKIP LOCKED so concurrent cron instances claim
+    // disjoint sets). A plan that has been claimed can never be selected by
+    // another run, so the external purchase below can never execute twice for
+    // the same schedule slot. On execution failure the claim is rolled back
+    // (per-plan, below) so the plan is retried on the next tick.
     const due = await db.execute(sql`
-      SELECT sp.id, sp.user_id, sp.asset_type, sp.amount_kobo, sp.frequency,
+      WITH claimed AS (
+        UPDATE sip_plans
+        SET next_execution_at = CASE frequency
+              -- GREATEST(..., NOW()): an overdue plan must advance to a FUTURE
+              -- slot, otherwise it would still be due and get reclaimed by
+              -- another cron instance while this purchase is in flight.
+              WHEN 'daily'  THEN GREATEST(next_execution_at, NOW()) + interval '1 day'
+              WHEN 'weekly' THEN GREATEST(next_execution_at, NOW()) + interval '7 days'
+              ELSE GREATEST(next_execution_at, NOW()) + interval '1 month'
+            END,
+            updated_at = NOW()
+        WHERE id IN (
+          SELECT id FROM sip_plans
+          WHERE status = 'active' AND next_execution_at <= NOW()
+          ORDER BY next_execution_at
+          LIMIT 50
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, user_id, asset_type, amount_kobo, frequency
+      )
+      SELECT c.id, c.user_id, c.asset_type, c.amount_kobo, c.frequency,
              u.email, u.name
-      FROM sip_plans sp
-      LEFT JOIN users u ON u.id = sp.user_id
-      WHERE sp.status = 'active' AND sp.next_execution_at <= NOW()
-      LIMIT 50
+      FROM claimed c
+      LEFT JOIN users u ON u.id = c.user_id
     `);
 
     if (!due.rows.length) return;
@@ -47,27 +74,50 @@ async function executeDueSipPlans() {
         : plan.asset_type === "pension" ? "Pension (NPS)"
         : plan.asset_type;
 
+      // Tracks whether the external purchase actually settled. If recording
+      // fails AFTER the purchase, the catch path must NOT roll back the claim
+      // or record a plain "failed" execution — that would cause a duplicate
+      // debit on the next tick. It must alert for manual reconciliation.
+      let purchaseSettled = false;
       try {
-        // Record execution
+        // REAL EXECUTION REQUIRED — a SIP execution must actually debit the
+        // wallet and purchase the asset via the provider bridge BEFORE anything
+        // is recorded as completed. If the provider path is unavailable, throw
+        // so the catch path records a FAILED execution, alerts, and emails a
+        // failure notice — never email success without a real purchase.
+        if (plan.asset_type === "gold") {
+          if (!isBridgeAvailable()) {
+            throw new Error("Gold provider bridge is not configured — SIP purchase NOT executed");
+          }
+          const purchase = await buyDigitalGoldViaMiddleware(
+            String(plan.user_id),
+            String(plan.user_id),
+            plan.amount_kobo / 100
+          );
+          if (!purchase) {
+            throw new Error("Gold provider bridge returned no result — SIP purchase NOT executed");
+          }
+          purchaseSettled = true; // money moved — never roll back the claim below
+        } else {
+          // mutual_fund / pension SIP executions have no provider integration.
+          throw new Error(`No purchase provider integrated for asset_type '${plan.asset_type}' — SIP purchase NOT executed`);
+        }
+
+        // Record execution ONLY after the real purchase succeeded
         await db.execute(sql`
           INSERT INTO sip_executions (id, plan_id, amount_kobo, status, executed_at)
           VALUES (${execId}, ${plan.id}, ${plan.amount_kobo}, 'completed', NOW())
           ON CONFLICT (id) DO NOTHING
         `);
 
-        // Compute PostgreSQL interval string
-        const intervalStr = plan.frequency === "daily" ? "1 day"
-          : plan.frequency === "weekly" ? "7 days"
-          : "1 month";
-
-        // Update plan stats and advance next execution using PostgreSQL interval
+        // Update plan stats. next_execution_at was already advanced when the
+        // plan was claimed (above) — do NOT advance it again here.
         await db.execute(sql`
           UPDATE sip_plans
           SET
             total_invested_kobo = total_invested_kobo + ${plan.amount_kobo},
             execution_count = execution_count + 1,
             last_executed_at = NOW(),
-            next_execution_at = next_execution_at + ${intervalStr}::interval,
             updated_at = NOW()
           WHERE id = ${plan.id}
         `);
@@ -102,12 +152,43 @@ async function executeDueSipPlans() {
         logger.error(`[SIP] Failed to execute plan ${plan.id}: ${err.message}`);
         failed++;
 
-        // Record failed execution
+        if (purchaseSettled) {
+          // CRITICAL: money moved but the bookkeeping failed. Do NOT roll back
+          // the claim (a retry would double-debit) and do NOT record a plain
+          // "failed" execution — page the owner for manual reconciliation.
+          logger.error(`[SIP] CRITICAL: purchase settled for plan ${plan.id} but post-debit recording failed: ${err.message}. Manual reconciliation required.`);
+          notifyOwner({
+            title: `🚨 SIP RECONCILIATION REQUIRED: Plan ${plan.id}`,
+            content: `The gold purchase for SIP plan ${plan.id} (₦${amountNGN}) SETTLED at the provider, but recording the execution failed: ${err.message}. The plan was NOT rolled back (this prevents a duplicate debit). Reconcile manually: credit the execution/stats rows for plan ${plan.id}.`,
+          }).catch((e: any) => logger.warn(`[SIP] reconcile alert failed: ${e.message}`));
+          continue;
+        }
+
+        // Roll back the claim (next_execution_at was advanced when the plan
+        // was claimed) so the plan is due again on the next tick — the
+        // purchase above did NOT happen, so a retry is safe and correct.
+        await db.execute(sql`
+          UPDATE sip_plans
+          SET next_execution_at = CASE frequency
+                WHEN 'daily'  THEN next_execution_at - interval '1 day'
+                WHEN 'weekly' THEN next_execution_at - interval '7 days'
+                ELSE next_execution_at - interval '1 month'
+              END,
+              updated_at = NOW()
+          WHERE id = ${plan.id} AND status = 'active'
+        `).catch((rbErr: any) =>
+          logger.error(`[SIP] CRITICAL: claim rollback failed for plan ${plan.id} — plan will skip one cycle: ${rbErr.message}`)
+        );
+
+        // Record failed execution (dead-letter). A failure to write the
+        // dead-letter MUST be logged — never swallowed silently.
         await db.execute(sql`
           INSERT INTO sip_executions (id, plan_id, amount_kobo, status, error_message, executed_at)
           VALUES (${execId}, ${plan.id}, ${plan.amount_kobo}, 'failed', ${err.message}, NOW())
           ON CONFLICT (id) DO NOTHING
-        `).catch(() => {});
+        `).catch((dlErr: any) =>
+          logger.error(`[SIP] CRITICAL: failed to record dead-letter execution row for plan ${plan.id}: ${dlErr.message}`)
+        );
 
         // Send failure email
         if (plan.email) {
@@ -124,7 +205,7 @@ async function executeDueSipPlans() {
                 <p>Visit <a href="https://paygate.ng/consumer/sip">paygate.ng/consumer/sip</a> to manage your SIP plans.</p>
               </div>
             `,
-          }).catch(() => {});
+          }).catch((e) => logger.error("[SIP] customer failure-notification email failed — SIP debit failure NOT communicated", { error: e instanceof Error ? e.message : String(e) }));
         }
       }
     }
@@ -134,7 +215,7 @@ async function executeDueSipPlans() {
       notifyOwner({
         title: `SIP Batch: ${executed} executed, ${failed} failed`,
         content: `Daily SIP execution batch completed. ${executed} plans executed successfully, ${failed} failed. Total plans processed: ${due.rows.length}.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[SIP] batch summary owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err)) {
@@ -180,7 +261,7 @@ async function autoFreezeEscalatedRings() {
       notifyOwner({
         title: `Fraud Ring Auto-Frozen: ${ringId}`,
         content: `Fraud ring ${ringId} was automatically frozen after 48 hours without resolution following escalation to compliance.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[FraudRing] auto-freeze owner alert failed — compliance alert lost", { ringId, error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err)) {
@@ -196,10 +277,14 @@ async function checkSettlementSLA() {
   if (!db) return;
 
   try {
-    // Mark settlements overdue by > 24h as SLA breached (PostgreSQL syntax)
+    // Mark settlements overdue by > 24h as SLA breached (PostgreSQL syntax).
+    // R4 F15 (spec #15): also flip status to 'sla_breached' (valid
+    // settlement_status enum value) — previously only the marker timestamp
+    // was set, so breached settlements still looked 'pending'/'processing'
+    // to every status-based query.
     const result = await db.execute(sql`
       UPDATE settlements
-      SET sla_breached_at = NOW(), updated_at = NOW()
+      SET sla_breached_at = NOW(), status = 'sla_breached', updated_at = NOW()
       WHERE status IN ('pending', 'processing')
         AND sla_breached_at IS NULL
         AND sla_deadline_at IS NOT NULL
@@ -211,7 +296,7 @@ async function checkSettlementSLA() {
       notifyOwner({
         title: `SLA Breach: ${result.rows.length} settlements overdue`,
         content: `${result.rows.length} settlements have exceeded their SLA deadline and have been marked as breached.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[SLA] breach owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     // Settlements table may not have sla_breached column — non-fatal
@@ -251,7 +336,7 @@ async function runLoyaltyTierPromotion(): Promise<void> {
       notifyOwner({
         title: `Loyalty Tier Update: ${promoted} accounts changed`,
         content: `${promoted} consumer loyalty accounts were promoted or demoted based on lifetime points.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[LoyaltyTier] tier update owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('consumer_loyalty_accounts')) {
@@ -282,11 +367,271 @@ async function runBnplOverdueAlerts(): Promise<void> {
       notifyOwner({
         title: `BNPL Overdue: ${overdue} instalments past due`,
         content: `${overdue} BNPL repayment instalments are now overdue. A 2% late fee has been applied.`,
-      }).catch(() => {});
+      }).catch((e) => logger.error("[BNPL] overdue owner alert failed", { error: e instanceof Error ? e.message : String(e) }));
     }
   } catch (err: any) {
     if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('bnpl_repayment_schedules')) {
       logger.warn(`[BNPL] Overdue alert error: ${err.message}`);
+    }
+  }
+}
+
+// ─── AP Recurring Bill Executor (P1-d) ───────────────────────────────────────
+// Claim-slot-then-execute (same semantic as executeDueSipPlans, L30): due
+// schedules are claimed by ATOMICALLY advancing next_run_at + run_count in one
+// UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING, so
+// concurrent cron instances claim disjoint schedules and a claimed slot can
+// never be executed twice. Unlike SIP there is NO claim rollback on failure:
+// the executor only INSERTs a new ap_bills row (idempotency key
+// `recurring:{scheduleId}:{slot ISO}`), so a retry of a failed slot would risk
+// a duplicate bill — instead the slot is skipped, the merchant is notified,
+// and the schedule resumes on its next (already-claimed) slot.
+
+export type RecurringScheduleRunTarget = {
+  id: number;
+  merchantId: string;
+  vendorId: string | null;
+  billTemplate: unknown;
+  /** Post-claim run number (1-based) — used in billNumber/source_ref. */
+  runCount: number;
+  maxAmountKobo: number | null;
+  autoApproveBelowKobo: number | null;
+  createdBy: number | null;
+};
+
+export type RecurringRunResult = {
+  status: "created" | "skipped_max_amount";
+  billId: string | null;
+  totalKobo: number;
+};
+
+type RecurringTemplateLineItem = {
+  description: string;
+  quantity: number;
+  unitPriceKobo: number;
+  amountKobo?: number;
+  accountCode?: string;
+};
+
+/** Non-fatal in-app notification for recurring-schedule events. */
+async function notifyRecurring(
+  db: any,
+  opts: { merchantId: string; scheduleId: number; title: string; body: string; metadata?: Record<string, unknown> },
+): Promise<void> {
+  try {
+    await db.insert(merchantNotifications).values({
+      merchantId: opts.merchantId,
+      type: "ap_recurring",
+      title: opts.title,
+      body: opts.body,
+      entityId: String(opts.scheduleId),
+      entityType: "ap_recurring_schedule",
+      priority: "high",
+      actionUrl: "/ap/recurring",
+      metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
+    });
+  } catch (err: any) {
+    logger.warn(`[RecurringAP] notification insert failed for schedule ${opts.scheduleId}: ${err.message}`);
+  }
+}
+
+/**
+ * Core executor: generate one ap_bills row (+ line items) from a claimed
+ * schedule's bill template. Shared by the cron sweep below and by
+ * apRecurring.triggerNow (manual run). Inserts directly via drizzle — no
+ * cross-router import of apBillPay.
+ *
+ * Throws on hard failure (caller logs + notifies; the claim is NOT rolled
+ * back — see claim-slot semantic above).
+ */
+export async function executeRecurringScheduleRun(
+  db: any,
+  schedule: RecurringScheduleRunTarget,
+  opts: { slotKey: string },
+): Promise<RecurringRunResult> {
+  const template = (schedule.billTemplate ?? {}) as {
+    description?: string;
+    lineItems?: RecurringTemplateLineItem[];
+    taxKobo?: number;
+  };
+  const lineItems = (template.lineItems ?? []).map((li) => ({
+    ...li,
+    amountKobo: li.amountKobo ?? Math.round(li.quantity * li.unitPriceKobo),
+  }));
+  if (lineItems.length === 0) {
+    throw new Error(`schedule ${schedule.id} bill_template has no line items`);
+  }
+  const subtotalKobo = lineItems.reduce((sum, li) => sum + li.amountKobo, 0);
+  const taxKobo = template.taxKobo ?? 0;
+  const totalKobo = subtotalKobo + taxKobo;
+
+  // Max-amount guard: skip this slot (no bill), warn the merchant, audit.
+  if (schedule.maxAmountKobo != null && totalKobo > schedule.maxAmountKobo) {
+    logger.warn(`[RecurringAP] schedule ${schedule.id} skipped: total ${totalKobo} kobo exceeds max_amount_kobo ${schedule.maxAmountKobo}`);
+    await notifyRecurring(db, {
+      merchantId: schedule.merchantId,
+      scheduleId: schedule.id,
+      title: "Recurring bill skipped — amount limit exceeded",
+      body: `Run #${schedule.runCount} of recurring schedule ${schedule.id} was skipped: the generated total (₦${(totalKobo / 100).toFixed(2)}) exceeds the schedule's maximum amount (₦${(schedule.maxAmountKobo / 100).toFixed(2)}). Review the schedule or its bill template.`,
+      metadata: { runCount: schedule.runCount, totalKobo, maxAmountKobo: schedule.maxAmountKobo },
+    });
+    await auditLog({
+      merchantId: schedule.merchantId,
+      actorId: "system",
+      actorName: "ap-recurring-executor",
+      action: "ap_recurring.run_skipped_max_amount",
+      resource: "ap_recurring_schedule",
+      resourceId: String(schedule.id),
+      metadata: { runCount: schedule.runCount, totalKobo, maxAmountKobo: schedule.maxAmountKobo },
+    });
+    return { status: "skipped_max_amount", billId: null, totalKobo };
+  }
+
+  const status = schedule.autoApproveBelowKobo != null && totalKobo <= schedule.autoApproveBelowKobo
+    ? "approved"
+    : "pending_approval";
+  const billId = crypto.randomUUID();
+  const sourceRef = `recurring:${schedule.id}:${schedule.runCount}`;
+
+  await db.insert(apBills).values({
+    id: billId,
+    merchantId: schedule.merchantId,
+    vendorId: schedule.vendorId,
+    billNumber: `REC-${schedule.id}-${schedule.runCount}`,
+    status,
+    currency: "NGN",
+    subtotalKobo,
+    taxKobo,
+    totalKobo,
+    source: "manual",
+    sourceRef,
+    idempotencyKey: opts.slotKey,
+    createdBy: schedule.createdBy,
+  });
+  await db.insert(apBillLineItems).values(lineItems.map((li) => ({
+    billId,
+    description: li.description,
+    quantity: String(li.quantity),
+    unitPriceKobo: li.unitPriceKobo,
+    amountKobo: li.amountKobo,
+    accountCode: li.accountCode ?? null,
+  })));
+
+  await auditLog({
+    merchantId: schedule.merchantId,
+    actorId: "system",
+    actorName: "ap-recurring-executor",
+    action: "ap_recurring.bill_created",
+    resource: "ap_bill",
+    resourceId: billId,
+    metadata: {
+      scheduleId: schedule.id, runCount: schedule.runCount,
+      sourceRef, status, subtotalKobo, taxKobo, totalKobo,
+    },
+  });
+  return { status: "created", billId, totalKobo };
+}
+
+/**
+ * Hourly sweep: claim due schedules (batch of 25, FOR UPDATE SKIP LOCKED)
+ * then execute each claimed schedule in its own try/catch — one failure never
+ * blocks the rest of the batch. Registered below at the same cadence as the
+ * BNPL repayment-schedule sweep.
+ */
+export async function processRecurringBillSchedules(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    // Claim: atomically roll each due schedule to its NEXT slot. RETURNING
+    // carries d.slot_at = the pre-claim next_run_at = the slot being executed
+    // (drives the idempotency key `recurring:{id}:{slot ISO}`).
+    const claimed = await db.execute(sql`
+      WITH due AS (
+        SELECT id, next_run_at AS slot_at
+        FROM ap_recurring_schedules
+        WHERE is_active = TRUE
+          AND next_run_at <= NOW()
+          AND (max_runs IS NULL OR run_count < max_runs)
+        ORDER BY next_run_at
+        LIMIT 25
+        FOR UPDATE SKIP LOCKED
+      ),
+      claimed AS (
+        UPDATE ap_recurring_schedules s
+        SET next_run_at = CASE s.frequency
+              WHEN 'weekly'    THEN GREATEST(s.next_run_at, NOW()) + INTERVAL '7 days'
+              WHEN 'quarterly' THEN GREATEST(s.next_run_at, NOW()) + INTERVAL '3 months'
+              ELSE GREATEST(s.next_run_at, NOW()) + INTERVAL '1 month'
+            END,
+            last_run_at = NOW(),
+            run_count = s.run_count + 1
+        FROM due d
+        WHERE s.id = d.id
+        RETURNING s.id, s.merchant_id, s.vendor_id, s.bill_template,
+                  d.slot_at, s.run_count, s.max_amount_kobo,
+                  s.auto_approve_below_kobo, s.created_by
+      )
+      SELECT * FROM claimed
+    `);
+
+    const rows = claimed.rows as any[];
+    if (!rows.length) return;
+
+    logger.info(`[RecurringAP] Processing ${rows.length} due recurring bill schedules`);
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      try {
+        const slotAt = new Date(row.slot_at);
+        const result = await executeRecurringScheduleRun(db, {
+          id: Number(row.id),
+          merchantId: String(row.merchant_id),
+          vendorId: row.vendor_id ?? null,
+          billTemplate: typeof row.bill_template === "string" ? JSON.parse(row.bill_template) : row.bill_template,
+          runCount: Number(row.run_count),
+          maxAmountKobo: row.max_amount_kobo != null ? Number(row.max_amount_kobo) : null,
+          autoApproveBelowKobo: row.auto_approve_below_kobo != null ? Number(row.auto_approve_below_kobo) : null,
+          createdBy: row.created_by != null ? Number(row.created_by) : null,
+        }, { slotKey: `recurring:${row.id}:${slotAt.toISOString()}` });
+        if (result.status === "created") {
+          created++;
+          logger.info(`[RecurringAP] schedule ${row.id} run #${row.run_count}: bill ${result.billId} created (₦${(result.totalKobo / 100).toFixed(2)})`);
+        } else {
+          skipped++;
+        }
+      } catch (err: any) {
+        // Claim already rolled forward (claim-slot semantic — documented
+        // above): log + notify the merchant, continue with the next schedule.
+        failed++;
+        logger.error(`[RecurringAP] schedule ${row.id} run failed: ${err.message}`);
+        await notifyRecurring(db, {
+          merchantId: String(row.merchant_id),
+          scheduleId: Number(row.id),
+          title: "Recurring bill run failed",
+          body: `Run #${row.run_count} of recurring schedule ${row.id} failed: ${err.message}. The schedule will resume on its next slot; this slot was skipped.`,
+          metadata: { runCount: Number(row.run_count), error: err.message },
+        });
+        await auditLog({
+          merchantId: String(row.merchant_id),
+          actorId: "system",
+          actorName: "ap-recurring-executor",
+          action: "ap_recurring.run_failed",
+          resource: "ap_recurring_schedule",
+          resourceId: String(row.id),
+          metadata: { runCount: Number(row.run_count), error: err.message },
+        });
+      }
+    }
+
+    logger.info(`[RecurringAP] sweep complete: ${created} bills created, ${skipped} skipped (max amount), ${failed} failed`);
+  } catch (err: any) {
+    // Table may not exist yet (migration 0089 not applied) — non-fatal, same
+    // tolerance as the other crons in this file.
+    if (!isSuppressedWorkerError(err) && !err.message?.includes("does not exist") && !err.message?.includes("ap_recurring_schedules")) {
+      logger.error(`[RecurringAP] sweep cron error: ${err.message}`);
     }
   }
 }
@@ -390,7 +735,7 @@ async function monitorStrDeadlines(): Promise<void> {
           SET submission_attempts = submission_attempts + 1,
               last_attempt_at = NOW()
           WHERE id = ${str.id}
-        `).catch(() => {});
+        `).catch((e) => logger.error(`[STR] attempt-counter persistence failed for ${str.id}: ${e instanceof Error ? e.message : String(e)}`));
         logger.error(`[STR] Auto-retry error for ${str.id}: ${retryErr.message}`);
       }
     }
@@ -501,6 +846,96 @@ async function calculatePendingInterchangeFees(): Promise<void> {
   }
 }
 
+// ─── Red Envelope Expiry Sweeper ─────────────────────────────────────────────
+// R4 (spec #14): an expired red envelope must not strand the unclaimed
+// remainder. For each active envelope past expires_at: guarded flip to
+// 'expired' + refund (total - claimed) to the sender wallet + ledger row, all
+// in ONE transaction per envelope. The ledger reference '<id>_EXPIRY_REFUND'
+// is protected by the unique (wallet_id, reference) index, so even a crash
+// between flip and ledger insert can never double-refund.
+
+async function sweepExpiredRedEnvelopes() {
+  const db = await getDb();
+  if (!db) return;
+
+  const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+
+  try {
+    const due = await db.execute(sql`
+      SELECT id, sender_id, sender_wallet_id, total_amount_kobo, currency
+      FROM red_envelopes
+      WHERE status = 'active' AND expires_at < NOW()
+      ORDER BY expires_at
+      LIMIT 100
+    `);
+
+    if (!due.rows.length) return;
+
+    let swept = 0;
+    for (const env of due.rows as any[]) {
+      try {
+        await db.transaction(async (tx) => {
+          // Guarded status flip — exactly one sweeper/claim path can win.
+          const flipped = rowsOf(await tx.execute(sql`
+            UPDATE red_envelopes
+            SET status = 'expired', updated_at = NOW()
+            WHERE id = ${env.id} AND status = 'active'
+            RETURNING id
+          `));
+          if (!flipped.length) return; // already handled concurrently
+
+          // remaining = total - SUM(actual claim rows) (claims table is the
+          // source of truth — there is no claimed_amount column).
+          const sumRows = rowsOf(await tx.execute(sql`
+            SELECT COALESCE(SUM(amount_kobo), 0)::bigint AS claimed
+            FROM red_envelope_claims
+            WHERE envelope_id = ${env.id}
+          `));
+          const claimedSum = Number(sumRows[0]?.claimed ?? 0);
+          const remaining = Number(env.total_amount_kobo) - claimedSum;
+          if (remaining <= 0) return; // fully claimed — flip only
+
+          // Guarded credit: blind increment on the sender wallet; a missing
+          // wallet throws and rolls back the status flip so the envelope is
+          // retried next tick instead of silently losing the refund.
+          const credited = rowsOf(await tx.execute(sql`
+            UPDATE consumer_wallets
+            SET balance_kobo = balance_kobo + ${remaining}, updated_at = NOW()
+            WHERE id = ${env.sender_wallet_id}
+            RETURNING balance_kobo
+          `));
+          if (!credited.length) {
+            throw new Error(`sender wallet ${env.sender_wallet_id} missing — refund aborted, flip rolled back`);
+          }
+          const newBalance = Number(credited[0].balance_kobo);
+
+          await tx.execute(sql`
+            INSERT INTO consumer_wallet_txns
+              (id, wallet_id, user_id, type, amount_kobo, currency,
+               balance_after_kobo, description, reference, status)
+            VALUES
+              (${`wt_${crypto.randomUUID()}`}, ${env.sender_wallet_id}, ${env.sender_id},
+               'refund', ${remaining}, ${env.currency}, ${newBalance},
+               ${'Red envelope expired — unclaimed remainder refunded'},
+               ${`${env.id}_EXPIRY_REFUND`}, 'completed')
+          `);
+        });
+        swept++;
+      } catch (envErr: any) {
+        logger.error(`[RedEnvelope] Expiry sweep failed for envelope ${env.id}: ${envErr.message}`);
+      }
+    }
+
+    if (swept > 0) {
+      logger.info(`[RedEnvelope] Expired ${swept} red envelopes and refunded unclaimed remainders`);
+    }
+  } catch (err: any) {
+    if (!isSuppressedWorkerError(err)) {
+      logger.error(`[RedEnvelope] Expiry sweep cron error: ${err.message}`);
+    }
+  }
+}
+
 // ─── Cron Scheduler ──────────────────────────────────────────────────────────
 let cronStarted = false;
 
@@ -525,11 +960,17 @@ export function startCronJobs() {
   // BNPL overdue alert — every hour
   setInterval(runBnplOverdueAlerts, 60 * 60 * 1000);
 
+  // AP recurring bill executor — every hour (same cadence as the BNPL sweep)
+  setInterval(processRecurringBillSchedules, 60 * 60 * 1000);
+
   // STR 24h deadline monitor — every 15 minutes
   setInterval(monitorStrDeadlines, 15 * 60 * 1000);
 
   // Interchange fee auto-calculation — every 5 minutes
   setInterval(calculatePendingInterchangeFees, 5 * 60 * 1000);
+
+  // Red envelope expiry sweeper — every 15 minutes (spec #14)
+  setInterval(sweepExpiredRedEnvelopes, 15 * 60 * 1000);
 
   // Run immediately on startup (after a short delay to let DB connect)
   setTimeout(() => {
@@ -538,9 +979,11 @@ export function startCronJobs() {
     checkSettlementSLA().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SLA initial run: ${e.message}`); });
     runLoyaltyTierPromotion().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] LoyaltyTier initial run: ${e.message}`); });
     runBnplOverdueAlerts().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] BNPL initial run: ${e.message}`); });
+    processRecurringBillSchedules().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] RecurringAP initial run: ${e.message}`); });
     monitorStrDeadlines().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] STR initial run: ${e.message}`); });
     calculatePendingInterchangeFees().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] Interchange initial run: ${e.message}`); });
+    sweepExpiredRedEnvelopes().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] RedEnvelope initial run: ${e.message}`); });
   }, 15_000);
 
-  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), STRDeadline(15m), InterchangeFee(5m)");
+  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h), RecurringAP(1h), STRDeadline(15m), InterchangeFee(5m), RedEnvelopeExpiry(15m)");
 }

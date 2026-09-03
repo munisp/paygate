@@ -210,6 +210,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<Keycloak
 // session JWT is, which references the user's openId (= Keycloak sub).
 
 import { SignJWT, jwtVerify as joseVerify } from "jose";
+import { randomUUID } from "node:crypto";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
 function getSessionSecret() {
@@ -217,22 +218,31 @@ function getSessionSecret() {
 }
 
 export async function createSessionToken(openId: string, name: string): Promise<string> {
+  // R4 spec #8: session tokens carry a unique jti so they can be revoked
+  // server-side via jwt_revocation_list (matches sdk.ts signSession).
   return new SignJWT({ openId, appId: "paygate-keycloak", name })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setJti(randomUUID())
     .setExpirationTime(Math.floor((Date.now() + ONE_YEAR_MS) / 1000))
     .sign(getSessionSecret());
 }
 
 export async function verifySessionToken(
   token: string | undefined | null
-): Promise<{ openId: string; name: string } | null> {
+): Promise<{ openId: string; name: string; jti: string | null } | null> {
   if (!token) return null;
   try {
     const secret = getSessionSecret();
     const { payload } = await joseVerify(token, secret, { algorithms: ["HS256"] });
-    const { openId, name } = payload as Record<string, unknown>;
+    const { openId, name, jti } = payload as Record<string, unknown>;
     if (typeof openId !== "string" || !openId) return null;
-    return { openId, name: typeof name === "string" ? name : "" };
+    // jti is surfaced so callers (e.g. sagaStream) can enforce the
+    // jwt_revocation_list denylist (R4 spec #8).
+    return {
+      openId,
+      name: typeof name === "string" ? name : "",
+      jti: typeof jti === "string" && jti ? jti : null,
+    };
   } catch {
     return null;
   }

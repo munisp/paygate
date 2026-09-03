@@ -13,6 +13,7 @@ import {
   Smartphone, DollarSign, Globe, Zap, Search,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 const POPULAR_VPAS = [
   "merchant@ybl", "business@okaxis", "shop@paytm", "store@upi",
@@ -34,12 +35,14 @@ export default function UPIGateway() {
     { enabled: step === "quote" && !!amount && parseFloat(amount, { staleTime: 30_000 }) > 0 }
   );
 
+  const initiateKey = useIdempotencyKey();
   const initiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
+      initiateKey.reset();
       setStep("done");
       toast.success("UPI collect request sent!");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => { initiateKey.reset(); toast.error(err.message); },
   });
 
   const vpaResult = validateQuery.data;
@@ -66,7 +69,7 @@ export default function UPIGateway() {
       receiverIdType: "VPA",
       corridor: `${sourceCurrency}_INR`,
       receiverName: vpaResult.name ?? vpa,
-      idempotencyKey: `upi_${Date.now()}`,
+      idempotencyKey: initiateKey.getKey(),
     });
   };
 

@@ -9,13 +9,19 @@ import (
 // CheckPermission is a package-level convenience wrapper for Client.CheckPermission.
 // entityType and entityID are combined as "entityType:entityID" for the Entity field.
 // permission is the action being checked.
-// Returns an error if the permission is denied.
+// Returns an error if the permission is denied OR if Permify is unavailable
+// (fail-closed; PERMIFY_FAIL_OPEN=true opts out for non-money paths).
 func CheckPermission(ctx context.Context, entityType, entityID, permission string) error {
 	c := Get()
 	if c == nil {
-		slog.Warn("permify.CheckPermission: client not initialised, allowing by default",
+		if FailOpen() {
+			slog.Warn("permify.CheckPermission: client not initialised, granting via PERMIFY_FAIL_OPEN",
+				"entity_type", entityType, "entity_id", entityID, "permission", permission)
+			return nil
+		}
+		slog.Error("permify.CheckPermission: client not initialised — DENYING",
 			"entity_type", entityType, "entity_id", entityID, "permission", permission)
-		return nil
+		return ErrUnavailable
 	}
 	allowed, err := c.CheckPermission(ctx, CheckRequest{
 		Entity:     fmt.Sprintf("%s:%s", entityType, entityID),
@@ -23,8 +29,8 @@ func CheckPermission(ctx context.Context, entityType, entityID, permission strin
 		Subject:    fmt.Sprintf("%s:%s", entityType, entityID),
 	})
 	if err != nil {
-		slog.Error("permify.CheckPermission: error", "err", err)
-		return nil // fail-open on permify errors
+		slog.Error("permify.CheckPermission: error — denying", "err", err)
+		return err // fail-closed on permify errors
 	}
 	if !allowed {
 		return fmt.Errorf("permission denied: %s on %s/%s", permission, entityType, entityID)

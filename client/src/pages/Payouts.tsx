@@ -152,6 +152,9 @@ export default function Payouts() {
   const approvalEnabled = merchant?.payoutApprovalEnabled ?? false;
   const approvalThreshold = merchant?.payoutApprovalThreshold ?? 500000;
   const [thresholdInput, setThresholdInput] = useState("");
+  // Approval-settings changes are credential-gated server-side — required
+  // for password-backed accounts, ignored for passwordless ones.
+  const [approvalPassword, setApprovalPassword] = useState("");
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
@@ -231,6 +234,17 @@ export default function Payouts() {
             <h3 className="font-semibold">Payout Approval Workflow</h3>
           </div>
           <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Current Password (required to change these settings)</label>
+              <input
+                type="password"
+                value={approvalPassword}
+                onChange={(e: any) => setApprovalPassword(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                placeholder="Confirm with your account password"
+                autoComplete="current-password"
+              />
+            </div>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">Require approval for large payouts</p>
@@ -238,7 +252,7 @@ export default function Payouts() {
               </div>
               <Switch
                 checked={approvalEnabled}
-                onCheckedChange={(v: any) => updateApprovalSettings.mutate({ payoutApprovalEnabled: v, payoutApprovalThreshold: approvalThreshold })}
+                onCheckedChange={(v: any) => updateApprovalSettings.mutate({ payoutApprovalEnabled: v, payoutApprovalThreshold: approvalThreshold, currentPassword: approvalPassword })}
                 disabled={updateApprovalSettings.isPending}
               />
             </div>
@@ -260,7 +274,7 @@ export default function Payouts() {
                   onClick={() => {
                     const t = parseFloat(thresholdInput);
                     if (isNaN(t) || t < 100) return toast.error("Threshold must be at least 100");
-                    updateApprovalSettings.mutate({ payoutApprovalEnabled: true, payoutApprovalThreshold: t });
+                    updateApprovalSettings.mutate({ payoutApprovalEnabled: true, payoutApprovalThreshold: t, currentPassword: approvalPassword });
                     setThresholdInput("");
                   }}
                   disabled={updateApprovalSettings.isPending}

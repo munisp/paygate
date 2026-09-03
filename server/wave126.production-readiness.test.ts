@@ -25,11 +25,14 @@ describe("fraudRisk.seedDemoAlerts", () => {
 
   it("seeds exactly 5 demo alerts with realistic Nigerian fraud scenarios", () => {
     const content = fs.readFileSync(path.join(ROOT, "server/routers.ts"), "utf-8");
+    // Only alert types that exist in fraudAlertTypeEnum may be seeded —
+    // the previous synthetic_identity/unusual_pattern values were invalid
+    // enum values that could never insert.
     expect(content).toContain("card_testing");
     expect(content).toContain("account_takeover");
     expect(content).toContain("velocity_breach");
-    expect(content).toContain("synthetic_identity");
-    expect(content).toContain("unusual_pattern");
+    expect(content).toContain("identity_mismatch");
+    expect(content).toContain("unusual_location");
   });
 
   it("demo alerts include Nigerian IP addresses and NGN currency", () => {
@@ -39,11 +42,16 @@ describe("fraudRisk.seedDemoAlerts", () => {
     expect(content).toContain("transactionCurrency: 'NGN'");
   });
 
-  it("covers all risk levels in demo data", () => {
+  it("covers high/medium/low risk scores and tags every alert as demo", () => {
     const content = fs.readFileSync(path.join(ROOT, "server/routers.ts"), "utf-8");
-    expect(content).toContain("riskLevel: 'high'");
-    expect(content).toContain("riskLevel: 'medium'");
-    expect(content).toContain("riskLevel: 'low'");
+    // Risk spread via riskScore (schema has no riskLevel column): high ≥78,
+    // medium 65, low 45.
+    expect(content).toContain("riskScore: 92");
+    expect(content).toContain("riskScore: 65");
+    expect(content).toContain("riskScore: 45");
+    // Demo alerts must be tagged so downstream consumers can filter them.
+    expect(content).toContain("demo: true");
+    expect(content).toContain("isDemo: true");
   });
 
   it("returns seeded count and message", () => {
@@ -61,16 +69,21 @@ describe("FraudRisk.tsx auto-seed integration", () => {
     expect(content).toContain("seedDemoAlerts");
   });
 
-  it("auto-seeds when dbAlerts rows are empty", () => {
+  // STALE CONTRACT: automatic seeding was intentionally removed — demo
+  // seeding is now honestly-labeled and operator-initiated only (manual
+  // button click), never automatic on empty data.
+  it("seeds only via explicit operator action (never automatic)", () => {
     const content = fs.readFileSync(fraudRiskPath, "utf-8");
-    expect(content).toContain("dbAlerts.rows?.length ?? 0) === 0");
     expect(content).toContain("seedDemoAlerts.mutate()");
+    expect(content).toContain("operator-initiated only");
+    // No auto-seed on empty DB rows
+    expect(content).not.toContain("dbAlerts.rows?.length ?? 0) === 0");
   });
 
-  it("guards against double-seeding with isPending and isSuccess checks", () => {
+  it("guards against double-submission with isPending (button disabled while seeding)", () => {
     const content = fs.readFileSync(fraudRiskPath, "utf-8");
     expect(content).toContain("seedDemoAlerts.isPending");
-    expect(content).toContain("seedDemoAlerts.isSuccess");
+    expect(content).toMatch(/disabled=\{seedDemoAlerts\.isPending\}/);
   });
 
   it("invalidates fraudRisk.list cache after seeding", () => {

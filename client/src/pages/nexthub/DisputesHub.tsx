@@ -40,7 +40,7 @@ export default function DisputesHub() {
 
   const { data: stats, refetch: refetchStats } = trpc.nexthubDisputes.getStats.useQuery();
   const { data, isLoading, refetch } = trpc.nexthubDisputes.listDisputes.useQuery({
-    page, pageSize: 20,
+    limit: 20, offset: (page - 1) * 20,
     status: statusFilter as any,
     disputeType: typeFilter as any,
   });

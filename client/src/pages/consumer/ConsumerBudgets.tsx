@@ -34,7 +34,7 @@ export default function ConsumerBudgets() {
   });
 
   const utils = trpc.useUtils();
-  const { data: budgets, isLoading } = trpc.wave24.budgets.list.useQuery();
+  const { data: budgets, isLoading } = trpc.wave24.budgets.list.useQuery({});
 
   const createMutation = trpc.wave24.budgets.create.useMutation({
     onSuccess: () => {

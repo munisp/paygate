@@ -16,7 +16,34 @@ from flask import Flask, jsonify, request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("carbon-oracle")
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = Flask(__name__)
+setup_telemetry("carbon-oracle", app)
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.before_request
+def _require_internal_api_key():
+    if request.path in _AUTH_EXEMPT_PATHS:
+        return None
+    if not _INTERNAL_AUTH_KEY:
+        return jsonify({"detail": "Service misconfigured: INTERNAL_API_KEY not set"}), 503
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return jsonify({"detail": "Unauthorized"}), 401
+    return None
+
 
 # Static project catalogue (in production, fetched from Gold Standard / Verra registry)
 CARBON_PROJECTS = [

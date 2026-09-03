@@ -9,6 +9,8 @@
 /// This service handles bulk OCR workloads (100+ documents/second)
 /// that would be too slow for the Python PaddleOCR service.
 
+mod telemetry;
+
 use axum::{
     extract::{Json, State},
     http::StatusCode,
@@ -28,7 +30,7 @@ use tracing::{error, info, warn};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct OcrRequest {
     submission_id: String,
     image_base64: Option<String>,
@@ -71,7 +73,7 @@ struct MrzData {
     check_digit_valid: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BulkOcrRequest {
     documents: Vec<OcrRequest>,
 }
@@ -366,11 +368,7 @@ async fn handle_health() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-        )
-        .init();
+    telemetry::init_tracing("kyc-ocr-engine");
 
     let state = Arc::new(AppState {
         http_client: reqwest::Client::builder()

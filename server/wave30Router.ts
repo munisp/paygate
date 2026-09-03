@@ -7,10 +7,37 @@
  * Security VULN-031–040
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, execRaw } from "./db";
 import { publishEvent, KAFKA_TOPICS } from "./kafkaClient";
+import { publishAuditEvent } from "./auditEvents";
+import { logger } from "./logger";
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Payout approvals, platform billing writes and treasury/fx position closes
+// are platform-level operations: the caller's session role is NOT trusted —
+// the role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+// Identity strings that may appear in payout_approval_workflows.requested_by,
+// used to enforce maker ≠ checker against the authenticated approver.
+function approverIdentities(ctx: any): string[] {
+  return [ctx?.user?.email, ctx?.user?.openId, ctx?.user?.name, String(ctx?.user?.id ?? "")]
+    .filter((v): v is string => Boolean(v));
+}
 
 // ─── Tenant Billing Stripe Integration ───────────────────────────────────────
 const tenantStripeBillingRouter = router({
@@ -107,12 +134,29 @@ const tenantStripeBillingRouter = router({
 
   markInvoicePaid: protectedProcedure
     .input(z.object({ invoiceId: z.string(), stripeInvoiceId: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `UPDATE tenant_billing_invoices 
+      // Platform billing: only a platform admin may mark a tenant invoice
+      // paid (a tenant must never mark its own platform invoice paid).
+      await requirePlatformAdmin(ctx);
+      // Status guard: only unpaid/draft invoices may transition to paid.
+      const updated = await execRaw(db, `UPDATE tenant_billing_invoices 
          SET status = 'paid', stripe_invoice_id = $2, paid_at = NOW(), updated_at = NOW()
-         WHERE id = $1`, [input.invoiceId, input.stripeInvoiceId ?? null]);
+         WHERE id = $1 AND status <> 'paid'
+         RETURNING id`, [input.invoiceId, input.stripeInvoiceId ?? null]);
+      if (!updated.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Invoice not found or already paid" });
+      }
+      await publishAuditEvent({
+        action: "billing.invoice_marked_paid",
+        resourceType: "tenant_billing_invoice",
+        resourceId: input.invoiceId,
+        actorId: String(ctx.user.id),
+        actorName: ctx.user.name ?? "unknown",
+        actorEmail: ctx.user.email ?? null,
+        metadata: { stripeInvoiceId: input.stripeInvoiceId ?? null },
+      });
       return { success: true };
     }),
 
@@ -453,7 +497,7 @@ const kybStateMachineRouter = router({
         },
         String(input.merchantId),
         { "x-event-type": "kyb.state_transition" },
-      ).catch(() => {});
+      ).catch((e) => logger.error("[wave30] kyb.state_transition event publish failed — audit trail lost", { merchantId: input.merchantId, error: e instanceof Error ? e.message : String(e) }));
       return { success: true, newState: resolvedToState };
     }),
 
@@ -639,36 +683,62 @@ const payoutApprovalRouter = router({
     }),
 
   approve: protectedProcedure
-    .input(z.object({ payoutId: z.string(), approvedBy: z.number(), notes: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutId: z.string(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout approval is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Status guard + maker ≠ checker: approver must not be the initiator
+      // (requested_by) when the initiator is known.
+      const wf = await execRaw(db, `SELECT requested_by FROM payout_approval_workflows WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId]);
+      if (!wf.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Payout not found or not pending approval" });
+      }
+      const requestedBy = (wf[0] as any).requested_by;
+      if (requestedBy && approverIdentities(ctx).includes(String(requestedBy))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Maker-checker violation: approver cannot be the payout initiator" });
+      }
+      // Approver identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $2, approval_notes = $3, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.approvedBy, input.notes ?? null]);
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, ctx.user.id, input.notes ?? null]);
       return { success: true };
     }),
 
   reject: protectedProcedure
-    .input(z.object({ payoutId: z.string(), rejectedBy: z.number(), reason: z.string().max(5000) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutId: z.string(), reason: z.string().max(5000) }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout rejection is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Rejector identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'rejected', rejected_by = $2, rejection_reason = $3, rejected_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.rejectedBy, input.reason]);
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, ctx.user.id, input.reason]);
       return { success: true };
     }),
 
   bulkApprove: protectedProcedure
-    .input(z.object({ payoutIds: z.array(z.string()), approvedBy: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ payoutIds: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Batch payout approval is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Maker ≠ checker: refuse the whole batch if the approver initiated any
+      // of the payouts (when the initiator is known).
+      const selfInitiated = await execRaw(db, `SELECT payout_id FROM payout_approval_workflows
+         WHERE payout_id = ANY($1) AND requested_by = ANY($2)`, [input.payoutIds, approverIdentities(ctx)]);
+      if (selfInitiated.length) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Maker-checker violation: cannot approve payouts you initiated" });
+      }
       const placeholders = input.payoutIds.map((_, i) => `$${i + 2}`).join(', ');
+      // Approver identity comes from the authenticated session — never from input.
       await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`, [input.approvedBy, ...input.payoutIds]);
+         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`, [ctx.user.id, ...input.payoutIds]);
       return { success: true, count: input.payoutIds.length };
     }),
 
@@ -688,9 +758,11 @@ const payoutApprovalRouter = router({
 
   autoApprove: protectedProcedure
     .input(z.object({ riskScoreThreshold: z.number().default(30), maxAmountKobo: z.number().default(10000000) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Mass-approving payouts is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const { rows } = await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', auto_approved = TRUE, approved_at = NOW(), updated_at = NOW()
          WHERE status = 'pending_approval' 
@@ -710,7 +782,8 @@ const fxHedgingRouter = router({
       if (!db) throw new Error("Database unavailable");
       const where = input.status ? `WHERE status = $1` : '';
       const params = input.status ? [input.status] : [];
-      const { rows } = (await db.execute(sql.raw(`SELECT * FROM fx_hedging_positions ${where} ORDER BY created_at DESC`))) as any;
+      // Migrated table (0084): fx_hedge_positions — see drizzle/schema.ts:6639.
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM fx_hedge_positions ${where} ORDER BY created_at DESC`))) as any;
       return rows;
     }),
 
@@ -724,15 +797,24 @@ const fxHedgingRouter = router({
       hedgeRatio: z.number().min(0).max(1).default(0.8),
       expiryDate: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const id = `hedge_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      await execRaw(db, `INSERT INTO fx_hedging_positions 
-           (id, base_currency, quote_currency, position_type, notional_amount, entry_rate, current_rate, hedge_ratio, expiry_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`, [id, input.baseCurrency, input.quoteCurrency, input.positionType,
-         input.notionalAmount, input.entryRate, input.hedgeRatio, input.expiryDate ?? null]);
-      return { id, status: 'open' };
+      // Column mapping to the migrated fx_hedge_positions:
+      //   position_type long/short → direction buy/sell
+      //   entry_rate → hedge_rate (entry rate is immutable; there is no current_rate column)
+      //   hedge_ratio → hedge_amount = notional_amount * hedge_ratio
+      const hedgeAmount = Math.round(input.notionalAmount * input.hedgeRatio * 1e8) / 1e8;
+      await execRaw(db, `INSERT INTO fx_hedge_positions
+           (id, position_id, base_currency, quote_currency, currency_pair, direction,
+            notional_amount, hedge_amount, hedge_rate, expiry_date, status, opened_by)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)`,
+        [id, input.baseCurrency, input.quoteCurrency, `${input.baseCurrency}/${input.quoteCurrency}`,
+         input.positionType === 'long' ? 'buy' : 'sell',
+         input.notionalAmount, hedgeAmount, input.entryRate, input.expiryDate ?? null,
+         (ctx.user as any)?.id ?? null]);
+      return { id, status: 'active' };
     }),
 
   updateRate: protectedProcedure
@@ -740,49 +822,51 @@ const fxHedgingRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      // Calculate unrealized P&L
-      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
+      // fx_hedge_positions has no current_rate/unrealized_pnl columns — the
+      // entry rate (hedge_rate) is immutable, so P&L is computed on the fly
+      // against the caller-supplied market rate and returned, never persisted.
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedge_positions WHERE id = $1 OR position_id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.currentRate - parseFloat(String((pos as any).entry_rate));
-      const pnl = (pos as any).position_type === 'long'
+      const priceDiff = input.currentRate - parseFloat(String((pos as any).hedge_rate));
+      const pnl = (pos as any).direction === 'buy'
         ? priceDiff * parseFloat(String((pos as any).notional_amount))
         : -priceDiff * parseFloat(String((pos as any).notional_amount));
-      await execRaw(db, `UPDATE fx_hedging_positions 
-         SET current_rate = $2, unrealized_pnl = $3, updated_at = NOW()
-         WHERE id = $1`, [input.positionId, input.currentRate, pnl]);
-      return { unrealizedPnl: pnl };
+      return { positionId: input.positionId, currentRate: input.currentRate, unrealizedPnl: pnl };
     }),
 
   closePosition: protectedProcedure
     .input(z.object({ positionId: z.string(), closingRate: z.number().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
+      // Closing platform treasury hedge positions is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedge_positions WHERE id = $1 OR position_id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.closingRate - parseFloat(String((pos as any).entry_rate));
-      const realizedPnl = (pos as any).position_type === 'long'
+      const priceDiff = input.closingRate - parseFloat(String((pos as any).hedge_rate));
+      const realizedPnl = (pos as any).direction === 'buy'
         ? priceDiff * parseFloat(String((pos as any).notional_amount))
         : -priceDiff * parseFloat(String((pos as any).notional_amount));
-      await execRaw(db, `UPDATE fx_hedging_positions 
-         SET status = 'closed', current_rate = $2, realized_pnl = $3, unrealized_pnl = 0, 
-             closed_at = NOW(), updated_at = NOW()
-         WHERE id = $1`, [input.positionId, input.closingRate, realizedPnl]);
+      await execRaw(db, `UPDATE fx_hedge_positions
+         SET status = 'closed', closed_at = NOW(), updated_at = NOW()
+         WHERE id = $1 OR position_id = $1`, [input.positionId]);
       return { realizedPnl };
     }),
 
   getPortfolioSummary: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT 
-         COUNT(*) FILTER (WHERE status = 'open') as open_positions,
-         SUM(unrealized_pnl) FILTER (WHERE status = 'open') as total_unrealized_pnl,
-         SUM(realized_pnl) FILTER (WHERE status = 'closed') as total_realized_pnl,
-         SUM(notional_amount) FILTER (WHERE status = 'open') as total_notional,
-         COUNT(DISTINCT base_currency || quote_currency) as currency_pairs
-       FROM fx_hedging_positions`)));
+    // fx_hedge_positions stores no persisted P&L columns — summary reports
+    // counts and notionals only; P&L is computed per-position via updateRate.
+    const { rows } = (await db.execute(sql.raw(`SELECT
+         COUNT(*) FILTER (WHERE status = 'active') as open_positions,
+         COUNT(*) FILTER (WHERE status = 'closed') as closed_positions,
+         SUM(notional_amount) FILTER (WHERE status = 'active') as total_notional,
+         SUM(hedge_amount) FILTER (WHERE status = 'active') as total_hedged,
+         COUNT(DISTINCT COALESCE(currency_pair, base_currency || quote_currency)) as currency_pairs
+       FROM fx_hedge_positions`)));
     return rows[0];
   }),
 });
@@ -806,7 +890,8 @@ const middlewareLogsRouter = router({
       if (input.success !== undefined) { conditions.push(`success = $${idx++}`); params.push(input.success); }
       params.push(input.limit, input.offset);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = (await db.execute(sql.raw(`SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`))) as any;
+      // execRaw binds the $n placeholders — sql.raw would send them unbound (broken query).
+      const { rows } = await execRaw(db, `SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, params);
       return rows;
     }),
 

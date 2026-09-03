@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
@@ -17,6 +17,18 @@ function createCtx(): TrpcContext {
 describe("paygate proxy router", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    // Demo-data fallbacks are only reachable under explicit simulation mode
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+  });
+  afterEach(() => {
+    delete process.env.PAYGATE_SIMULATION_MODE;
+  });
+
+  it("fails loud (SERVICE_UNAVAILABLE) when backend is down and simulation mode is off", async () => {
+    delete process.env.PAYGATE_SIMULATION_MODE;
+    mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const caller = appRouter.createCaller(createCtx());
+    await expect(caller.paygate.gatewayHealth()).rejects.toThrow(/SERVICE_UNAVAILABLE/);
   });
 
   it("ping returns pong with mock data when backend is unreachable", async () => {
@@ -133,7 +145,7 @@ describe("paygate proxy router", () => {
     // MOCK_REDIS primary is 842/4096 (~20%) — below memWarnPct=70 → no Redis breach
     mockFetch.mockRejectedValue(new Error("ECONNREFUSED")); // force mock fallback
     const caller = appRouter.createCaller(createCtx());
-    const result = await caller.paygate.checkBreaches({ forceMock: true });
+    const result = await caller.paygate.checkBreaches();
     expect(result).toHaveProperty("notified");
     expect(result).toHaveProperty("breaches");
     expect(Array.isArray(result.breaches)).toBe(true);
@@ -259,9 +271,16 @@ describe("paygate proxy router", () => {
   });
 
 describe("PSP procedures", () => {
+  beforeEach(() => {
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+  });
+  afterEach(() => {
+    delete process.env.PAYGATE_SIMULATION_MODE;
+  });
+
   it("pspStats returns providers array with expected fields", async () => {
     const caller = appRouter.createCaller(createCtx());
-    const result = await caller.paygate.pspStats({ forceMock: true });
+    const result = await caller.paygate.pspStats();
     expect(result).toHaveProperty("providers");
     expect(Array.isArray(result.providers)).toBe(true);
     expect(result.providers.length).toBeGreaterThan(0);
@@ -274,13 +293,13 @@ describe("PSP procedures", () => {
 
   it("pspStats latencyBuckets is an array", async () => {
     const caller = appRouter.createCaller(createCtx());
-    const result = await caller.paygate.pspStats({ forceMock: true });
+    const result = await caller.paygate.pspStats();
     expect(Array.isArray(result.latencyBuckets)).toBe(true);
   });
 
   it("pspHistory returns history array for a known provider", async () => {
     const caller = appRouter.createCaller(createCtx());
-    const result = await caller.paygate.pspHistory({ providerId: "stripe", hours: 24, forceMock: true });
+    const result = await caller.paygate.pspHistory({ providerId: "stripe", hours: 24 });
     expect(result).toHaveProperty("history");
     expect(Array.isArray(result.history)).toBe(true);
     expect(result.history.length).toBeGreaterThan(0);
@@ -293,7 +312,7 @@ describe("PSP procedures", () => {
 
   it("checkBreaches includes psp_error_rate for degraded providers", async () => {
     const caller = appRouter.createCaller(createCtx());
-    const result = await caller.paygate.checkBreaches({ forceMock: true });
+    const result = await caller.paygate.checkBreaches();
     const pspBreaches = result.breaches.filter(b => b.metric === "psp_error_rate");
     // Checkout.com has successRate 94.1 which is below the 96% warn threshold
     expect(pspBreaches.length).toBeGreaterThan(0);

@@ -280,9 +280,10 @@ services:
 export default function MicroserviceHealth() {
   const microserviceInterval = useAdaptiveInterval(30000);
   const [showCompose, setShowCompose] = useState(false);
-  const { data, isLoading, isError, refetch } = trpc.system.microservicesHealth.useQuery(undefined, {
+  const { data, isLoading, isError, refetch } = trpc.agentBanking.microserviceStatus.useQuery(undefined, {
     refetchInterval: microserviceInterval,
-  }, { staleTime: 30_000 });
+    staleTime: 30_000,
+  });
 
   const onlineCount = data ? Object.values(data).filter((v: any) => v === "ok").length : 0;
   const totalCount = SERVICES.length;

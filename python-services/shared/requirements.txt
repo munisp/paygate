@@ -5,3 +5,9 @@ redis==8.0.1
 aiokafka>=0.11.0
 python-dotenv>=1.2.2
 httpx==0.28.1
+opentelemetry-sdk~=1.27.0
+opentelemetry-exporter-otlp-proto-http~=1.27.0
+opentelemetry-instrumentation-fastapi~=0.48b0
+opentelemetry-instrumentation-flask~=0.48b0
+opentelemetry-instrumentation-requests~=0.48b0
+opentelemetry-instrumentation-redis~=0.48b0

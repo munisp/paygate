@@ -6,6 +6,7 @@
  */
 import pg from 'pg';
 
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DB_URL = process.env.PG_DATABASE_URL || 'postgresql://paygate:paygate_dev_password@localhost:5432/paygate_dev';
 const pool = new pg.Pool({ connectionString: DB_URL });
 

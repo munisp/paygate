@@ -221,10 +221,15 @@ export default function RedEnvelopes() {
                   return;
                 }
                 createMutation.mutate({
+                  // Server contract (wave124 redEnvelopes.create): sender is
+                  // resolved from the session; client sends totalAmountKobo,
+                  // slots (max 100), optional message, expiresInHours (1-168)
+                  // and a REQUIRED idempotency key.
                   totalAmountKobo: Math.round(Number(totalAmount) * 100),
-                  count: Number(count) || 10,
+                  slots: Math.min(100, Math.max(1, Number(count) || 10)),
                   message,
-                  expiresInDays: Number(expiresInDays) || 7,
+                  expiresInHours: Math.min(168, Math.max(1, Math.round((Number(expiresInDays) || 7) * 24))),
+                  idempotencyKey: crypto.randomUUID(),
                 });
               }}
               disabled={createMutation.isPending}

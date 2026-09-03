@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Shield, AlertTriangle, XCircle, CheckCircle2, Eye, Ban,
-  TrendingUp, Activity, Brain, Zap, RefreshCw, Filter,
+  TrendingUp, Activity, Brain, RefreshCw,
   ChevronDown, ChevronRight, Plus, Trash2, ToggleLeft, ToggleRight,
-  Globe, CreditCard, Smartphone, Clock, ArrowUpRight,
+  Clock, ArrowUpRight,
   ArrowUpDown, ArrowUp, ArrowDown, X, ExternalLink, Signal,
   CheckSquare, Square, CheckCheck, Download
 } from "lucide-react";
@@ -15,44 +15,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-// --- Data generators ---
+// Risk levels used for filtering/display — no fabricated data is generated on this page.
 const RISK_LEVELS = ["critical", "high", "medium", "low"] as const;
-const CHANNELS = ["card", "mobile_money", "bank_transfer", "ussd"] as const;
-const COUNTRIES = ["NG", "KE", "GH", "ZA", "SN", "TZ", "UG", "CM"];
-const FRAUD_TYPES = ["Card Testing", "Account Takeover", "Synthetic Identity", "Velocity Abuse", "BIN Attack", "Chargeback Fraud", "Money Laundering", "Device Spoofing"];
-
-function genTx(i: number) {
-  const risk = RISK_LEVELS[Math.floor(Math.random() * RISK_LEVELS.length)];
-  const score = risk === "critical" ? 85 + Math.random() * 15 : risk === "high" ? 65 + Math.random() * 20 : risk === "medium" ? 40 + Math.random() * 25 : 10 + Math.random() * 30;
-  return {
-    id: `txn_${Math.random().toString(36).slice(2, 10)}`,
-    amount: Math.floor(Math.random() * 500000) + 1000,
-    currency: ["NGN", "KES", "GHS"][i % 3],
-    risk,
-    score: Math.round(score),
-    channel: CHANNELS[Math.floor(Math.random() * CHANNELS.length)],
-    country: COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)],
-    email: `user${Math.floor(Math.random() * 9999)}@${["gmail.com", "yahoo.com", "outlook.com", "temp-mail.org"][Math.floor(Math.random() * 4)]}`,
-    ip: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-    fraudType: FRAUD_TYPES[Math.floor(Math.random() * FRAUD_TYPES.length)],
-    signals: ["Velocity spike", "New device", "VPN detected", "Card testing pattern", "Unusual hour", "Multiple declines"].slice(0, 2 + Math.floor(Math.random() * 3)),
-    status: ["flagged", "blocked", "reviewing", "cleared"][Math.floor(Math.random() * 4)] as "flagged" | "blocked" | "reviewing" | "cleared",
-    time: new Date(Date.now() - Math.random() * 3600000).toLocaleTimeString(),
-    model: ["GraphSAGE v2.1", "XGBoost Ensemble", "Isolation Forest"][Math.floor(Math.random() * 3)],
-  };
-}
-
-const INITIAL_TXS = Array.from({ length: 20 }, (_, i) => genTx(i));
-
-const RULES = [
-  { id: "r1", name: "Velocity — Card Testing", desc: "Block if >5 failed attempts in 10 min from same card", enabled: true, triggered: 234, blocked: 198, type: "velocity" },
-  { id: "r2", name: "High-Risk Country Block", desc: "Flag transactions from sanctioned countries", enabled: true, triggered: 89, blocked: 89, type: "geo" },
-  { id: "r3", name: "Large Amount Threshold", desc: "Flag single transactions > ₦5,000,000", enabled: true, triggered: 45, blocked: 12, type: "amount" },
-  { id: "r4", name: "New Device + New Country", desc: "Flag when both device and country are new for user", enabled: true, triggered: 156, blocked: 67, type: "device" },
-  { id: "r5", name: "Disposable Email Detection", desc: "Block payments from known disposable email providers", enabled: false, triggered: 312, blocked: 290, type: "email" },
-  { id: "r6", name: "BIN Attack Detection", desc: "Block if >20 different cards from same IP in 1 hour", enabled: true, triggered: 18, blocked: 18, type: "velocity" },
-  { id: "r7", name: "Odd-Hour Transactions", desc: "Flag transactions between 2AM-5AM local time", enabled: false, triggered: 78, blocked: 0, type: "time" },
-];
 
 const RISK_COLORS = {
   critical: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200", badge: "bg-red-100 text-red-700", bar: "bg-red-500" },
@@ -61,11 +25,11 @@ const RISK_COLORS = {
   low: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", badge: "bg-emerald-100 text-emerald-700", bar: "bg-emerald-500" },
 };
 
-const STATUS_ICONS = {
-  flagged: <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />,
-  blocked: <XCircle className="w-3.5 h-3.5 text-red-600" />,
-  reviewing: <Eye className="w-3.5 h-3.5 text-blue-600" />,
-  cleared: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />,
+const STATUS_ICONS: Record<string, JSX.Element> = {
+  open: <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />,
+  investigating: <Eye className="w-3.5 h-3.5 text-blue-600" />,
+  resolved: <XCircle className="w-3.5 h-3.5 text-red-600" />,
+  false_positive: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />,
 };
 
 type DbSortField = "riskScore" | "createdAt" | "alertType" | "status";
@@ -107,35 +71,35 @@ function ScoreBar({ score, risk }: { score: number; risk: typeof RISK_LEVELS[num
 }
 
 export default function FraudRisk() {
-  const [transactions, setTransactions] = useState(INITIAL_TXS);
   const [tab, setTab] = useState<"feed" | "rules" | "models" | "insights" | "db_alerts">("feed");
-  const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
+  const [liveMode, setLiveMode] = useState(true);
+  // Live feed = DB alerts only. Live mode polls every 15s; paused disables polling.
+  const { data: dbAlerts, isLoading: alertsLoading, isError: alertsError, error: alertsErrorObj, refetch: refetchAlerts } =
+    trpc.fraudRisk.list.useQuery({ limit: 100 }, { staleTime: 15_000, refetchInterval: liveMode ? 15_000 : false });
   const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
-  const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
+  const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({
+    onSuccess: () => { toast.success("Alert updated"); utils.fraudRisk.list.invalidate(); },
+    onError: (e) => toast.error(`Action failed: ${e.message}`),
+  });
   const utils = trpc.useUtils();
-  // Real fraud rules from DB (fraudRuleEngine router)
+  // Real fraud rules from DB (fraudRuleEngine router) — no static fallback.
   const { data: dbRulesData } = trpc.fraudRuleEngine.list.useQuery({ merchantId: "" }, { staleTime: 30_000 });
   const toggleRuleMutation = trpc.fraudRuleEngine.toggleStatus.useMutation({
     onSuccess: () => { utils.fraudRuleEngine.list.invalidate(); toast.success("Rule updated"); },
     onError: (e) => toast.error(e.message),
   });
-  // Map DB rules to display format, fallback to static RULES if no DB rules yet
-  const rules = (dbRulesData as any[])?.length
-    ? (dbRulesData as any[]).map((r: any) => ({
-        id: r.id, name: r.name, desc: r.description ?? "", enabled: r.status === "active",
-        triggered: r.triggeredCount ?? 0, blocked: r.blockedCount ?? 0, type: r.ruleType ?? "custom",
-      }))
-    : RULES;
-  // Auto-seed demo alerts when merchant has no alerts yet
+  const rules = ((dbRulesData as any[]) ?? []).map((r: any) => ({
+    id: r.id, name: r.name, desc: r.description ?? "", enabled: r.status === "active",
+    triggered: r.triggeredCount ?? 0, blocked: r.blockedCount ?? 0, type: r.ruleType ?? "custom",
+  }));
+  // Honestly-labeled manual demo seeding (operator-initiated only, never automatic).
   const seedDemoAlerts = trpc.fraudRisk.seedDemoAlerts.useMutation({
     onSuccess: (d) => { if (d.seeded > 0) { utils.fraudRisk.list.invalidate(); toast.info(`${d.seeded} demo fraud alerts loaded`); } },
+    onError: (e) => toast.error(e.message),
   });
-  useEffect(() => {
-    if (dbAlerts !== undefined && (dbAlerts.rows?.length ?? 0) === 0 && !seedDemoAlerts.isPending && !seedDemoAlerts.isSuccess) {
-      seedDemoAlerts.mutate();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbAlerts]);
+  // Real ML model registry for the Models tab
+  const { data: modelRegistry, isLoading: modelsLoading, isError: modelsError } =
+    trpc.aiModelAdmin.listModels.useQuery({ status: "all", limit: 50 }, { staleTime: 60_000 });
   const snoozeAlerts = trpc.fraudRisk.snoozeAlerts.useMutation({
     onSuccess: (data) => {
       toast.success(`Snoozed ${data.count} alert${data.count !== 1 ? "s" : ""} for 24 hours`);
@@ -542,58 +506,73 @@ export default function FraudRisk() {
   }
   const [filter, setFilter] = useState<"all" | typeof RISK_LEVELS[number]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [liveMode, setLiveMode] = useState(true);
   const [showNewRule, setShowNewRule] = useState(false);
   const [newRule, setNewRule] = useState({ name: "", desc: "", type: "velocity" });
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const seededFromDbRef = useRef(false);
 
-  // Seed initial transactions from real DB fraud alerts once loaded
-  useEffect(() => {
-    if (seededFromDbRef.current || !dbAlerts?.rows?.length) return;
-    seededFromDbRef.current = true;
-    const dbTxs = (dbAlerts.rows as any[]).map((row) => ({
+  // Feed rows derived exclusively from real DB fraud alerts (metadata fields shown honestly).
+  const feedTxs = useMemo(() => (dbAlerts?.rows ?? []).map((row: any) => {
+    const meta = (row.metadata ?? {}) as Record<string, any>;
+    const score = Number(row.riskScore ?? 0);
+    return {
       id: row.id,
-      amount: Number(row.amount ?? 0),
-      currency: row.currency ?? "NGN",
-      risk: (row.riskLevel ?? "medium") as typeof RISK_LEVELS[number],
-      score: Number(row.riskScore ?? 50),
-      channel: row.channel ?? "card",
-      country: row.country ?? "NG",
-      email: row.customerEmail ?? "unknown@example.com",
-      ip: row.ipAddress ?? "0.0.0.0",
-      fraudType: row.alertType ?? "Unknown",
-      signals: row.signals ? (Array.isArray(row.signals) ? row.signals : [String(row.signals)]) : [],
-      status: (row.status ?? "flagged") as "flagged" | "blocked" | "reviewing" | "cleared",
-      time: row.createdAt ? new Date(row.createdAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
-      model: row.mlModel ?? "GraphSAGE v2.1",
-    }));
-    if (dbTxs.length > 0) setTransactions(dbTxs);
+      amount: typeof meta.amount === "number" ? meta.amount : null,
+      currency: typeof meta.currency === "string" ? meta.currency : "",
+      risk: (meta.riskLevel ?? (score >= 75 ? "critical" : score >= 50 ? "high" : score >= 25 ? "medium" : "low")) as typeof RISK_LEVELS[number],
+      score,
+      channel: typeof meta.channel === "string" ? meta.channel : null,
+      country: typeof meta.country === "string" ? meta.country : null,
+      email: meta.customerEmail ?? meta.email ?? null,
+      ip: meta.ipAddress ?? meta.ip ?? null,
+      fraudType: (row.alertType ?? "unknown").replace(/_/g, " "),
+      signals: Array.isArray(meta.signals) ? meta.signals : [],
+      status: row.status as "open" | "investigating" | "resolved" | "false_positive",
+      time: row.createdAt ? new Date(row.createdAt).toLocaleTimeString() : "—",
+      model: meta.mlModel ?? meta.model ?? null,
+    };
+  }), [dbAlerts]);
+
+  const filtered = filter === "all" ? feedTxs : feedTxs.filter(t => t.risk === filter);
+
+  // Insights computed from real DB alerts only (never fabricated).
+  const insights = useMemo(() => {
+    const rows = (dbAlerts?.rows ?? []) as any[];
+    const byType = new Map<string, number>();
+    const byChannel = new Map<string, number>();
+    const hours = new Array<number>(24).fill(0);
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    for (const r of rows) {
+      const type = (r.alertType ?? "unknown").replace(/_/g, " ");
+      byType.set(type, (byType.get(type) ?? 0) + 1);
+      const ch = (r.metadata as any)?.channel;
+      if (typeof ch === "string" && ch) byChannel.set(ch, (byChannel.get(ch) ?? 0) + 1);
+      const t = new Date(r.createdAt).getTime();
+      if (!isNaN(t) && t >= cutoff) hours[new Date(r.createdAt).getHours()]++;
+    }
+    const total = rows.length;
+    const topTypes = [...byType.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([type, count]) => ({ type, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 }));
+    const channels = [...byChannel.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([channel, count]) => ({ channel, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 }));
+    const maxHour = Math.max(1, ...hours);
+    return { total, topTypes, channels, hours, maxHour };
   }, [dbAlerts]);
 
-  // Live feed simulation
-  useEffect(() => {
-    if (!liveMode) { if (intervalRef.current) clearInterval(intervalRef.current); return; }
-    intervalRef.current = setInterval(() => {
-      const tx = genTx(Math.random() * 100);
-      setTransactions(prev => [tx, ...prev.slice(0, 49)]);
-      if (tx.risk === "critical") toast.error(`Critical fraud signal: ${tx.fraudType} — ${tx.currency} ${tx.amount.toLocaleString()}`);
-    }, 4000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [liveMode]);
-
-  const filtered = filter === "all" ? transactions : transactions.filter(t => t.risk === filter);
-
   const stats = {
-    total: transactions.length,
-    blocked: transactions.filter(t => t.status === "blocked").length,
-    flagged: transactions.filter(t => t.status === "flagged").length,
-    fraudRate: ((transactions.filter(t => t.risk === "high" || t.risk === "critical").length / transactions.length) * 100).toFixed(1),
+    total: feedTxs.length,
+    blocked: feedTxs.filter(t => t.status === "resolved").length,
+    flagged: feedTxs.filter(t => t.status === "open").length,
+    fraudRate: feedTxs.length > 0
+      ? ((feedTxs.filter(t => t.risk === "high" || t.risk === "critical").length / feedTxs.length) * 100).toFixed(1)
+      : "—",
   };
 
+  // Block/allow/review → real fraudRisk.updateAlert mutation (errors surface as toasts).
   const handleAction = (txId: string, action: "block" | "allow" | "review") => {
-    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, status: action === "block" ? "blocked" : action === "allow" ? "cleared" : "reviewing" } : t));
-    toast.success(action === "block" ? "Transaction blocked" : action === "allow" ? "Transaction cleared" : "Sent for manual review");
+    const statusMap = { block: "resolved", allow: "false_positive", review: "investigating" } as const;
+    updateDbAlert.mutate({ id: txId, status: statusMap[action] });
   };
 
   return (
@@ -611,7 +590,7 @@ export default function FraudRisk() {
             <div className={`w-2 h-2 rounded-full ${liveMode ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
             {liveMode ? "Live" : "Paused"}
           </button>
-          <Button size="sm" variant="outline" onClick={() => setTransactions(Array.from({ length: 20 }, (_, i) => genTx(i)))}>
+          <Button size="sm" variant="outline" onClick={() => refetchAlerts()}>
             <RefreshCw className="w-4 h-4 mr-2" />Refresh
           </Button>
         </div>
@@ -620,10 +599,10 @@ export default function FraudRisk() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Transactions Analyzed", value: transactions.length.toLocaleString(), icon: Activity, cls: "text-primary", sub: "Last hour" },
-          { label: "Blocked", value: stats.blocked, icon: Ban, cls: "text-red-600", sub: `${((stats.blocked / stats.total) * 100).toFixed(1)}% block rate` },
-          { label: "Flagged for Review", value: stats.flagged, icon: AlertTriangle, cls: "text-amber-600", sub: "Pending action" },
-          { label: "Fraud Rate", value: stats.fraudRate + "%", icon: TrendingUp, cls: "text-orange-600", sub: "High + Critical risk" },
+          { label: "Alerts Analyzed", value: stats.total.toLocaleString(), icon: Activity, cls: "text-primary", sub: "Latest 100 alerts" },
+          { label: "Resolved", value: stats.blocked, icon: Ban, cls: "text-red-600", sub: stats.total > 0 ? `${((stats.blocked / stats.total) * 100).toFixed(1)}% of alerts` : "No alerts" },
+          { label: "Open", value: stats.flagged, icon: AlertTriangle, cls: "text-amber-600", sub: "Pending action" },
+          { label: "High-Risk Share", value: stats.fraudRate === "—" ? "—" : stats.fraudRate + "%", icon: TrendingUp, cls: "text-orange-600", sub: "High + Critical risk" },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div className="flex items-center justify-between mb-2">
@@ -654,12 +633,31 @@ export default function FraudRisk() {
             {(["all", "critical", "high", "medium", "low"] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all ${filter === f ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-muted-foreground"}`}>
                 {f === "all" ? "All" : f}
-                {f !== "all" && <span className="ml-1.5 opacity-70">{transactions.filter(t => t.risk === f).length}</span>}
+                {f !== "all" && <span className="ml-1.5 opacity-70">{feedTxs.filter(t => t.risk === f).length}</span>}
               </button>
             ))}
           </div>
 
-          {/* Transaction feed */}
+          {/* Alert feed — DB data only */}
+          {alertsLoading ? (
+            <div className="space-y-2">{Array(5).fill(0).map((_, i) => <div key={i} className="h-16 bg-muted/50 rounded-xl animate-pulse" />)}</div>
+          ) : alertsError ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-3">
+              <AlertTriangle className="w-6 h-6 text-red-500 mx-auto" />
+              <p className="text-sm font-medium text-red-700">Could not load fraud alerts</p>
+              <p className="text-xs text-red-600">{alertsErrorObj?.message}</p>
+              <Button size="sm" variant="outline" onClick={() => refetchAlerts()}>Retry</Button>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-card rounded-xl border border-border p-12 text-center">
+              <CheckCircle2 className="w-8 h-8 mx-auto mb-3 text-emerald-500 opacity-60" />
+              <p className="text-muted-foreground">
+                {feedTxs.length === 0
+                  ? "No fraud alerts recorded yet. Alerts appear here in real time as the fraud engine flags activity."
+                  : "No alerts match the selected risk filter."}
+              </p>
+            </div>
+          ) : (
           <div className="space-y-2">
             {filtered.map(tx => {
               const c = RISK_COLORS[tx.risk];
@@ -674,7 +672,7 @@ export default function FraudRisk() {
                     <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-5 gap-3 items-center">
                       <div>
                         <p className="text-xs font-mono text-muted-foreground">{tx.id}</p>
-                        <p className="text-sm font-semibold amount">{tx.currency} {tx.amount.toLocaleString()}</p>
+                        <p className="text-sm font-semibold amount">{tx.amount != null ? `${tx.currency} ${tx.amount.toLocaleString()}` : "—"}</p>
                       </div>
                       <div className="hidden md:block">
                         <p className="text-xs text-muted-foreground">Risk Type</p>
@@ -686,7 +684,7 @@ export default function FraudRisk() {
                       </div>
                       <div className="hidden md:block">
                         <p className="text-xs text-muted-foreground">Channel</p>
-                        <p className="text-xs font-medium capitalize">{tx.channel.replace("_", " ")}</p>
+                        <p className="text-xs font-medium capitalize">{tx.channel ? tx.channel.replace("_", " ") : "—"}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${c.badge}`}>
@@ -717,33 +715,40 @@ export default function FraudRisk() {
                         ].map(f => (
                           <div key={f.label}>
                             <p className="text-xs text-muted-foreground">{f.label}</p>
-                            <p className="text-sm font-mono font-medium truncate">{f.value}</p>
+                            <p className="text-sm font-mono font-medium truncate">{f.value ?? "—"}</p>
                           </div>
                         ))}
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground mb-2">Risk Signals Detected</p>
-                        <div className="flex flex-wrap gap-2">
-                          {tx.signals.map(s => (
-                            <span key={s} className={`px-2.5 py-1 rounded-lg text-xs font-medium ${c.badge}`}>{s}</span>
-                          ))}
-                        </div>
+                        {tx.signals.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">No signals recorded for this alert.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {tx.signals.map(s => (
+                              <span key={s} className={`px-2.5 py-1 rounded-lg text-xs font-medium ${c.badge}`}>{s}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
-                        {tx.status !== "blocked" && (
-                          <Button size="sm" variant="destructive" onClick={() => handleAction(tx.id, "block")}>
-                            <Ban className="w-3.5 h-3.5 mr-1.5" />Block
-                          </Button>
+                        {(tx.status === "open" || tx.status === "investigating") && (
+                          <>
+                            <Button size="sm" variant="destructive" disabled={updateDbAlert.isPending} onClick={() => handleAction(tx.id, "block")}>
+                              <Ban className="w-3.5 h-3.5 mr-1.5" />Block
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={updateDbAlert.isPending} onClick={() => handleAction(tx.id, "allow")} className="text-emerald-600 border-emerald-200 hover:bg-emerald-50">
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Allow
+                            </Button>
+                          </>
                         )}
-                        {tx.status !== "cleared" && (
-                          <Button size="sm" variant="outline" onClick={() => handleAction(tx.id, "allow")} className="text-emerald-600 border-emerald-200 hover:bg-emerald-50">
-                            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Allow
-                          </Button>
-                        )}
-                        {tx.status !== "reviewing" && (
-                          <Button size="sm" variant="outline" onClick={() => handleAction(tx.id, "review")}>
+                        {tx.status === "open" && (
+                          <Button size="sm" variant="outline" disabled={updateDbAlert.isPending} onClick={() => handleAction(tx.id, "review")}>
                             <Eye className="w-3.5 h-3.5 mr-1.5" />Review
                           </Button>
+                        )}
+                        {(tx.status === "resolved" || tx.status === "false_positive") && (
+                          <p className="text-xs text-muted-foreground">This alert has been closed.</p>
                         )}
                       </div>
                     </div>
@@ -752,6 +757,7 @@ export default function FraudRisk() {
               );
             })}
           </div>
+          )}
         </div>
       )}
 
@@ -802,6 +808,12 @@ export default function FraudRisk() {
             </div>
           )}
 
+          {rules.length === 0 ? (
+            <div className="bg-card rounded-xl border border-border p-12 text-center">
+              <Shield className="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
+              <p className="text-muted-foreground">No fraud rules configured yet. Create rules in the Fraud Rule Engine to start enforcing policy.</p>
+            </div>
+          ) : (
           <div className="space-y-3">
             {rules.map(rule => (
               <div key={rule.id} className={`bg-card rounded-xl border p-5 transition-all ${rule.enabled ? "border-border" : "border-border/50 opacity-60"}`}>
@@ -833,13 +845,7 @@ export default function FraudRisk() {
                   </div>
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => {
-                        if ((dbRulesData as any[])?.length) {
-                          toggleRuleMutation.mutate({ id: rule.id, status: rule.enabled ? "inactive" : "active" });
-                        } else {
-                          toast.info("Connect to DB to manage rules");
-                        }
-                      }}
+                      onClick={() => toggleRuleMutation.mutate({ id: rule.id, status: rule.enabled ? "inactive" : "active" })}
                       disabled={toggleRuleMutation.isPending}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${rule.enabled ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"}`}
                     >
@@ -854,81 +860,101 @@ export default function FraudRisk() {
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
-      {/* ML Models Tab */}
+      {/* ML Models Tab — real model registry from aiModelAdmin.listModels */}
       {tab === "models" && (
+        modelsLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{Array(3).fill(0).map((_, i) => <div key={i} className="h-56 bg-muted/50 rounded-xl animate-pulse" />)}</div>
+        ) : modelsError ? (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+            <AlertTriangle className="w-6 h-6 text-red-500 mx-auto mb-2" />
+            <p className="text-sm font-medium text-red-700">Model registry unavailable</p>
+          </div>
+        ) : (modelRegistry?.models?.length ?? 0) === 0 ? (
+          <div className="bg-card rounded-xl border border-border p-12 text-center">
+            <Brain className="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
+            <p className="text-muted-foreground">No models registered yet. Trained models appear here once registered in the AI model registry.</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { name: "GraphSAGE v2.1", type: "Graph Neural Network", desc: "Detects fraud rings and coordinated attacks by analyzing transaction graph topology", accuracy: 97.4, precision: 96.8, recall: 94.2, latency: "12ms", status: "production", txs: "1.2M/day" },
-            { name: "XGBoost Ensemble", type: "Gradient Boosting", desc: "High-speed feature-based classifier for known fraud patterns and velocity checks", accuracy: 94.1, precision: 93.5, recall: 91.8, latency: "3ms", status: "production", txs: "1.2M/day" },
-            { name: "Isolation Forest", type: "Anomaly Detection", desc: "Unsupervised model for detecting novel, previously unseen fraud patterns", accuracy: 89.3, precision: 87.2, recall: 88.9, latency: "8ms", status: "shadow", txs: "1.2M/day" },
-          ].map(m => (
-            <div key={m.name} className="bg-card rounded-xl border border-border p-5 space-y-4">
+          {(modelRegistry?.models ?? []).map((m: any) => {
+            const pct = (v: any) => (typeof v === "number" ? v <= 1 ? v * 100 : v : null);
+            const metrics = [
+              { label: "Accuracy", val: pct(m.accuracy) },
+              { label: "Precision", val: pct(m.precision) },
+              { label: "Recall", val: pct(m.recall) },
+            ].filter(s => s.val !== null);
+            return (
+            <div key={m.id} className="bg-card rounded-xl border border-border p-5 space-y-4">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <Brain className="w-5 h-5 text-primary" />
-                    <p className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{m.name}</p>
+                    <p className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{m.name} <span className="text-xs text-muted-foreground font-normal">v{m.version}</span></p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{m.type}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">{(m.modelType ?? "").replace(/_/g, " ")}</p>
                 </div>
-                <Badge className={`text-xs border-0 ${m.status === "production" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                <Badge className={`text-xs border-0 ${m.status === "active" ? "bg-emerald-100 text-emerald-700" : m.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
                   {m.status}
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground">{m.desc}</p>
-              <div className="space-y-2">
-                {[{ label: "Accuracy", val: m.accuracy }, { label: "Precision", val: m.precision }, { label: "Recall", val: m.recall }].map(s => (
-                  <div key={s.label}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">{s.label}</span>
-                      <span className="font-semibold">{s.val}%</span>
+              {m.notes && <p className="text-xs text-muted-foreground">{m.notes}</p>}
+              {metrics.length > 0 && (
+                <div className="space-y-2">
+                  {metrics.map(s => (
+                    <div key={s.label}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-muted-foreground">{s.label}</span>
+                        <span className="font-semibold">{s.val!.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${s.val}%` }} />
+                      </div>
                     </div>
-                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full" style={{ width: `${s.val}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
                 <div>
-                  <p className="text-xs text-muted-foreground">Avg Latency</p>
-                  <p className="text-sm font-semibold amount">{m.latency}</p>
+                  <p className="text-xs text-muted-foreground">Training Records</p>
+                  <p className="text-sm font-semibold">{m.trainingRecords != null ? Number(m.trainingRecords).toLocaleString() : "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Volume</p>
-                  <p className="text-sm font-semibold">{m.txs}</p>
+                  <p className="text-xs text-muted-foreground">Trained</p>
+                  <p className="text-sm font-semibold">{m.trainedAt ? new Date(m.trainedAt).toLocaleDateString() : "—"}</p>
                 </div>
               </div>
-              {m.status === "shadow" && (
-                <Button size="sm" className="w-full" disabled={promoteModel.isPending} onClick={() => promoteModel.mutate({ modelName: m.name, version: 'latest' })}>
+              {m.status !== "active" && m.status !== "archived" && (
+                <Button size="sm" className="w-full" disabled={promoteModel.isPending} onClick={() => promoteModel.mutate({ modelName: m.name, version: m.version ?? 'latest' })}>
                   <ArrowUpRight className="w-4 h-4 mr-2" />{promoteModel.isPending ? "Promoting..." : "Promote to Production"}
                 </Button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
+        )
       )}
 
-      {/* Insights Tab */}
+      {/* Insights Tab — computed from real DB alerts */}
       {tab === "insights" && (
+        insights.total === 0 ? (
+          <div className="bg-card rounded-xl border border-border p-12 text-center">
+            <Activity className="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
+            <p className="text-muted-foreground">No fraud alert data yet. Insights appear once the fraud engine records alerts.</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-card rounded-xl border border-border p-5">
-            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Top Fraud Types (Last 30 Days)</h3>
+            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Top Fraud Types (from recorded alerts)</h3>
             <div className="space-y-3">
-              {[
-                { type: "Card Testing", count: 1243, pct: 34 },
-                { type: "Velocity Abuse", count: 876, pct: 24 },
-                { type: "Account Takeover", count: 654, pct: 18 },
-                { type: "BIN Attack", count: 432, pct: 12 },
-                { type: "Synthetic Identity", count: 289, pct: 8 },
-                { type: "Other", count: 145, pct: 4 },
-              ].map(f => (
+              {insights.topTypes.map(f => (
                 <div key={f.type} className="flex items-center gap-3">
                   <div className="w-28 flex-shrink-0">
-                    <p className="text-xs font-medium truncate">{f.type}</p>
+                    <p className="text-xs font-medium truncate capitalize">{f.type}</p>
                   </div>
                   <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-primary rounded-full" style={{ width: `${f.pct}%` }} />
@@ -942,42 +968,39 @@ export default function FraudRisk() {
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5">
-            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Risk by Channel</h3>
-            <div className="space-y-3">
-              {[
-                { channel: "Card", rate: 4.2, volume: "45K", icon: CreditCard },
-                { channel: "Mobile Money", rate: 1.8, volume: "32K", icon: Smartphone },
-                { channel: "Bank Transfer", rate: 0.9, volume: "18K", icon: Globe },
-                { channel: "USSD", rate: 0.4, volume: "12K", icon: Zap },
-              ].map(c => (
-                <div key={c.channel} className="flex items-center gap-3 p-3 rounded-xl bg-muted/50">
-                  <c.icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium">{c.channel}</p>
-                      <p className="text-xs text-muted-foreground">{c.volume} txns</p>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${c.rate > 3 ? "bg-red-500" : c.rate > 1.5 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${c.rate * 10}%` }} />
+            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Alerts by Channel</h3>
+            {insights.channels.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No channel metadata recorded on alerts yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {insights.channels.map(c => (
+                  <div key={c.channel} className="flex items-center gap-3 p-3 rounded-xl bg-muted/50">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium capitalize">{c.channel.replace(/_/g, " ")}</p>
+                        <p className="text-xs text-muted-foreground">{c.count} alert{c.count !== 1 ? "s" : ""}</p>
                       </div>
-                      <span className={`text-xs font-semibold ${c.rate > 3 ? "text-red-600" : c.rate > 1.5 ? "text-amber-600" : "text-emerald-600"}`}>{c.rate}% fraud rate</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${c.pct}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground">{c.pct}%</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5 md:col-span-2">
-            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Fraud Velocity — Last 24 Hours</h3>
+            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Alert Velocity — Last 24 Hours</h3>
             <div className="flex items-end gap-1 h-24">
-              {Array.from({ length: 24 }, (_, i) => {
-                const h = Math.floor(Math.random() * 80) + 10;
-                const isHigh = h > 70;
+              {insights.hours.map((count, i) => {
+                const h = Math.round((count / insights.maxHour) * 100);
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div className={`w-full rounded-t-sm transition-all ${isHigh ? "bg-red-400" : "bg-primary/40"}`} style={{ height: `${h}%` }} title={`${i}:00 — ${h} events`} />
+                    <div className={`w-full rounded-t-sm transition-all ${count > 0 ? "bg-primary/60" : "bg-muted"}`} style={{ height: `${Math.max(h, 2)}%` }} title={`${i}:00 — ${count} alert${count !== 1 ? "s" : ""}`} />
                   </div>
                 );
               })}
@@ -987,6 +1010,7 @@ export default function FraudRisk() {
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* DB Alerts Tab — live data from PostgreSQL */}

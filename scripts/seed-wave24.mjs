@@ -6,6 +6,7 @@
 import pg from "pg";
 import { randomUUID } from "crypto";
 
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DB_URL = process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
 const pool = new pg.Pool({ connectionString: DB_URL, max: 5 });
 const client = await pool.connect();
@@ -153,7 +154,7 @@ for (let i = 0; i < merchantIds.length; i++) {
     await client.query(
       `INSERT INTO merchant_risk_scores (id, merchant_id, overall_score, risk_level, fraud_score, chargeback_score, kyc_score, transaction_score, velocity_score, factors, recommendation, calculated_at, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
-       ON CONFLICT (merchant_id) DO UPDATE SET overall_score=EXCLUDED.overall_score, risk_level=EXCLUDED.risk_level, calculated_at=NOW()`,
+       ON CONFLICT (id) DO NOTHING`,
       [
         randomUUID(), merchantId, overallScore, riskLevel,
         Math.floor(overallScore * 0.3), Math.floor(overallScore * 0.25),

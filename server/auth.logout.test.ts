@@ -48,15 +48,27 @@ describe("auth.logout", () => {
 
     const result = await caller.auth.logout();
 
-    expect(result).toEqual({ success: true });
-    expect(clearedCookies).toHaveLength(1);
-    expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
-    expect(clearedCookies[0]?.options).toMatchObject({
+    // STALE CONTRACT: auth.logout now also returns `ssoLogoutUrl` (null when
+    // no SSO end-session endpoint is configured) so clients can complete
+    // single logout.
+    expect(result).toEqual({ success: true, ssoLogoutUrl: null });
+    // STALE CONTRACT: logout clears THREE cookies — the portal session cookie
+    // plus the Keycloak id_token and refresh_token cookies. Leaving either
+    // token cookie alive lets a shared/kiosk browser silently re-authenticate.
+    expect(clearedCookies).toHaveLength(3);
+    const byName = new Map(clearedCookies.map((c) => [c.name, c]));
+    const session = byName.get(COOKIE_NAME);
+    expect(session).toBeDefined();
+    expect(session?.options).toMatchObject({
       maxAge: -1,
       secure: true,
       sameSite: "none",
       httpOnly: true,
       path: "/",
     });
+    const idToken = byName.get("paygate_id_token");
+    expect(idToken?.options).toMatchObject({ maxAge: -1 });
+    const refreshToken = byName.get("paygate_refresh_token");
+    expect(refreshToken?.options).toMatchObject({ maxAge: -1, path: "/api/auth" });
   });
 });

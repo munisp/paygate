@@ -14,7 +14,7 @@ export default function APIKeys() {
   const [searchQuery, setSearchQuery] = useState("");
   const utils = trpc.useUtils();
 
-  const { data, isLoading } = trpc.apiKeys.list.useQuery(undefined, { staleTime: 60_000 });
+  const { data, isLoading } = trpc.apiKeys.list.useQuery({}, { staleTime: 60_000 });
   const createKey = trpc.apiKeys.create.useMutation({
     onSuccess: () => { toast.success("API key created"); setShowCreate(false); setNewName(""); utils.apiKeys.list.invalidate(); },
     onError: (e: any) => toast.error(e.message),

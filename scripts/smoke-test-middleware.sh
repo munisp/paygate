@@ -122,7 +122,7 @@ fi
 section "2. Redis"
 tcp_check "Redis reachable" "$REDIS_HOST" "$REDIS_PORT"
 if command -v redis-cli &>/dev/null; then
-  REDIS_PONG=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "${REDIS_PASSWORD:-redis_secret}" ping 2>/dev/null || echo "FAIL")
+  REDIS_PONG=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "${REDIS_PASSWORD:?REDIS_PASSWORD must be set — no hardcoded default allowed}" ping 2>/dev/null || echo "FAIL")
   if [[ "$REDIS_PONG" == "PONG" ]]; then
     pass "Redis PING/PONG"
   else
@@ -136,7 +136,7 @@ fi
 section "3. PostgreSQL"
 tcp_check "PostgreSQL reachable" "$POSTGRES_HOST" "$POSTGRES_PORT"
 if command -v psql &>/dev/null; then
-  cmd_check "PostgreSQL query" psql "postgresql://paygate:paygate_secret@$POSTGRES_HOST:$POSTGRES_PORT/paygate" -c "SELECT 1"
+  cmd_check "PostgreSQL query" psql "postgresql://paygate:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — no hardcoded default allowed}@$POSTGRES_HOST:$POSTGRES_PORT/paygate" -c "SELECT 1"
 else
   skip "PostgreSQL query" "psql not installed"
 fi

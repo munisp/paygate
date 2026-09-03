@@ -7,6 +7,12 @@ version: "3.9"
 #           USSD Gateway, Purchase Order Workflow, Insurance Claims Processor,
 #           Loan Repayment Engine, Coupon Engine, Fraud Alert Comments Service,
 #           Saved Beneficiaries Cache, Device Push Token Registry
+#
+# ⚠️  ALL 13 services below reference paygate/*:latest images that are NOT built
+# by this repo (no Dockerfile / source exists for them). They are kept as
+# PLANNED definitions only and are disabled via `profiles: ["disabled"]` so a
+# plain `docker compose up` will never attempt to pull or run them.
+# Remove the profile gate only after the corresponding service source lands.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 networks:
@@ -31,7 +37,9 @@ volumes:
 services:
 
   # ─── Bill Payments Gateway ──────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/bill-payments-gateway)
   bill-payments-gateway:
+    profiles: ["disabled"]
     image: paygate/bill-payments-gateway:latest
     container_name: paygate-bill-payments-gateway
     restart: unless-stopped
@@ -61,7 +69,9 @@ services:
       retries: 3
 
   # ─── Carbon Credit Registry ─────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/carbon-registry)
   carbon-registry:
+    profiles: ["disabled"]
     image: paygate/carbon-registry:latest
     container_name: paygate-carbon-registry
     restart: unless-stopped
@@ -89,7 +99,9 @@ services:
       retries: 3
 
   # ─── Subscription Engine ────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/subscription-engine)
   subscription-engine:
+    profiles: ["disabled"]
     image: paygate/subscription-engine:latest
     container_name: paygate-subscription-engine
     restart: unless-stopped
@@ -121,7 +133,9 @@ services:
       retries: 3
 
   # ─── QR Payment Generator ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/qr-payment-generator)
   qr-payment-generator:
+    profiles: ["disabled"]
     image: paygate/qr-payment-generator:latest
     container_name: paygate-qr-payment-generator
     restart: unless-stopped
@@ -148,7 +162,9 @@ services:
       retries: 3
 
   # ─── POS Terminal Manager ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/pos-terminal-manager)
   pos-terminal-manager:
+    profiles: ["disabled"]
     image: paygate/pos-terminal-manager:latest
     container_name: paygate-pos-terminal-manager
     restart: unless-stopped
@@ -174,7 +190,9 @@ services:
       retries: 3
 
   # ─── Referral Engine ────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/referral-engine)
   referral-engine:
+    profiles: ["disabled"]
     image: paygate/referral-engine:latest
     container_name: paygate-referral-engine
     restart: unless-stopped
@@ -201,7 +219,9 @@ services:
       retries: 3
 
   # ─── USSD Gateway ───────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/ussd-gateway)
   ussd-gateway:
+    profiles: ["disabled"]
     image: paygate/ussd-gateway:latest
     container_name: paygate-ussd-gateway
     restart: unless-stopped
@@ -228,7 +248,9 @@ services:
       retries: 3
 
   # ─── Purchase Order Workflow ─────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/purchase-order-workflow)
   purchase-order-workflow:
+    profiles: ["disabled"]
     image: paygate/purchase-order-workflow:latest
     container_name: paygate-purchase-order-workflow
     restart: unless-stopped
@@ -259,7 +281,9 @@ services:
       retries: 3
 
   # ─── Insurance Claims Processor ─────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/insurance-claims-processor)
   insurance-claims-processor:
+    profiles: ["disabled"]
     image: paygate/insurance-claims-processor:latest
     container_name: paygate-insurance-claims-processor
     restart: unless-stopped
@@ -286,7 +310,9 @@ services:
       retries: 3
 
   # ─── Loan Repayment Engine ───────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/loan-repayment-engine)
   loan-repayment-engine:
+    profiles: ["disabled"]
     image: paygate/loan-repayment-engine:latest
     container_name: paygate-loan-repayment-engine
     restart: unless-stopped
@@ -313,7 +339,9 @@ services:
       retries: 3
 
   # ─── Coupon Engine ───────────────────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/coupon-engine)
   coupon-engine:
+    profiles: ["disabled"]
     image: paygate/coupon-engine:latest
     container_name: paygate-coupon-engine
     restart: unless-stopped
@@ -338,7 +366,9 @@ services:
       retries: 3
 
   # ─── Saved Beneficiaries Cache ───────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/saved-beneficiaries-cache)
   saved-beneficiaries-cache:
+    profiles: ["disabled"]
     image: paygate/saved-beneficiaries-cache:latest
     container_name: paygate-saved-beneficiaries-cache
     restart: unless-stopped
@@ -362,7 +392,9 @@ services:
       retries: 3
 
   # ─── Device Push Token Registry ─────────────────────────────────────────────
+  # PLANNED — image not built by this repo (no Dockerfile/source for paygate/device-push-token-registry)
   device-push-token-registry:
+    profiles: ["disabled"]
     image: paygate/device-push-token-registry:latest
     container_name: paygate-device-push-token-registry
     restart: unless-stopped

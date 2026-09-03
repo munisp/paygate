@@ -19,9 +19,12 @@ import { logger } from './logger';
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { randomInt } from "node:crypto";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
+import { demoOrFail } from "./_core/demoData";
+import { withIdempotency } from "./idempotency";
 import {
   getCashbackBalanceViaMiddleware,
   redeemCashbackViaMiddleware,
@@ -57,7 +60,15 @@ async function getConsumerWallet(userId: number, currency = "NGN") {
   return wallet ?? null;
 }
 
-async function debitWallet(
+type Tx = any; // drizzle transaction handle (or root db) — schemas are dynamically imported
+
+/**
+ * Guarded wallet debit inside a caller-provided transaction.
+ * Single atomic UPDATE ... SET balance = balance - X WHERE id=? AND balance >= X
+ * RETURNING — no stale read, no negative balance, no compensate-after pattern.
+ */
+async function debitWalletIn(
+  tx: Tx,
   walletId: string,
   userId: number,
   amountKobo: number,
@@ -68,27 +79,23 @@ async function debitWallet(
   counterpartyName?: string,
   counterpartyAccount?: string,
 ) {
-  const db = (await getDb())!;
-  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { consumerWallets, consumerWalletTxns } = await import("../drizzle/schema");
-  const { eq, sql } = await import("drizzle-orm");
-  // Atomic debit with balance check
-  const [updated] = await db
+  const { eq, and, sql } = await import("drizzle-orm");
+  const [updated] = await tx
     .update(consumerWallets)
     .set({
       balanceKobo: sql`${consumerWallets.balanceKobo} - ${amountKobo}`,
       updatedAt: new Date(),
     })
-    .where(eq(consumerWallets.id, walletId))
+    .where(and(
+      eq(consumerWallets.id, walletId),
+      sql`${consumerWallets.balanceKobo} >= ${amountKobo}`,
+    ))
     .returning();
-  if (!updated || updated.balanceKobo < 0) {
-    // Rollback
-    await db.update(consumerWallets)
-      .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${amountKobo}`, updatedAt: new Date() })
-      .where(eq(consumerWallets.id, walletId));
+  if (!updated) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient wallet balance" });
   }
-  await db.insert(consumerWalletTxns).values({
+  await tx.insert(consumerWalletTxns).values({
     id: nanoid("wt_"),
     walletId,
     userId,
@@ -105,7 +112,28 @@ async function debitWallet(
   return updated.balanceKobo;
 }
 
-async function creditWallet(
+/** Standalone debit: debit + ledger insert atomically in their own transaction. */
+async function debitWallet(
+  walletId: string,
+  userId: number,
+  amountKobo: number,
+  currency: string,
+  type: "p2p_send" | "qr_pay" | "bill_pay" | "red_envelope_send" | "refund",
+  description: string,
+  reference: string,
+  counterpartyName?: string,
+  counterpartyAccount?: string,
+) {
+  const db = (await getDb())!;
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  return db.transaction((tx: Tx) =>
+    debitWalletIn(tx, walletId, userId, amountKobo, currency, type, description, reference, counterpartyName, counterpartyAccount),
+  );
+}
+
+/** Wallet credit inside a caller-provided transaction (credit + ledger atomically). */
+async function creditWalletIn(
+  tx: Tx,
   userId: number,
   amountKobo: number,
   currency: string,
@@ -114,15 +142,13 @@ async function creditWallet(
   reference: string,
   counterpartyName?: string,
 ) {
-  const db = (await getDb())!;
-  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { consumerWallets, consumerWalletTxns } = await import("../drizzle/schema");
   const { eq, and, sql } = await import("drizzle-orm");
-  let [wallet] = await db.select().from(consumerWallets)
+  let [wallet] = await tx.select().from(consumerWallets)
     .where(and(eq(consumerWallets.userId, userId), eq(consumerWallets.currency, currency)))
     .limit(1);
   if (!wallet) {
-    const [created] = await db.insert(consumerWallets).values({
+    const [created] = await tx.insert(consumerWallets).values({
       id: nanoid("cw_"),
       userId,
       currency,
@@ -131,11 +157,11 @@ async function creditWallet(
     }).returning();
     wallet = created;
   }
-  const [updated] = await db.update(consumerWallets)
+  const [updated] = await tx.update(consumerWallets)
     .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${amountKobo}`, updatedAt: new Date() })
     .where(eq(consumerWallets.id, wallet.id))
     .returning();
-  await db.insert(consumerWalletTxns).values({
+  await tx.insert(consumerWalletTxns).values({
     id: nanoid("wt_"),
     walletId: wallet.id,
     userId,
@@ -149,6 +175,39 @@ async function creditWallet(
     status: "completed",
   });
   return updated.balanceKobo;
+}
+
+/** Standalone credit: credit + ledger insert atomically in their own transaction. */
+async function creditWallet(
+  userId: number,
+  amountKobo: number,
+  currency: string,
+  type: "topup" | "p2p_receive" | "red_envelope_receive" | "refund",
+  description: string,
+  reference: string,
+  counterpartyName?: string,
+) {
+  const db = (await getDb())!;
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  return db.transaction((tx: Tx) =>
+    creditWalletIn(tx, userId, amountKobo, currency, type, description, reference, counterpartyName),
+  );
+}
+
+/**
+ * Idempotency check for retried wallet debits: if a completed wallet txn with
+ * this reference already exists for the wallet, return it instead of debiting
+ * again.
+ */
+async function findExistingWalletTxn(walletId: string, reference: string) {
+  const db = (await getDb())!;
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { consumerWalletTxns } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const [existing] = await db.select().from(consumerWalletTxns)
+    .where(and(eq(consumerWalletTxns.walletId, walletId), eq(consumerWalletTxns.reference, reference)))
+    .limit(1);
+  return existing ?? null;
 }
 
 // ─── Loyalty helpers ──────────────────────────────────────────────────────────
@@ -166,33 +225,57 @@ async function earnPoints(userId: number, amountKobo: number, description: strin
   const db = (await getDb())!;
   if (!db) return;
   const { consumerLoyaltyAccounts, consumerLoyaltyTxns } = await import("../drizzle/schema");
-  const { eq, sql } = await import("drizzle-orm");
-  const points = Math.floor(amountKobo / 100 / 100) * POINTS_PER_NAIRA; // kobo → naira → points
+  const { eq, and, sql } = await import("drizzle-orm");
+  // POINTS_PER_NAIRA = 1 point per ₦1 spent; amountKobo / 100 = naira.
+  const points = Math.floor(amountKobo / 100) * POINTS_PER_NAIRA;
   if (points <= 0) return;
-  let [acct] = await db.select().from(consumerLoyaltyAccounts).where(eq(consumerLoyaltyAccounts.userId, userId)).limit(1);
-  if (!acct) {
-    const [created] = await db.insert(consumerLoyaltyAccounts).values({
-      id: nanoid("la_"),
+
+  // Dedup: one earn per referenceId.
+  const [existing] = await db.select().from(consumerLoyaltyTxns)
+    .where(and(
+      eq(consumerLoyaltyTxns.userId, userId),
+      eq(consumerLoyaltyTxns.type, "earn"),
+      eq(consumerLoyaltyTxns.referenceId, referenceId),
+    ))
+    .limit(1);
+  if (existing) return;
+
+  await db.transaction(async (tx: Tx) => {
+    // Ensure account exists (get-or-create).
+    const [acct] = await tx.select().from(consumerLoyaltyAccounts).where(eq(consumerLoyaltyAccounts.userId, userId)).limit(1);
+    if (!acct) {
+      await tx.insert(consumerLoyaltyAccounts).values({
+        id: nanoid("la_"),
+        userId,
+        pointsBalance: 0,
+        lifetimePoints: 0,
+        tier: "bronze",
+      });
+    }
+    // Guarded RELATIVE update (no stale-read absolute write), then recompute tier
+    // from the post-update lifetime points.
+    const [updated] = await tx.update(consumerLoyaltyAccounts)
+      .set({
+        pointsBalance: sql`${consumerLoyaltyAccounts.pointsBalance} + ${points}`,
+        lifetimePoints: sql`${consumerLoyaltyAccounts.lifetimePoints} + ${points}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(consumerLoyaltyAccounts.userId, userId))
+      .returning();
+    const newTier = calcTier(updated?.lifetimePoints ?? points);
+    if (updated && updated.tier !== newTier) {
+      await tx.update(consumerLoyaltyAccounts)
+        .set({ tier: newTier, updatedAt: new Date() })
+        .where(eq(consumerLoyaltyAccounts.userId, userId));
+    }
+    await tx.insert(consumerLoyaltyTxns).values({
+      id: nanoid("lt_"),
       userId,
-      pointsBalance: 0,
-      lifetimePoints: 0,
-      tier: "bronze",
-    }).returning();
-    acct = created;
-  }
-  const newLifetime = acct.lifetimePoints + points;
-  const newBalance = acct.pointsBalance + points;
-  const newTier = calcTier(newLifetime);
-  await db.update(consumerLoyaltyAccounts)
-    .set({ pointsBalance: newBalance, lifetimePoints: newLifetime, tier: newTier, updatedAt: new Date() })
-    .where(eq(consumerLoyaltyAccounts.userId, userId));
-  await db.insert(consumerLoyaltyTxns).values({
-    id: nanoid("lt_"),
-    userId,
-    type: "earn",
-    points,
-    description,
-    referenceId,
+      type: "earn",
+      points,
+      description,
+      referenceId,
+    });
   });
 }
 
@@ -211,9 +294,12 @@ async function verifyPin(pin: string, hash: string): Promise<boolean> {
 async function sendTermiiOtp(phone: string, otp: string): Promise<{ success: boolean; messageId?: string }> {
   const apiKey = process.env.TERMII_API_KEY;
   if (!apiKey) {
-    // No credentials — log and return success so dev flow works
-    logger.warn("[Termii] No TERMII_API_KEY set — OTP not sent. Code:", otp);
-    return { success: true, messageId: "dev_" + Date.now() };
+    // No credentials — FAIL CLOSED in production (SERVICE_UNAVAILABLE); simulate
+    // only behind PAYGATE_SIMULATION_MODE=true with a loud warning.
+    // SECURITY: the OTP itself is NEVER logged or returned.
+    demoOrFail({ provider: "termii", to: phone, sent: false }, "Termii OTP SMS");
+    logger.warn("[Termii] SIMULATION MODE — OTP SMS not really sent (PAYGATE_SIMULATION_MODE=true)");
+    return { success: true, messageId: "sim_" + Date.now() };
   }
   try {
     const res = await fetch("https://v3.api.termii.com/api/sms/send", {
@@ -251,8 +337,14 @@ async function submitYouverifyKyc(data: {
 }): Promise<{ success: boolean; ref?: string; status: string }> {
   const apiKey = process.env.YOUVERIFY_API_KEY;
   if (!apiKey) {
-    logger.warn("[Youverify] No YOUVERIFY_API_KEY set — KYC submitted in dev mode");
-    return { success: true, ref: "dev_kyc_" + Date.now(), status: "approved" };
+    // No credentials — FAIL CLOSED in production (SERVICE_UNAVAILABLE). A
+    // simulated KYC is only possible behind PAYGATE_SIMULATION_MODE=true, and
+    // it NEVER reports "approved": the status stays "pending" so nothing
+    // downstream treats an unverified identity as verified.
+    return demoOrFail(
+      { success: true, ref: "sim_kyc_" + Date.now(), status: "pending" },
+      "Youverify KYC",
+    );
   }
   try {
     // BVN verification via Youverify
@@ -360,7 +452,11 @@ export const moneyRequestRouter = router({
     }),
 
   pay: protectedProcedure
-    .input(z.object({ id: z.string(), pin: z.string().length(4) }))
+    .input(z.object({
+      id: z.string(),
+      pin: z.string().length(4),
+      idempotencyKey: z.string().min(8).max(128).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const db = (await getDb())!;
@@ -383,7 +479,7 @@ export const moneyRequestRouter = router({
       }
       await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
 
-      // Load request
+      // Load request (read-time hints only — the guarded status flip below is authoritative)
       const [req] = await db.select().from(moneyRequests).where(eq(moneyRequests.id, input.id)).limit(1);
       if (!req) throw new TRPCError({ code: "NOT_FOUND", message: "Request not found" });
       if (req.status !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: `Request is already ${req.status}` });
@@ -393,21 +489,36 @@ export const moneyRequestRouter = router({
       // Debit payer wallet
       const wallet = await getConsumerWallet(user.id, req.currency);
       if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found. Please top up first." });
-      const ref = nanoid("mr_pay_");
-      await debitWallet(wallet.id, user.id, req.amountKobo, req.currency, "p2p_send",
-        `Payment for request from ${req.requesterId}`, ref);
 
-      // Credit requester wallet
-      await creditWallet(req.requesterId, req.amountKobo, req.currency, "p2p_receive",
-        `Money received from ${user.name ?? "someone"}`, ref, user.name ?? undefined);
+      // Idempotency: a client retry with the same key returns the original result
+      // instead of double-paying.
+      const ref = input.idempotencyKey ? `mr_pay_idem_${input.idempotencyKey}` : nanoid("mr_pay_");
+      if (input.idempotencyKey) {
+        const existing = await findExistingWalletTxn(wallet.id, ref);
+        if (existing) {
+          return { success: true, reference: ref, deduplicated: true };
+        }
+      }
 
-      // Mark request as paid
-      await db.update(moneyRequests)
-        .set({ status: "paid", payerUserId: user.id, payerName: user.name ?? null, paidAt: new Date() })
-        .where(eq(moneyRequests.id, input.id));
+      // Guarded status flip FIRST (only the first payer can flip pending → paid),
+      // then both wallet movements + ledger rows — all in ONE transaction.
+      await db.transaction(async (tx: Tx) => {
+        const [claimed] = await tx.update(moneyRequests)
+          .set({ status: "paid", payerUserId: user.id, payerName: user.name ?? null, paidAt: new Date() })
+          .where(and(eq(moneyRequests.id, input.id), eq(moneyRequests.status, "pending")))
+          .returning();
+        if (!claimed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Request is no longer pending" });
+        }
+        await debitWalletIn(tx, wallet.id, user.id, claimed.amountKobo, claimed.currency, "p2p_send",
+          `Payment for request from ${claimed.requesterId}`, ref);
+        await creditWalletIn(tx, claimed.requesterId, claimed.amountKobo, claimed.currency, "p2p_receive",
+          `Money received from ${user.name ?? "someone"}`, ref, user.name ?? undefined);
+      });
 
       // Earn loyalty points
-      await earnPoints(user.id, req.amountKobo, "P2P payment request", ref).catch(() => {});
+      await earnPoints(user.id, req.amountKobo, "P2P payment request", ref)
+        .catch((e) => logger.error("[wave68] loyalty points accrual failed — points lost for settled P2P payment", { ref, userId: user.id, error: e instanceof Error ? e.message : String(e) }));
 
       // Fire-and-forget push notification to requester
       const amtNaira = (req.amountKobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
@@ -495,47 +606,66 @@ export const consumerQrPayRouter = router({
       amountKobo: z.number().int().positive(),
       currency: z.string().length(3).default("NGN"),
       pin: z.string().length(4),
+      // REQUIRED (spec #6): money mutations must carry an idempotency key.
+      idempotencyKey: z.string().min(8).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = (await getDb())!;
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const { consumerPins } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      return withIdempotency({
+        key: input.idempotencyKey,
+        merchantId: String(user.id),
+        operation: "wave68.qrPay.pay",
+        requestBody: input,
+        execute: async () => {
+          const db = (await getDb())!;
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+          const { consumerPins } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
 
-      // Verify PIN
-      const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
-      if (!pinRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "Please set your transaction PIN first" });
-      if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
-        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
-      }
-      const pinOk = await verifyPin(input.pin, pinRecord.pinHash);
-      if (!pinOk) {
-        const fails = pinRecord.failedAttempts + 1;
-        const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
-        await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect PIN" });
-      }
-      await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
+          // Verify PIN
+          const [pinRecord] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+          if (!pinRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "Please set your transaction PIN first" });
+          if (pinRecord.lockedUntil && pinRecord.lockedUntil > new Date()) {
+            throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
+          }
+          const pinOk = await verifyPin(input.pin, pinRecord.pinHash);
+          if (!pinOk) {
+            const fails = pinRecord.failedAttempts + 1;
+            const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+            await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect PIN" });
+          }
+          await db.update(consumerPins).set({ failedAttempts: 0, lockedUntil: null }).where(eq(consumerPins.userId, user.id));
 
-      // Validate QR
-      if (!input.qrId.startsWith("qr_")) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Invalid QR code" });
-      }
+          // Validate QR
+          if (!input.qrId.startsWith("qr_")) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Invalid QR code" });
+          }
 
-      // Debit consumer wallet
-      const wallet = await getConsumerWallet(user.id, input.currency);
-      if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found. Please top up first." });
-      const ref = nanoid("qrpay_");
-      const newBalance = await debitWallet(
-        wallet.id, user.id, input.amountKobo, input.currency,
-        "qr_pay", `QR Payment to merchant`, ref, "PayGate Merchant", input.qrId,
-      );
+          // Debit consumer wallet
+          const wallet = await getConsumerWallet(user.id, input.currency);
+          if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found. Please top up first." });
 
-      // Earn loyalty points for QR payments
-      await earnPoints(user.id, input.amountKobo, "QR payment", ref).catch(() => {});
+          // Idempotency: deterministic reference + ledger-level dedupe as a
+          // second layer behind withIdempotency (a retry can never double-charge).
+          const ref = `qrpay_idem_${input.idempotencyKey}`;
+          const existing = await findExistingWalletTxn(wallet.id, ref);
+          if (existing) {
+            return { success: true, reference: ref, newBalanceKobo: existing.balanceAfterKobo, deduplicated: true };
+          }
 
-      return { success: true, reference: ref, newBalanceKobo: newBalance };
+          const newBalance = await debitWallet(
+            wallet.id, user.id, input.amountKobo, input.currency,
+            "qr_pay", `QR Payment to merchant`, ref, "PayGate Merchant", input.qrId,
+          );
+
+          // Earn loyalty points for QR payments (non-critical; failure is logged, never swallowed)
+          await earnPoints(user.id, input.amountKobo, "QR payment", ref)
+            .catch((e) => logger.error("[wave68.qrPay] earnPoints failed", e));
+
+          return { success: true, reference: ref, newBalanceKobo: newBalance };
+        },
+      });
     }),
 });
 
@@ -678,34 +808,59 @@ export const loyaltyRouter = router({
       // Try middleware bridge first
       if (isBridgeAvailable()) {
         const result = await redeemCashbackViaMiddleware(String(user.id), input.points / 100, String(input.merchantId ?? user.id));
-        if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
+        if (result && result.success) {
+          return { success: true, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
+        }
+        if (!result) {
+          // S15b: safe() swallows timeouts/errors — a null result after an
+          // ATTEMPTED redeem is AMBIGUOUS (the bridge may have credited).
+          // Falling through to the DB redeem here double-pays. Fail loud and
+          // honestly; the client may retry (the bridge side is idempotent on
+          // its own redemption reference).
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "Redemption result unknown — the payment rail timed out or errored after the request was sent. Do NOT assume failure; retry to reconcile.",
+          });
+        }
+        // result.success === false → the bridge DEFINITIVELY rejected the
+        // redemption; the local DB redeem path below is the fallback rail.
       }
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerLoyaltyAccounts, consumerLoyaltyTxns } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-      const [acct] = await db.select().from(consumerLoyaltyAccounts)
-        .where(eq(consumerLoyaltyAccounts.userId, user.id)).limit(1);
-      if (!acct || acct.pointsBalance < input.points) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient loyalty points" });
-      }
+      const { eq, and, sql } = await import("drizzle-orm");
       // 100 points = ₦1 = 100 kobo
       const amountKobo = input.points;
-      const newBalance = acct.pointsBalance - input.points;
-      await db.update(consumerLoyaltyAccounts)
-        .set({ pointsBalance: newBalance, updatedAt: new Date() })
-        .where(eq(consumerLoyaltyAccounts.userId, user.id));
-      await db.insert(consumerLoyaltyTxns).values({
-        id: nanoid("lt_"),
-        userId: user.id,
-        type: "redeem",
-        points: -input.points,
-        description: `Redeemed ${input.points} points for ₦${(amountKobo / 100).toFixed(2)}`,
-      });
-      // Credit wallet
       const ref = nanoid("loy_");
-      await creditWallet(user.id, amountKobo, input.currency, "topup",
-        `Loyalty points redemption (${input.points} pts)`, ref);
+      // Guarded relative decrement (no stale-read absolute write → no negative
+      // balance race) + loyalty ledger + wallet credit in ONE transaction.
+      const newBalance = await db.transaction(async (tx: Tx) => {
+        const [updated] = await tx.update(consumerLoyaltyAccounts)
+          .set({
+            pointsBalance: sql`${consumerLoyaltyAccounts.pointsBalance} - ${input.points}`,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(consumerLoyaltyAccounts.userId, user.id),
+            sql`${consumerLoyaltyAccounts.pointsBalance} >= ${input.points}`,
+          ))
+          .returning();
+        if (!updated) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient loyalty points" });
+        }
+        await tx.insert(consumerLoyaltyTxns).values({
+          id: nanoid("lt_"),
+          userId: user.id,
+          type: "redeem",
+          points: -input.points,
+          description: `Redeemed ${input.points} points for ₦${(amountKobo / 100).toFixed(2)}`,
+          referenceId: ref,
+        });
+        // Credit wallet within the same transaction
+        await creditWalletIn(tx, user.id, amountKobo, input.currency, "topup",
+          `Loyalty points redemption (${input.points} pts)`, ref);
+        return updated.pointsBalance;
+      });
       return { success: true, amountCreditedKobo: amountKobo, newPointsBalance: newBalance };
     }),
 });
@@ -776,25 +931,53 @@ export const couponsRouter = router({
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { coupons, couponRedemptions } = await import("../drizzle/schema");
-      const { eq, sql } = await import("drizzle-orm");
-      const [coupon] = await db.select().from(coupons).where(eq(coupons.id, input.couponId)).limit(1);
-      if (!coupon || !coupon.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "Coupon not found" });
-      let discountKobo = 0;
-      if (coupon.type === "percent") discountKobo = Math.floor(input.amountKobo * coupon.value / 100);
-      else if (coupon.type === "fixed") discountKobo = coupon.value;
-      else if (coupon.type === "free_transfer") discountKobo = input.amountKobo;
-      if (coupon.maxDiscountKobo) discountKobo = Math.min(discountKobo, coupon.maxDiscountKobo);
-      discountKobo = Math.min(discountKobo, input.amountKobo);
-      await db.insert(couponRedemptions).values({
-        id: nanoid("cr_"),
-        couponId: coupon.id,
-        userId: user.id,
-        amountSavedKobo: discountKobo,
-        referenceId: input.referenceId ?? null,
+      const { eq, and, gte, lte, sql, count: countFn } = await import("drizzle-orm");
+      const now = new Date();
+      // All enforcement happens INSIDE redeem (validate is only a pre-flight
+      // hint) and the redemption row + usage increment are ONE transaction.
+      const discountKobo = await db.transaction(async (tx: Tx) => {
+        // Active + validity-window check under the transaction.
+        const [coupon] = await tx.select().from(coupons)
+          .where(and(
+            eq(coupons.id, input.couponId),
+            eq(coupons.isActive, true),
+            lte(coupons.validFrom, now),
+            gte(coupons.validUntil, now),
+          )).limit(1);
+        if (!coupon) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid or expired coupon" });
+        // Per-user redemption limit, checked under the transaction.
+        const [userUsage] = await tx.select({ count: countFn() }).from(couponRedemptions)
+          .where(and(eq(couponRedemptions.couponId, coupon.id), eq(couponRedemptions.userId, user.id)));
+        if ((userUsage?.count ?? 0) >= coupon.perUserLimit) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "You have already used this coupon" });
+        }
+        // Guarded global increment: WHERE usage_count < usage_limit — a
+        // concurrent redeemer that would exceed the limit gets zero rows.
+        const [bumped] = await tx.update(coupons)
+          .set({ usageCount: sql`${coupons.usageCount} + 1` })
+          .where(and(
+            eq(coupons.id, coupon.id),
+            sql`(${coupons.usageLimit} IS NULL OR ${coupons.usageCount} < ${coupons.usageLimit})`,
+          ))
+          .returning();
+        if (!bumped) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Coupon usage limit reached" });
+        }
+        let discountKobo = 0;
+        if (coupon.type === "percent") discountKobo = Math.floor(input.amountKobo * coupon.value / 100);
+        else if (coupon.type === "fixed") discountKobo = coupon.value;
+        else if (coupon.type === "free_transfer") discountKobo = input.amountKobo;
+        if (coupon.maxDiscountKobo) discountKobo = Math.min(discountKobo, coupon.maxDiscountKobo);
+        discountKobo = Math.min(discountKobo, input.amountKobo);
+        await tx.insert(couponRedemptions).values({
+          id: nanoid("cr_"),
+          couponId: coupon.id,
+          userId: user.id,
+          amountSavedKobo: discountKobo,
+          referenceId: input.referenceId ?? null,
+        });
+        return discountKobo;
       });
-      await db.update(coupons)
-        .set({ usageCount: sql`${coupons.usageCount} + 1` })
-        .where(eq(coupons.id, coupon.id));
       return { success: true, discountKobo };
     }),
 
@@ -852,50 +1035,13 @@ export const consumerCardRouter = router({
         });
         if (result) return result;
       }
-      const db = (await getDb())!;
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const { consumerCards, consumerKycRecords } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-
-      // KYC check
-      const [kyc] = await db.select().from(consumerKycRecords).where(eq(consumerKycRecords.userId, user.id)).limit(1);
-      if (!kyc || kyc.status !== "approved") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "KYC verification required before issuing a virtual card" });
-      }
-
-      // Check existing active cards
-      const existing = await db.select().from(consumerCards).where(eq(consumerCards.userId, user.id));
-      if (existing.filter(c => c.isActive).length >= 3) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Maximum of 3 active virtual cards allowed" });
-      }
-
-      // Get wallet
-      const wallet = await getConsumerWallet(user.id, input.currency);
-      if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "Please create a wallet first" });
-
-      // Generate card details (in production, this would call a card issuer API like Sudo Africa or Union54)
-      const cardNumber = Array.from({ length: 16 }, (_, i) =>
-        i === 0 ? (input.cardBrand === "visa" ? "4" : "5") : Math.floor(Math.random() * 10).toString()
-      ).join("");
-      const maskedPan = cardNumber.slice(0, 4) + " **** **** " + cardNumber.slice(-4);
-      const now = new Date();
-      const expiryYear = String(now.getFullYear() + 3).slice(-2);
-      const expiryMonth = String(now.getMonth() + 1).padStart(2, "0");
-
-      const [card] = await db.insert(consumerCards).values({
-        id: nanoid("cc_"),
-        userId: user.id,
-        walletId: wallet.id,
-        maskedPan,
-        cardBrand: input.cardBrand,
-        expiryMonth,
-        expiryYear,
-        cardholderName: (user.name ?? "PAYGATE USER").toUpperCase(),
-        spendingLimitKobo: input.spendingLimitKobo ?? null,
-        isActive: true,
-        isFrozen: false,
-      }).returning();
-      return card;
+      // FAIL LOUD — a virtual card MUST be issued by a real card issuer via the
+      // middleware bridge. Never generate a random PAN locally and store it as
+      // an active card: the number exists nowhere at any issuer.
+      throw new TRPCError({
+        code: "SERVICE_UNAVAILABLE",
+        message: "Virtual card issuance is temporarily unavailable (card issuer unreachable). Please try again later.",
+      });
     }),
 
   freeze: protectedProcedure
@@ -1043,8 +1189,7 @@ export const splitBillConsumerRouter = router({
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
       const [session] = await db.insert(consumerSplitSessions).values({
         id: sessionId,
-        initiatorId: String(user.id),
-        creatorId: Number(user.id) || null,
+        creatorId: Number(user.id),
         title: input.title,
         totalAmountKobo: input.totalAmountKobo,
         currency: input.currency,
@@ -1096,6 +1241,7 @@ export const splitBillConsumerRouter = router({
       sessionId: z.string(),
       participantId: z.string(),
       pin: z.string().length(4),
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1126,27 +1272,47 @@ export const splitBillConsumerRouter = router({
       // Debit payer wallet
       const wallet = await getConsumerWallet(user.id, session.currency);
       if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "No wallet found" });
-      const ref = nanoid("split_");
-      await debitWallet(wallet.id, user.id, participant.shareAmountKobo, session.currency,
-        "p2p_send", `Split bill: ${session.title}`, ref);
 
-      // Credit session creator
-      await creditWallet(session.creatorId!, participant.shareAmountKobo, session.currency,
-        "p2p_receive", `Split bill payment: ${session.title}`, ref, user.name ?? undefined);
-
-      // Mark participant as paid
-      await db.update(consumerSplitParticipants)
-        .set({ status: "paid", paidAt: new Date(), walletTxnId: ref, userId: user.id } as any)
-        .where(eq(consumerSplitParticipants.id, input.participantId as any));
-
-      // Check if all paid → settle session
-      const allParticipants = await db.select().from(consumerSplitParticipants)
-        .where(eq(consumerSplitParticipants.sessionId, input.sessionId as any));
-      if (allParticipants.every(p => p.status === "paid" || String(p.id) === String(input.participantId))) {
-        await db.update(consumerSplitSessions)
-          .set({ status: "settled" } as any)
-          .where(eq(consumerSplitSessions.id, String(input.sessionId)));
+      // Idempotency: a client retry with the same key returns the original result
+      // instead of double-paying the share.
+      const ref = input.idempotencyKey ? `split_idem_${input.idempotencyKey}` : nanoid("split_");
+      if (input.idempotencyKey) {
+        const existing = await findExistingWalletTxn(wallet.id, ref);
+        if (existing) {
+          return { success: true, reference: ref, deduplicated: true };
+        }
       }
+
+      // Guarded status flip FIRST (only the first payer flips pending → paid),
+      // then both wallet movements + ledger rows + session settlement — all in
+      // ONE transaction. Any failure rolls everything back.
+      await db.transaction(async (tx: Tx) => {
+        const [claimed] = await tx.update(consumerSplitParticipants)
+          .set({ status: "paid", paidAt: new Date(), walletTxnId: ref, userId: user.id } as any)
+          .where(and(
+            eq(consumerSplitParticipants.id, input.participantId as any),
+            eq(consumerSplitParticipants.sessionId, input.sessionId as any),
+            eq(consumerSplitParticipants.status, "pending"),
+          ))
+          .returning();
+        if (!claimed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Share is no longer pending" });
+        }
+
+        await debitWalletIn(tx, wallet.id, user.id, participant.shareAmountKobo, session.currency,
+          "p2p_send", `Split bill: ${session.title}`, ref);
+        await creditWalletIn(tx, session.creatorId!, participant.shareAmountKobo, session.currency,
+          "p2p_receive", `Split bill payment: ${session.title}`, ref, user.name ?? undefined);
+
+        // Check if all paid → settle session (within the same transaction)
+        const allParticipants = await tx.select().from(consumerSplitParticipants)
+          .where(eq(consumerSplitParticipants.sessionId, input.sessionId as any));
+        if (allParticipants.every((p: any) => p.status === "paid")) {
+          await tx.update(consumerSplitSessions)
+            .set({ status: "settled" } as any)
+            .where(eq(consumerSplitSessions.id, String(input.sessionId)));
+        }
+      });
       return { success: true, reference: ref };
     }),
 });
@@ -1154,20 +1320,42 @@ export const splitBillConsumerRouter = router({
 // ─── 9. Consumer PIN Router ───────────────────────────────────────────────────
 export const consumerPinRouter = router({
   set: protectedProcedure
-    .input(z.object({ pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits") }))
+    .input(z.object({
+      pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits"),
+      // Required when a PIN already exists (PIN change) — knowledge of the old
+      // PIN is the only proof of possession before overwriting the credential.
+      currentPin: z.string().regex(/^\d{4}$/, "Current PIN must be exactly 4 digits").optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPins } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
-      const pinHash = await hashPin(input.pin);
-      const existing = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
-      if (existing.length > 0) {
+      const [existing] = await db.select().from(consumerPins).where(eq(consumerPins.userId, user.id)).limit(1);
+      if (existing) {
+        // ATO guard: changing an existing PIN requires verifying the current
+        // PIN first, with the same 5-attempt/15-min lockout semantics as
+        // consumerPin.verify. Lockout counters are NOT cleared by a change.
+        if (existing.lockedUntil && existing.lockedUntil > new Date()) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "PIN locked. Try again later." });
+        }
+        if (!input.currentPin) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Current PIN is required to change your PIN" });
+        }
+        const ok = await verifyPin(input.currentPin, existing.pinHash);
+        if (!ok) {
+          const fails = existing.failedAttempts + 1;
+          const lockedUntil = fails >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+          await db.update(consumerPins).set({ failedAttempts: fails, lockedUntil }).where(eq(consumerPins.userId, user.id));
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect current PIN" });
+        }
+        const pinHash = await hashPin(input.pin);
         await db.update(consumerPins)
-          .set({ pinHash, failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+          .set({ pinHash, updatedAt: new Date() })
           .where(eq(consumerPins.userId, user.id));
       } else {
+        const pinHash = await hashPin(input.pin);
         await db.insert(consumerPins).values({ userId: user.id, pinHash, failedAttempts: 0 });
       }
       return { success: true };
@@ -1300,7 +1488,8 @@ export const consumerOtpRouter = router({
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many OTP requests. Please wait 10 minutes." });
       }
 
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      // Cryptographically secure 6-digit OTP (never Math.random for auth codes)
+      const otp = randomInt(100000, 1000000).toString();
       const otpHash = await bcrypt.hash(otp, 10);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -1381,7 +1570,7 @@ export const consumerStripeTopUpRouter = router({
       if (!stripeKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stripe not configured" });
 
       const Stripe = (await import("stripe")).default;
-      const stripe = new Stripe(stripeKey, { apiVersion: "2026-02-25.clover" });
+      const stripe = new Stripe(stripeKey, { apiVersion: "2026-07-29.dahlia" });
 
       // Stripe works in smallest currency unit. NGN is not supported by Stripe,
       // so we charge in USD equivalent (1 USD ≈ 1600 NGN) for international testing.
@@ -1409,6 +1598,12 @@ export const consumerStripeTopUpRouter = router({
           amount_kobo: String(input.amountKobo),
           currency: input.currency,
           type: "consumer_wallet_topup",
+          // R4 S16: the Stripe charge above is a USD CONVERSION of the NGN
+          // amount (Stripe cannot charge NGN). This is the wallet-truth NGN
+          // kobo amount — the webhook (server/stripe.ts) credits it in NGN and
+          // the consumerWallet.topUp claim (server/routers.ts) matches claims
+          // against it, keeping exact-match strictness on the NGN value.
+          ngn_amount_kobo: String(input.amountKobo),
         },
         client_reference_id: String(user.id),
         success_url: `${input.origin}/consumer?topup=success&amount=${input.amountKobo}`,

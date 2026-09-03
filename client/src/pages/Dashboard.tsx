@@ -1,7 +1,4 @@
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { ResponsiveGridLayout as RGL, useContainerWidth } from "react-grid-layout";
-import "react-grid-layout/css/styles.css";
-import "react-resizable/css/styles.css";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
@@ -26,26 +23,6 @@ import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransac
 import { usePWA } from "@/hooks/usePWA";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ResponsiveGridLayout = RGL as any;
-
-// Hook to measure grid container width for ResponsiveGridLayout v2
-function useGridWidth() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(1200);
-  useEffect(() => {
-    if (!ref.current) return;
-    const obs = new ResizeObserver(entries => {
-      const w = entries[0]?.contentRect.width;
-      if (w) setWidth(w);
-    });
-    obs.observe(ref.current);
-    setWidth(ref.current.offsetWidth);
-    return () => obs.disconnect();
-  }, []);
-  return { ref, width };
-}
-
 // ─── Default widget layout ────────────────────────────────────────────────────
 const DEFAULT_LAYOUTS = {
   lg: [
@@ -635,28 +612,10 @@ interface GridContainerProps {
   handleLayoutChange: (layout: any, allLayouts: any) => void;
   children: React.ReactNode;
 }
-function GridContainer({ layouts, isCustomizing, handleLayoutChange, children }: GridContainerProps) {
-  const { ref, width } = useGridWidth();
-  return (
-    <div ref={ref} className="w-full">
-      <ResponsiveGridLayout
-        className="layout"
-        layouts={layouts}
-        onLayoutChange={handleLayoutChange}
-        breakpoints={{ lg: 1100, md: 800, sm: 600, xs: 480, xxs: 0 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-        rowHeight={60}
-        width={width}
-        isDraggable={isCustomizing}
-        isResizable={isCustomizing}
-        margin={[16, 16]}
-        containerPadding={[0, 0]}
-        draggableHandle=".widget-drag-handle"
-      >
-        {children}
-      </ResponsiveGridLayout>
-    </div>
-  );
+function GridContainer({ children }: GridContainerProps) {
+  // react-grid-layout is not available in this build; render widgets in a
+  // simple responsive stack instead of a draggable grid.
+  return <div className="w-full grid grid-cols-1 gap-4">{children}</div>;
 }
 
 export default function Dashboard() {
@@ -752,14 +711,14 @@ export default function Dashboard() {
     onError: () => toast.error("NIP bank sync failed"),
   });
 
-  const totalCount    = Number(overview?.transactions?.totalCount ?? 0);
-  const completedCount = Number(overview?.transactions?.completedCount ?? 0);
-  const failedCount   = Number(overview?.transactions?.failedCount ?? 0);
+  const totalCount    = Number(overview?.totalTransactions ?? 0);
+  const completedCount = Number(overview?.successCount ?? 0);
+  const failedCount   = Number(overview?.failedCount ?? 0);
   const successRate   = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-  const totalVolume   = Number(overview?.transactions?.totalVolume ?? 0);
-   const totalPayouts  = Number(overview?.payouts?.totalPayouts ?? 0);
-  const customerCount = Number(overview?.customers?.customerCount ?? 0);
-  const disputeCount  = Number(overview?.disputes?.disputeCount ?? 0);
+  const totalVolume   = Number(overview?.totalVolume ?? 0);
+   const totalPayouts  = Number(overview?.pendingPayouts ?? 0);
+  const customerCount = Number(overview?.activeCustomers ?? 0);
+  const disputeCount  = Number(overview?.openDisputes ?? 0);
 
   // ─── Drag-and-drop grid state ───────────────────────────────────────────────
   const [isCustomizing, setIsCustomizing] = useState(false);
@@ -932,7 +891,7 @@ export default function Dashboard() {
           {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 h-full">
             <KPICard title="Total Revenue"  value={fmt(totalVolume)}          sub={`${totalCount.toLocaleString()} txns`}      icon={DollarSign}    trend="+12.5%" up={true}              loading={isLoading} accentColor="indigo" />
-            <KPICard title="Net Payouts"    value={fmt(totalPayouts)}          sub={`${overview?.payouts?.payoutCount ?? 0} payouts`} icon={ArrowLeftRight} trend="+8.3%"  up={true}          loading={isLoading} accentColor="emerald" />
+            <KPICard title="Net Payouts"    value={fmt(totalPayouts)}          sub={`${fmt(overview?.pendingPayouts ?? 0)} pending`} icon={ArrowLeftRight} trend="+8.3%"  up={true}          loading={isLoading} accentColor="emerald" />
             <KPICard title="Success Rate"   value={`${successRate}%`}          sub={`${failedCount} failed`}                    icon={TrendingUp}    trend={successRate >= 90 ? "+0.4%" : "-1.2%"} up={successRate >= 90} loading={isLoading} accentColor="amber" />
             <KPICard title="Customers"      value={customerCount.toLocaleString()} sub={`${disputeCount} open disputes`}        icon={Users}         trend="+9.2%"  up={true}              loading={isLoading} accentColor="blue" />
           </div>
