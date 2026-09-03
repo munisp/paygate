@@ -248,6 +248,17 @@ import { apVendorCardsRouter } from './routers/apVendorCards';
 import { apAssistantRouter } from './routers/apAssistant';
 import { syndicationApRouter } from './routers/syndicationAp';
 import { alertSubscriptionsRouter } from './routers/alertSubscriptions';
+// Paystack-parity wave (F-PARITY): REST v1 support, tokenization, refunds, splits, mandates, wallets, requests, recipients, DVA, risk, subscription extras
+import { cardTokenizationRouter } from './routers/cardTokenization';
+import { refundsRouter } from './routers/refunds';
+import { splitEngineRouter } from './routers/splitPayments';
+import { directDebitRouter } from './routers/directDebit';
+import { walletPayRouter } from './routers/walletPay';
+import { paymentRequestsRouter } from './routers/paymentRequests';
+import { transferRecipientsRouter } from './routers/transferRecipients';
+import { dedicatedAccountsRouter } from './routers/dedicatedAccounts';
+import { customerRiskRouter } from './routers/customerRisk';
+import { subscriptionExtrasRouter } from './routers/subscriptionExtras';
 import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -10897,6 +10908,17 @@ export const appRouter = router({
   apAssistant: apAssistantRouter,
   syndicationAp: syndicationApRouter,
   alertSubscriptions: alertSubscriptionsRouter,
+  // Paystack-parity wave
+  cardTokenization: cardTokenizationRouter,
+  refunds: refundsRouter,
+  splitEngine: splitEngineRouter,
+  directDebit: directDebitRouter,
+  walletPay: walletPayRouter,
+  paymentRequests: paymentRequestsRouter,
+  transferRecipients: transferRecipientsRouter,
+  dva: dedicatedAccountsRouter,
+  customerRisk: customerRiskRouter,
+  subscriptionExtras: subscriptionExtrasRouter,
   // Wave 228 — PDF Export, Cashback/Rewards, API Docs
   pdfExport: pdfExportRouter,
   cashbackRewards: cashbackRewardsRouter,

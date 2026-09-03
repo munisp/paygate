@@ -499,6 +499,12 @@ export const hostedCheckoutRouter = router({
       }
       const totalChargeKobo = baseAmountKobo + feeKobo;
 
+      // F-PARITY: enforce customer risk action — denied customers cannot initiate charges
+      if (input.customerEmail) {
+        const { assertCustomerNotDenied } = await import("./customerRisk");
+        await assertCustomerNotDenied(merchantId, input.customerEmail);
+      }
+
       // Base session data
       const sessionData: Partial<typeof hostedPaymentSessions.$inferInsert> = {
         paymentLinkId: input.paymentLinkId,
@@ -770,6 +776,37 @@ export const hostedCheckoutRouter = router({
         tigerBeetleTransferId: tbId?.toString(),
         temporalWorkflowId: workflowId,
       });
+
+      // F-PARITY: post-completion hooks (non-blocking; failures logged loudly,
+      // never swallowed silently — surfaced for ops reconciliation)
+      const parityMeta = ((session.metadata as Record<string, string> | null) ?? {});
+      if (parityMeta.split_code) {
+        import("./splitPayments").then(({ recordSplitSettlement }) =>
+          recordSplitSettlement({
+            merchantId: session.merchantId,
+            splitCode: parityMeta.split_code!,
+            reference: session.reference,
+            amountKobo: Number(session.amountKobo),
+          })
+        ).catch((e) => logger.error("[hostedCheckout] split settlement failed", { sessionId: session.id, splitCode: parityMeta.split_code, error: e instanceof Error ? e.message : String(e) }));
+      }
+      if (session.paymentMethod === "card" && parityMeta.pan_fingerprint && session.customerEmail) {
+        import("./cardTokenization").then(({ recordAuthorizationFromCharge }) =>
+          recordAuthorizationFromCharge({
+            merchantId: session.merchantId,
+            customerEmail: session.customerEmail!,
+            panFingerprint: parityMeta.pan_fingerprint,
+            bin: parityMeta.card_bin,
+            last4: parityMeta.card_last4,
+            brand: parityMeta.card_brand,
+            cardType: parityMeta.card_type,
+            bank: parityMeta.card_bank,
+            expMonth: parityMeta.card_exp_month,
+            expYear: parityMeta.card_exp_year,
+            channel: "card",
+          })
+        ).catch((e) => logger.error("[hostedCheckout] card authorization tokenization failed", { sessionId: session.id, error: e instanceof Error ? e.message : String(e) }));
+      }
 
       // Send receipt email (fire-and-forget)
       if (session.customerEmail) {
