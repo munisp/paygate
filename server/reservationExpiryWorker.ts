@@ -34,8 +34,10 @@ export function startReservationExpiryWorker(): void {
 
       // Find completed transactions created before the cutoff that still have
       // an active inventory reservation (status not yet "released" or "expired").
+      // L4: select transactions.amount — metadata.amount is not a real field,
+      // which produced "₦NaN" in expiry notifications.
       const rows = await db
-        .select({ id: transactions.id, metadata: transactions.metadata })
+        .select({ id: transactions.id, amount: transactions.amount, metadata: transactions.metadata })
         .from(transactions)
         .where(
           and(
@@ -64,7 +66,11 @@ export function startReservationExpiryWorker(): void {
         expired.map(async (row) => {
           const meta = (row.metadata ?? {}) as Record<string, any>;
           const reservationId = meta.inventoryReservationId as string;
-          const amountKobo = (meta.amount ?? 0) as number;
+          // L4: use the real transaction amount (kobo bigint); fall back to
+          // metadata only when the column is somehow absent.
+          const amountKobo = Number.isFinite(Number((row as any).amount))
+            ? Number((row as any).amount)
+            : Number(meta.amount ?? 0);
           const amountNaira = (amountKobo / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
 
           // 1. CLAIM atomically: guarded status flip (active → expiring).
