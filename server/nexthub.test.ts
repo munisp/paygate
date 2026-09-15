@@ -46,6 +46,30 @@ beforeAll(async () => {
   const db = await getDb();
   adminCtx.db = db;
   anonCtx.db = db;
+  // C14: pbacProcedure now resolves the caller's merchant-team role from the
+  // DB (never the global users.role). Seed the test user + an owned merchant
+  // (compat path → role "owner") so PBAC can resolve. Idempotent.
+  if (db) {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO users (open_id, name, email, role)
+      VALUES ('test-admin-001', 'Test Admin', 'admin@nexthub.test', 'admin')
+      ON CONFLICT (open_id) DO NOTHING
+    `);
+    await db.execute(sql`
+      INSERT INTO tenants (id, name, slug, email)
+      VALUES ('ten_default', 'Default Tenant', 'default', 'default@nexthub.test')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    const tenantRows: any = await db.execute(sql`SELECT id FROM tenants LIMIT 1`);
+    const tenantId = (tenantRows?.rows ?? tenantRows)?.[0]?.id ?? "ten_default";
+    await db.execute(sql`
+      INSERT INTO merchants (id, business_name, owner_id, tenant_id)
+      SELECT 'test-merchant-nexthub', 'Nexthub Test Merchant', u.id, ${tenantId}
+      FROM users u WHERE u.open_id = 'test-admin-001'
+      ON CONFLICT (id) DO NOTHING
+    `);
+  }
 });
 
 // ── nexthubSettlement ─────────────────────────────────────────────────────────

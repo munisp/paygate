@@ -1792,14 +1792,24 @@ export const subscriptionsRouter = router({
       return row;
     }),
 
-  stats: protectedProcedure.query(async () => {
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    // H22: platform admins see global stats; every other caller is hard-scoped
+    // to their OWN merchant so MRR/subscriber counts never leak cross-tenant.
+    const [caller] = await db.select({ role: schema.users.role }).from(schema.users)
+      .where(eq(schema.users.openId, ctx.user.openId)).limit(1);
+    const conditions: any[] = [];
+    if (caller?.role !== "admin") {
+      const merchant = await resolveCtxMerchant(ctx.user.openId);
+      conditions.push(eq(schema.subscriptions.merchantId, merchant.id));
+    }
     const [stats] = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`count(*) filter (where status = 'active')`,
       paused: sql<number>`count(*) filter (where status = 'paused')`,
       cancelled: sql<number>`count(*) filter (where status = 'cancelled')`,
       mrrKobo: sql<number>`coalesce(sum(amount_kobo) filter (where status = 'active' and interval = 'monthly'), 0)`,
-    }).from(schema.subscriptions);
+    }).from(schema.subscriptions)
+      .where(conditions.length ? and(...conditions) : undefined);
     return stats;
   }),
 });

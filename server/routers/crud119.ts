@@ -871,17 +871,20 @@ export const cashbackRouter = router({
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const merchantId = await resolveMerchantId(ctx.user.openId);
-    // Idempotent replay: a retried redemption returns the original record
-    // instead of debiting twice.
-    const [existing] = await db.select().from(cashbackTransactions).where(and(
-      eq((cashbackTransactions as any).merchantId, merchantId),
-      eq((cashbackTransactions as any).relatedTransactionId, input.idempotencyKey),
-      eq((cashbackTransactions as any).type, "redemption"),
-    ));
-    if (existing) return existing;
-    // Debit + ledger insert in ONE transaction: a failed insert must roll
-    // back the balance debit (the pre-check above stays as defense-in-depth).
+    // M6: debit + ledger insert in ONE transaction, with the idempotent-replay
+    // check INSIDE the transaction and ON CONFLICT DO NOTHING on
+    // (merchant_id, related_transaction_id, type) — a concurrent or retried
+    // redemption hits the unique index (migration 0104) and returns the
+    // existing record instead of debiting twice.
     return db.transaction(async (tx) => {
+      // Replay pre-check INSIDE the transaction (was outside — a race window
+      // between the check and the debit allowed a double debit).
+      const [existing] = await tx.select().from(cashbackTransactions).where(and(
+        eq((cashbackTransactions as any).merchantId, merchantId),
+        eq((cashbackTransactions as any).relatedTransactionId, input.idempotencyKey),
+        eq((cashbackTransactions as any).type, "redemption"),
+      ));
+      if (existing) return existing;
       // Atomic guarded debit: the balance check and the decrement are a single
       // UPDATE, so concurrent redemptions cannot overdraw (no check-then-act).
       const [debited] = await tx.update(cashbackBalances).set({
@@ -895,7 +898,7 @@ export const cashbackRouter = router({
       if (!debited) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient cashback balance" });
       }
-      const [row] = await tx.insert(cashbackTransactions).values({
+      const inserted = await tx.insert(cashbackTransactions).values({
         merchantId,
         type: "redemption",
         amountKobo: input.amountKobo,
@@ -903,8 +906,30 @@ export const cashbackRouter = router({
         relatedTransactionId: input.idempotencyKey,
         status: "completed",
         createdAt: new Date(),
-      } as any).returning();
-      return row;
+      } as any).onConflictDoNothing({
+        target: [
+          (cashbackTransactions as any).merchantId,
+          (cashbackTransactions as any).relatedTransactionId,
+          (cashbackTransactions as any).type,
+        ],
+      }).returning();
+      if (inserted.length === 0) {
+        // Unique-index conflict = a concurrent request already recorded this
+        // redemption: idempotent replay — undo our debit and return the
+        // existing record.
+        await tx.update(cashbackBalances).set({
+          cashbackBalanceKobo: sql`${(cashbackBalances as any).cashbackBalanceKobo} + ${input.amountKobo}`,
+          totalRedeemedKobo: sql`${(cashbackBalances as any).totalRedeemedKobo} - ${input.amountKobo}`,
+          updatedAt: new Date(),
+        } as any).where(eq((cashbackBalances as any).merchantId, merchantId));
+        const [winner] = await tx.select().from(cashbackTransactions).where(and(
+          eq((cashbackTransactions as any).merchantId, merchantId),
+          eq((cashbackTransactions as any).relatedTransactionId, input.idempotencyKey),
+          eq((cashbackTransactions as any).type, "redemption"),
+        ));
+        return winner;
+      }
+      return inserted[0];
     });
   }) as any,
 });
@@ -1791,7 +1816,15 @@ export const merchantProfilesRouter = router({
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const merchantId = await resolveMerchantId(ctx.user.openId);
-    return db.select().from(merchantDirectors).where(eq((merchantDirectors as any).merchantId, merchantId));
+    const rows = await db.select().from(merchantDirectors).where(eq((merchantDirectors as any).merchantId, merchantId));
+    // L6: BVN/NIN are highly sensitive identity numbers — never return them in
+    // full on read paths. Mask to the last 3 digits (write path unchanged).
+    const maskId = (v: unknown) => {
+      const s = typeof v === "string" ? v : "";
+      if (!s) return s;
+      return s.length <= 3 ? "***" : `***${s.slice(-3)}`;
+    };
+    return rows.map((r: any) => ({ ...r, bvn: maskId(r.bvn), nin: maskId(r.nin) }));
   }),
   addDirector: protectedProcedure.input(z.object({
     fullName: z.string(),

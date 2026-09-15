@@ -286,7 +286,15 @@ async function issueOtpChallenge(db: any, merchantId: string, purpose: string): 
   return { challengeId: id };
 }
 
-/** Constant-time OTP verification against the latest unconsumed challenge. */
+/** H23: after this many failed attempts a challenge is locked (treated as consumed). */
+export const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * Constant-time OTP verification against the latest unconsumed challenge.
+ * H23 brute-force hardening: every failed attempt increments `attempts`;
+ * at MAX_OTP_ATTEMPTS the challenge is locked (consumed) and a fresh OTP
+ * must be requested. Hashes are HMAC-SHA256 (see hashOtp).
+ */
 async function verifyOtpChallenge(db: any, merchantId: string, purpose: string, otp: string): Promise<void> {
   const res = await db.execute(sql`
     SELECT * FROM merchant_transfer_otp_challenges
@@ -295,8 +303,33 @@ async function verifyOtpChallenge(db: any, merchantId: string, purpose: string, 
     ORDER BY created_at DESC LIMIT 1
   `);
   const challenge = rowsOf(res)[0];
-  if (!challenge || !safeEqual(hashOtp(otp), challenge.code_hash)) {
+  if (!challenge) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid or expired OTP" });
+  }
+  const attempts = Number(challenge.attempts ?? 0);
+  if (attempts >= MAX_OTP_ATTEMPTS) {
+    // Defensive: a challenge at the cap should already be consumed — lock it now.
+    await db.execute(sql`
+      UPDATE merchant_transfer_otp_challenges SET consumed = true WHERE id = ${challenge.id}
+    `);
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "OTP challenge locked after too many failed attempts — request a new OTP",
+    });
+  }
+  if (!safeEqual(hashOtp(otp), challenge.code_hash)) {
+    const next = attempts + 1;
+    await db.execute(sql`
+      UPDATE merchant_transfer_otp_challenges
+      SET attempts = ${next}, consumed = ${next >= MAX_OTP_ATTEMPTS}
+      WHERE id = ${challenge.id}
+    `);
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: next >= MAX_OTP_ATTEMPTS
+        ? "OTP challenge locked after too many failed attempts — request a new OTP"
+        : "Invalid or expired OTP",
+    });
   }
   await db.execute(sql`
     UPDATE merchant_transfer_otp_challenges SET consumed = true WHERE id = ${challenge.id}

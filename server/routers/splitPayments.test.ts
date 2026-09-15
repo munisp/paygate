@@ -233,6 +233,93 @@ describe('applySplit math', () => {
   });
 });
 
+describe('C4 money-mint fix + conservation invariant', () => {
+  it('never mints money when a bearer fee share exceeds its gross (bearer=all)', () => {
+    // 2 subs with tiny gross + a large charge: fees clamp at gross; MAIN is
+    // credited ONLY what was actually collected — not the nominal charge.
+    const r = applySplit({
+      amountKobo: 10_000, type: 'flat', bearerType: 'all', feeKobo: 9_900,
+      subaccounts: [{ ref: 'A', share: 100 }, { ref: 'B', share: 100 }],
+    });
+    const a = r.allocations.find((x) => x.ref === 'A')!;
+    const main = r.allocations.find((x) => x.ref === 'MAIN')!;
+    expect(a.netKobo).toBe(0); // clamped
+    expect(a.feeKobo).toBe(100); // collected = gross (not the 3300 share)
+    // main = gross 9800 + collected 200 — NOT 9800 + 9900 (the old mint).
+    expect(main.netKobo).toBe(10_000);
+    expect(sumNet(r)).toBe(10_000); // invariant: Σ allocations === amountKobo
+  });
+
+  it('rejects a charge larger than the transaction amount', () => {
+    expect(() => applySplit({
+      amountKobo: 1_000, type: 'flat', bearerType: 'account', feeKobo: 1_001,
+      subaccounts: [{ ref: 'A', share: 100 }],
+    })).toThrow(/exceeds the transaction amount/);
+  });
+
+  it('rejects bearer_type=subaccount when the charge exceeds the bearer gross', () => {
+    expect(() => applySplit({
+      amountKobo: 10_000, type: 'flat', bearerType: 'subaccount',
+      bearerSubaccountRef: 'A', feeKobo: 500,
+      subaccounts: [{ ref: 'A', share: 400 }, { ref: 'B', share: 2_000 }],
+    })).toThrow(/exceeds bearer/);
+  });
+
+  it('invariant holds across bearer modes: Σ netKobo === amountKobo', () => {
+    for (const bearerType of ['account', 'subaccount', 'all', 'all_proportional'] as const) {
+      const r = applySplit({
+        amountKobo: 123_457, type: 'percentage', bearerType,
+        bearerSubaccountRef: 'A', feeKobo: 3_333,
+        subaccounts: [{ ref: 'A', share: 3333 }, { ref: 'B', share: 3333 }, { ref: 'C', share: 3334 }],
+      });
+      expect(sumNet(r)).toBe(123_457);
+    }
+  });
+
+  it('M16: computes exactly with amounts near 2^53 (bigint, no float drift)', () => {
+    const amount = 8_000_000_000_000_001; // safe integer, far beyond float precision for *0.5 rounding
+    const r = applySplit({
+      amountKobo: amount, type: 'percentage', bearerType: 'account',
+      subaccounts: [{ ref: 'A', share: 5000 }, { ref: 'B', share: 5000 }],
+    });
+    expect(r.allocations.find((a) => a.ref === 'A')!.grossKobo).toBe(4_000_000_000_000_000);
+    expect(sumNet(r)).toBe(amount);
+  });
+
+  it('M16: rejects unsafe (non-representable) amounts', () => {
+    expect(() => applySplit({
+      amountKobo: Number.MAX_SAFE_INTEGER + 1, type: 'flat', bearerType: 'account',
+      subaccounts: [{ ref: 'A', share: 1 }],
+    })).toThrow(/safe integer/);
+  });
+});
+
+describe('H18 split currency', () => {
+  it('recordSplitSettlement rejects a currency mismatch loud', async () => {
+    const g: any = await makeCaller().createGroup({
+      name: 'NGN group', type: 'flat', currency: 'NGN', members: [{ ref: 'A', share: 100 }],
+    });
+    await expect(recordSplitSettlement({
+      merchantId: 'merch_1', splitCode: g.split_code, reference: 'T', amountKobo: 1000, currency: 'GHS',
+    })).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringMatching(/currency/i) });
+    expect(h.settlements).toHaveLength(0);
+    // Matching currency settles fine.
+    const ok = await recordSplitSettlement({
+      merchantId: 'merch_1', splitCode: g.split_code, reference: 'T2', amountKobo: 1000, currency: 'ngn',
+    });
+    expect(ok.splitPaymentId).toMatch(/^sp_/);
+  });
+
+  it('addMember enforces the flat-sum cap (not just createGroup)', async () => {
+    const g: any = await makeCaller().createGroup({
+      name: 'Flat', type: 'flat', members: [{ ref: 'A', share: 100 }],
+    });
+    await expect(makeCaller().addMember({
+      idOrCode: g.id, member: { ref: 'B', share: Number.MAX_SAFE_INTEGER },
+    })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+});
+
 describe('validatePercentageSum', () => {
   it('accepts exactly 10000bps and rejects anything else', () => {
     expect(() => validatePercentageSum([{ ref: 'A', share: 6000 }, { ref: 'B', share: 4000 }])).not.toThrow();

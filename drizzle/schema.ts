@@ -7503,3 +7503,311 @@ export const alertSubscriptions = pgTable("alert_subscriptions", {
 ]);
 export type AlertSubscription = typeof alertSubscriptions.$inferSelect;
 export type InsertAlertSubscription = typeof alertSubscriptions.$inferInsert;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// M5 — Paystack-parity tables created by migrations 0094–0098 (schema drift fix)
+// plus the 0104 platform-ops table. Column shapes mirror the migration SQL
+// exactly. NOTE: idempotency_requests.entity_table/entity_id,
+// webhook_deliveries.updated_at and subscriptions.retry_count/authorization_code
+// (added by 0104) are intentionally NOT declared here — they are accessed via
+// raw SQL in the owning modules to keep this file append-only.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Public REST secret keys (0094) ──────────────────────────────────────────
+export const apiSecretKeys = pgTable("api_secret_keys", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  label: text("label"),
+  keyHash: text("key_hash").notNull().unique(),
+  keyPrefix: text("key_prefix").notNull(), // sk_live | sk_test
+  last4: text("last4").notNull(),
+  status: text("status").notNull().default("active"), // active | revoked
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (t) => [
+  index("api_secret_keys_merchant_idx").on(t.merchantId),
+  index("api_secret_keys_hash_idx").on(t.keyHash),
+]);
+export type ApiSecretKey = typeof apiSecretKeys.$inferSelect;
+export type InsertApiSecretKey = typeof apiSecretKeys.$inferInsert;
+
+// ─── Tokenized card authorizations (0094) ────────────────────────────────────
+export const cardAuthorizationsTable = pgTable("card_authorizations", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  authorizationCode: text("authorization_code").notNull().unique(),
+  reusable: boolean("reusable").notNull().default(true),
+  signature: text("signature"),
+  bin: text("bin"),
+  last4: text("last4"),
+  brand: text("brand"),
+  cardType: text("card_type"),
+  bank: text("bank"),
+  expMonth: text("exp_month"),
+  expYear: text("exp_year"),
+  channel: text("channel").notNull().default("card"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("card_authorizations_merchant_idx").on(t.merchantId),
+  index("card_authorizations_email_idx").on(t.customerEmail),
+  index("card_authorizations_signature_idx").on(t.signature),
+]);
+export type CardAuthorizationRow = typeof cardAuthorizationsTable.$inferSelect;
+
+// ─── Refunds (0095) ──────────────────────────────────────────────────────────
+export const refunds = pgTable("refunds", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  transactionRef: text("transaction_ref").notNull(),
+  transactionId: text("transaction_id"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }), // NULL = full remaining balance
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"), // pending|processing|needs_attention|failed|processed
+  merchantNote: text("merchant_note"),
+  customerNote: text("customer_note"),
+  processor: text("processor"),
+  refundedBy: text("refunded_by"),
+  deductedAmount: bigint("deducted_amount", { mode: "number" }),
+  fullyDeducted: boolean("fully_deducted").notNull().default(false),
+  expectedAt: timestamp("expected_at"),
+  refundedAt: timestamp("refunded_at"),
+  retryAccount: jsonb("retry_account"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("refunds_merchant_idx").on(t.merchantId),
+  index("refunds_tx_ref_idx").on(t.transactionRef),
+  index("refunds_status_idx").on(t.status),
+  index("refunds_created_idx").on(t.createdAt),
+]);
+export type Refund = typeof refunds.$inferSelect;
+export type InsertRefund = typeof refunds.$inferInsert;
+
+// ─── Split groups (0095) ─────────────────────────────────────────────────────
+export const splitGroups = pgTable("split_groups", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  splitCode: text("split_code").notNull(),
+  type: text("type").notNull(), // percentage | flat
+  currency: text("currency").notNull().default("NGN"),
+  bearerType: text("bearer_type").notNull().default("account"),
+  bearerSubaccountId: text("bearer_subaccount_id"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("split_groups_code_uniq").on(t.splitCode),
+  index("split_groups_merchant_idx").on(t.merchantId),
+]);
+export type SplitGroup = typeof splitGroups.$inferSelect;
+
+export const splitGroupMembers = pgTable("split_group_members", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull().references(() => splitGroups.id, { onDelete: "cascade" }),
+  subaccountRef: text("subaccount_ref").notNull(),
+  share: bigint("share", { mode: "number" }).notNull(), // bps (percentage) or kobo (flat)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("split_group_members_uniq").on(t.groupId, t.subaccountRef),
+  index("split_group_members_group_idx").on(t.groupId),
+]);
+export type SplitGroupMember = typeof splitGroupMembers.$inferSelect;
+
+// ─── Direct-debit mandates (0096) ────────────────────────────────────────────
+export const debitMandates = pgTable("debit_mandates", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  customerEmail: text("customer_email").notNull(),
+  mandateReference: text("mandate_reference").notNull(),
+  authorizationCode: text("authorization_code").notNull(),
+  bankCode: text("bank_code"),
+  accountNumberMasked: text("account_number_masked"),
+  accountNumberHash: text("account_number_hash"),
+  accountName: text("account_name"),
+  address: jsonb("address"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  activationChargeKobo: bigint("activation_charge_kobo", { mode: "number" }).notNull().default(5000),
+  reusable: boolean("reusable").notNull().default(true),
+  expiresAt: timestamp("expires_at"),
+  approvedAt: timestamp("approved_at"),
+  activatedAt: timestamp("activated_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("debit_mandates_reference_uniq").on(t.mandateReference),
+  uniqueIndex("debit_mandates_authorization_code_uniq").on(t.authorizationCode),
+  index("debit_mandates_merchant_idx").on(t.merchantId),
+  index("debit_mandates_merchant_customer_idx").on(t.merchantId, t.customerEmail),
+]);
+export type DebitMandate = typeof debitMandates.$inferSelect;
+
+// ─── Apple Pay merchant domains (0096) ───────────────────────────────────────
+export const walletDomains = pgTable("wallet_domains", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  domain: text("domain").notNull(),
+  provider: varchar("provider", { length: 16 }).notNull().default("apple_pay"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  verificationToken: text("verification_token"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("wallet_domains_merchant_domain_uniq").on(t.merchantId, t.domain),
+  index("wallet_domains_merchant_idx").on(t.merchantId),
+]);
+export type WalletDomain = typeof walletDomains.$inferSelect;
+
+// ─── Tokenized wallet instruments (0096) ─────────────────────────────────────
+export const walletPaymentInstruments = pgTable("wallet_payment_instruments", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  provider: varchar("provider", { length: 16 }).notNull(), // apple_pay | google_pay
+  tokenRef: text("token_ref").notNull(),
+  displayName: text("display_name"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_instruments_merchant_idx").on(t.merchantId),
+  index("wallet_instruments_merchant_customer_idx").on(t.merchantId, t.customerEmail),
+]);
+export type WalletPaymentInstrument = typeof walletPaymentInstruments.$inferSelect;
+
+// ─── Payment requests (0097) ─────────────────────────────────────────────────
+export const paymentRequests = pgTable("payment_requests", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  requestCode: text("request_code").notNull(),
+  offlineReference: text("offline_reference").notNull(),
+  invoiceNumber: bigint("invoice_number", { mode: "number" }).notNull(),
+  description: text("description"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  lineItems: jsonb("line_items"),
+  tax: jsonb("tax"),
+  currency: text("currency").notNull().default("NGN"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  paid: boolean("paid").notNull().default(false),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  amountPaidKobo: bigint("amount_paid_kobo", { mode: "number" }).notNull().default(0),
+  pendingAmountKobo: bigint("pending_amount_kobo", { mode: "number" }).notNull().default(0),
+  splitCode: text("split_code"),
+  hasInvoice: boolean("has_invoice").notNull().default(true),
+  lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
+  notificationCount: integer("notification_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("payment_requests_request_code_uniq").on(t.requestCode),
+  uniqueIndex("payment_requests_offline_reference_uniq").on(t.offlineReference),
+  index("payment_requests_merchant_idx").on(t.merchantId),
+  index("payment_requests_merchant_status_idx").on(t.merchantId, t.status),
+  index("payment_requests_customer_idx").on(t.customerId),
+]);
+export type PaymentRequest = typeof paymentRequests.$inferSelect;
+
+export const paymentRequestSequences = pgTable("payment_request_sequences", {
+  merchantId: text("merchant_id").primaryKey(),
+  nextInvoiceNumber: bigint("next_invoice_number", { mode: "number" }).notNull().default(1),
+});
+export type PaymentRequestSequence = typeof paymentRequestSequences.$inferSelect;
+
+// ─── Transfer recipients (0097) ──────────────────────────────────────────────
+export const transferRecipients = pgTable("transfer_recipients", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  recipientCode: text("recipient_code").notNull(),
+  type: varchar("type", { length: 20 }).notNull(),
+  name: text("name"),
+  accountNumber: text("account_number"),
+  bankCode: text("bank_code"),
+  currency: text("currency").notNull().default("NGN"),
+  email: text("email"),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  authorizationCode: text("authorization_code"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("transfer_recipients_recipient_code_uniq").on(t.recipientCode),
+  index("transfer_recipients_merchant_idx").on(t.merchantId),
+  uniqueIndex("transfer_recipients_dedupe_uniq").on(t.merchantId, t.type, t.accountNumber, t.bankCode),
+]);
+export type TransferRecipient = typeof transferRecipients.$inferSelect;
+
+// ─── Transfer OTP / settings (0097) ──────────────────────────────────────────
+export const merchantTransferSettings = pgTable("merchant_transfer_settings", {
+  merchantId: text("merchant_id").primaryKey(),
+  otpRequired: boolean("otp_required").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type MerchantTransferSettings = typeof merchantTransferSettings.$inferSelect;
+
+export const merchantTransferOtpChallenges = pgTable("merchant_transfer_otp_challenges", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  purpose: varchar("purpose", { length: 32 }).notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumed: boolean("consumed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("merchant_transfer_otp_challenges_merchant_idx").on(t.merchantId, t.purpose),
+]);
+export type MerchantTransferOtpChallenge = typeof merchantTransferOtpChallenges.$inferSelect;
+
+// ─── Customer identifications (0098) ─────────────────────────────────────────
+export const customerIdentifications = pgTable("customer_identifications", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  type: varchar("type", { length: 32 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  reason: text("reason"),
+  payload: jsonb("payload"), // masked — never full BVN / account number
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("customer_identifications_merchant_idx").on(t.merchantId),
+  index("customer_identifications_customer_idx").on(t.merchantId, t.customerId),
+]);
+export type CustomerIdentification = typeof customerIdentifications.$inferSelect;
+
+// ─── Subscription manage-link tokens (0098) ──────────────────────────────────
+export const subscriptionManageTokens = pgTable("subscription_manage_tokens", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  subscriptionId: text("subscription_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("subscription_manage_tokens_hash_uniq").on(t.tokenHash),
+  index("subscription_manage_tokens_sub_idx").on(t.merchantId, t.subscriptionId),
+]);
+export type SubscriptionManageToken = typeof subscriptionManageTokens.$inferSelect;
+
+// ─── Stripe webhook event durability (0104, C9) ──────────────────────────────
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: text("id").primaryKey(), // Stripe event id (evt_...)
+  type: text("type").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: text("status").notNull().default("pending"), // pending | processed | failed
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (t) => [
+  index("stripe_webhook_events_status_idx").on(t.status),
+]);
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
+export type InsertStripeWebhookEvent = typeof stripeWebhookEvents.$inferInsert;

@@ -44,7 +44,12 @@ func RecordFXConversion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "fx.convert", req.ConversionID)
+	// H26: money path fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "fx.convert", req.ConversionID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to convert (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.FXConversionResponse{
 			ConversionID:  req.ConversionID,

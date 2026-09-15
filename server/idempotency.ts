@@ -20,9 +20,90 @@
 
 import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { idempotencyRequests } from "../drizzle/schema";
+
+// ─── C16: stuck-102 recovery constants ────────────────────────────────────────
+/** A placeholder row (responseStatus 102, null body) older than this is stuck. */
+export const STUCK_102_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Tables an idempotency row is allowed to reference for entity synthesis.
+ * entity_table values come from server code (markIdempotencyEntity), never
+ * from clients, but the lookup still whitelists identifiers defensively
+ * (the table name is interpolated into raw SQL).
+ */
+const ENTITY_TABLE_WHITELIST = new Set([
+  "transactions", "payouts", "refunds", "subscriptions", "customers",
+  "transfers", "payment_requests", "transfer_recipients", "split_groups",
+  "debit_mandates", "hosted_payment_sessions", "invoices", "settlements",
+]);
+
+/**
+ * C16(a): stamp the created entity onto an in-flight idempotency placeholder
+ * row DURING execution. Compatible with withIdempotency — call it from inside
+ * `execute` once the entity row exists:
+ *   await withIdempotency({ ..., execute: async () => {
+ *     const row = await createThing();
+ *     await markIdempotencyEntity(key, "transactions", row.id);
+ *     return row;
+ *   }});
+ * If the process crashes before the success response is persisted, a replay of
+ * the stuck-102 row can synthesize the success from this entity reference.
+ */
+export async function markIdempotencyEntity(
+  key: string,
+  entityTable: string,
+  entityId: string,
+): Promise<void> {
+  if (!ENTITY_TABLE_WHITELIST.has(entityTable)) {
+    throw new Error(`markIdempotencyEntity: table '${entityTable}' is not in the entity whitelist`);
+  }
+  const dbConn = await getDb();
+  if (!dbConn) return;
+  await dbConn.execute(sql`
+    UPDATE idempotency_requests
+    SET entity_table = ${entityTable}, entity_id = ${entityId}
+    WHERE id = ${key} AND response_status = 102
+  `);
+}
+
+/**
+ * Look up the entity referenced by a stuck idempotency row and synthesize the
+ * success response ({ entity, replayed: true }). Returns null when the entity
+ * is gone or the reference is invalid.
+ */
+export async function synthesizeFromEntityRef(
+  entityTable: string,
+  entityId: string,
+): Promise<Record<string, unknown> | null> {
+  if (!ENTITY_TABLE_WHITELIST.has(entityTable) || !entityId) return null;
+  const dbConn = await getDb();
+  if (!dbConn) return null;
+  const result = await dbConn.execute(
+    sql.raw(`SELECT * FROM "${entityTable}" WHERE id = '${entityId.replace(/'/g, "''")}' LIMIT 1`),
+  );
+  const rows: any[] = (result as any)?.rows ?? (Array.isArray(result) ? result : []);
+  if (!rows.length) return null;
+  return { ...rows[0], replayed: true } as Record<string, unknown>;
+}
+
+/**
+ * Read the entity reference columns (added by migration 0104 — not on the
+ * drizzle table object, schema.ts is append-only) for a row.
+ */
+async function readEntityRef(dbConn: any, key: string): Promise<{ entityTable: string | null; entityId: string | null }> {
+  try {
+    const result = await dbConn.execute(sql`
+      SELECT entity_table, entity_id FROM idempotency_requests WHERE id = ${key} LIMIT 1
+    `);
+    const rows: any[] = (result as any)?.rows ?? (Array.isArray(result) ? result : []);
+    return { entityTable: rows[0]?.entity_table ?? null, entityId: rows[0]?.entity_id ?? null };
+  } catch {
+    return { entityTable: null, entityId: null }; // columns not migrated yet
+  }
+}
 
 export interface IdempotencyOptions<T> {
   /** Client-supplied idempotency key (UUID recommended). */
@@ -164,6 +245,42 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
 
     // In-flight: the winner claimed the key but hasn't finished executing.
     if (record.responseBody == null) {
+      // C16(b): a placeholder older than 15 min is STUCK — the winner crashed
+      // mid-execution. Recover instead of 409ing forever.
+      const isStuck = now.getTime() - new Date(record.createdAt).getTime() > STUCK_102_THRESHOLD_MS;
+      if (isStuck) {
+        const { entityTable, entityId } = await readEntityRef(dbConn, key);
+        if (entityTable && entityId) {
+          // The mutation stamped its entity before crashing — look it up and
+          // synthesize the success response (no re-execution, no 409).
+          const synthesized = await synthesizeFromEntityRef(entityTable, entityId);
+          if (synthesized) {
+            await dbConn.execute(sql`
+              UPDATE idempotency_requests
+              SET response_status = 200, response_body = ${JSON.stringify(synthesized)}::jsonb
+              WHERE id = ${key} AND response_status = 102
+            `).catch(() => { /* best-effort persist; still return the entity */ });
+            return synthesized as T;
+          }
+        }
+        // No usable entity reference: mark the stuck row failed for audit and
+        // evict it so THIS request re-executes the operation as a fresh claim.
+        await dbConn.execute(sql`
+          UPDATE idempotency_requests
+          SET response_status = 500,
+              response_body = ${JSON.stringify({ error: "stuck-102 placeholder evicted after 15min without entity reference", code: "INTERNAL_SERVER_ERROR" })}::jsonb
+          WHERE id = ${key} AND response_status = 102
+        `).catch(() => { /* non-fatal */ });
+        await dbConn
+          .delete(idempotencyRequests)
+          .where(
+            and(
+              eq(idempotencyRequests.id, key),
+              eq(idempotencyRequests.merchantId, merchantId),
+            )
+          );
+        return withIdempotency(opts); // re-run the claim path as new
+      }
       throw new TRPCError({
         code: "CONFLICT",
         message: `A request with idempotency key '${key}' is currently being processed. Retry after it completes.`,
@@ -215,8 +332,29 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
         TRPC_CODE_TO_STATUS[err.code as keyof typeof TRPC_CODE_TO_STATUS] ?? 500;
     }
 
-    // Persist the error (message + tRPC code) so replays re-THROW the same
-    // error without re-executing (spec #11).
+    // C16(c): NEVER persist 5xx / throwable infrastructure errors — a crashed
+    // or 5xx'd execution must be re-runnable by the client (the key is NOT
+    // burned). Only business 4xx failures are deterministic and safe to replay.
+    const isBusiness4xx = responseStatus >= 400 && responseStatus < 500;
+    if (!isBusiness4xx) {
+      // Evict the placeholder so the client's retry re-executes cleanly.
+      // If eviction fails the row stays 102 and is recovered by the stuck-102
+      // path (15 min) or the idempotencyCleanup worker.
+      await dbConn
+        .delete(idempotencyRequests)
+        .where(
+          and(
+            eq(idempotencyRequests.id, key),
+            eq(idempotencyRequests.merchantId, merchantId),
+            eq(idempotencyRequests.responseStatus, 102),
+          )
+        )
+        .catch(() => { /* best-effort — stuck-102 recovery is the backstop */ });
+      throw err;
+    }
+
+    // Persist the business error (message + tRPC code) so replays re-THROW the
+    // same error without re-executing (spec #11).
     await persist({
       error: err instanceof Error ? err.message : String(err),
       code: err instanceof TRPCError ? err.code : "INTERNAL_SERVER_ERROR",

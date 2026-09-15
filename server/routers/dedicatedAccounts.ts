@@ -26,7 +26,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, pbacProcedure } from "../_core/trpc";
 import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import { withIdempotency } from "../idempotency";
 import { dispatchWebhookEvent } from "../webhookEvents";
@@ -60,6 +60,8 @@ function rowsOf(result: any): any[] {
 export const DVA_EVENTS = {
   assignSuccess: "dedicatedaccount.assign.success",
   assignFailed: "dedicatedaccount.assign.failed",
+  transferRejected: "bank.transfer.rejected",
+  inboundCredit: "payment.completed",
 } as const;
 
 async function emitDvaEvent(
@@ -223,6 +225,32 @@ async function assignDvaCore(args: {
   splitCode?: string;
 }) {
   const database = await dbOrFail();
+
+  // H12: duplicate-assign guard — one ACTIVE DVA per (merchant, customer).
+  // A repeat assign returns the existing account (idempotent) instead of
+  // provisioning a second one. Backed by the partial unique index
+  // nip_va_dedicated_customer_uniq (drizzle/0103_parity_fixes.sql).
+  const existing = rowsOf(await database.execute(sql`
+    SELECT id, merchant_id AS "merchantId", customer_id AS "customerId",
+           customer_email AS "customerEmail", account_number AS "accountNumber",
+           account_name AS "accountName", bank_name AS "bankName",
+           currency, reference, status, assignment_status AS "assignmentStatus",
+           assigned_at AS "assignedAt", created_at AS "createdAt"
+    FROM nip_virtual_accounts
+    WHERE merchant_id = ${args.merchantId}
+      AND customer_email = ${args.customerEmail}
+      AND dedicated = true
+      AND deactivated_at IS NULL
+      AND assignment_status = 'assigned'
+      AND status <> 'cancelled'
+      /* dva_active_dup_check */
+    ORDER BY assigned_at DESC NULLS LAST, id DESC
+    LIMIT 1
+  `))[0];
+  if (existing) {
+    return { ...existing, reused: true };
+  }
+
   const bank = await resolveProviderBank(database, args.preferredBank);
   const reference = `dva_${crypto.randomBytes(10).toString("hex")}`;
   const accountName = [args.firstName, args.lastName].filter(Boolean).join(" ") || args.customerEmail;
@@ -329,8 +357,129 @@ async function loadOwnedDva(database: any, merchantId: string, idOrAccount: { id
   return row;
 }
 
+/**
+ * Reap DVAs stuck in `assignment_pending` beyond the TTL.
+ * called by cronJobs — each stale row is flipped to assignment_status='failed'
+ * (status 'cancelled') and a dedicatedaccount.assign.failed event is emitted
+ * so merchants can reconcile. Fails loud on DB errors.
+ */
+export async function reapStaleDvaAssignments(ttlMinutes = 60): Promise<{ reaped: number }> {
+  if (!Number.isInteger(ttlMinutes) || ttlMinutes <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "ttlMinutes must be a positive integer" });
+  }
+  const database = await dbOrFail();
+  const rows = rowsOf(await database.execute(sql`
+    UPDATE nip_virtual_accounts
+    SET assignment_status = 'failed', status = 'cancelled', updated_at = now()
+    WHERE dedicated = true
+      AND assignment_status = 'assignment_pending'
+      AND created_at < now() - make_interval(mins => ${ttlMinutes})
+    RETURNING merchant_id, reference, customer_id, customer_email
+  `));
+  for (const r of rows) {
+    await emitDvaEvent(r.merchant_id, DVA_EVENTS.assignFailed, {
+      reference: r.reference,
+      customer: { id: r.customer_id, email: r.customer_email },
+      reason: `assignment timed out after ${ttlMinutes} minutes (reaped)`,
+    });
+  }
+  return { reaped: rows.length };
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 export const dedicatedAccountsRouter = router({
+  /**
+   * H12: inbound DVA credit — invoked by the NIP bridge (internal key / PBAC)
+   * when money lands on a dedicated virtual account. Matches the account
+   * number; REJECTS (bank.transfer.rejected) when the account is unknown or
+   * deactivated; otherwise records a completed bank_transfer transaction and
+   * emits a charge.success-style payment.completed event. When an expected
+   * amount is supplied and differs, the credit is flagged wrong_amount.
+   */
+  dvaInboundCredit: pbacProcedure("initiate_transaction")
+    .input(z.object({
+      account_number: z.string().min(5),
+      amount_kobo: z.number().int().positive(),
+      currency: z.string().length(3).default("NGN"),
+      sender_name: z.string().max(200).optional(),
+      sender_account: z.string().max(32).optional(),
+      reference: z.string().max(128).optional(),
+      session_id: z.string().max(128).optional(),
+      expected_amount_kobo: z.number().int().positive().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const database = await dbOrFail();
+      const dva = rowsOf(await database.execute(sql`
+        ${DVA_SELECT} WHERE account_number = ${input.account_number} AND dedicated = true LIMIT 1
+      `))[0];
+
+      if (!dva || dva.deactivatedAt || dva.status === "cancelled") {
+        // Fail loud to the sender's bank: never credit a dead account.
+        if (dva) {
+          await emitDvaEvent(dva.merchantId, DVA_EVENTS.transferRejected, {
+            account_number: input.account_number,
+            amount_kobo: input.amount_kobo,
+            reason: dva.deactivatedAt ? "account deactivated" : "account cancelled",
+            sender_name: input.sender_name ?? null,
+            session_id: input.session_id ?? null,
+          });
+        }
+        return {
+          status: "REJECT" as const,
+          reason: !dva ? "unknown account number" : "account deactivated",
+          accountNumber: input.account_number,
+        };
+      }
+
+      const wrongAmount = input.expected_amount_kobo != null
+        && input.expected_amount_kobo !== input.amount_kobo;
+      const reference = input.reference ?? `DVA_${Date.now()}_${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+      const txId = `txn_${crypto.randomBytes(10).toString("hex")}`;
+      const now = new Date().toISOString();
+
+      // Credit via the existing transaction path (same shape the NIP recon
+      // flow records): a completed bank_transfer transaction on the DVA owner.
+      await database.execute(sql`
+        INSERT INTO transactions (
+          id, tenant_id, merchant_id, reference, amount, currency,
+          status, channel, customer_email, metadata, completed_at, created_at, updated_at
+        ) VALUES (
+          ${txId}, ${DEFAULT_TENANT}, ${dva.merchantId}, ${reference}, ${input.amount_kobo},
+          ${input.currency.toUpperCase()}, 'completed', 'bank_transfer', ${dva.customerEmail ?? null},
+          ${JSON.stringify({
+            source: "dva.inbound_credit",
+            dva_id: dva.id,
+            account_number: input.account_number,
+            sender_name: input.sender_name ?? null,
+            sender_account: input.sender_account ?? null,
+            session_id: input.session_id ?? null,
+            expected_amount_kobo: input.expected_amount_kobo ?? null,
+            wrong_amount: wrongAmount,
+          })}::jsonb,
+          ${now}, ${now}, ${now}
+        )
+      `);
+
+      await emitDvaEvent(dva.merchantId, DVA_EVENTS.inboundCredit, {
+        reference,
+        amount: input.amount_kobo,
+        currency: input.currency.toUpperCase(),
+        channel: "bank_transfer",
+        customer: { email: dva.customerEmail },
+        dedicated_account: { id: dva.id, account_number: input.account_number, bank_name: dva.bankName },
+        wrong_amount: wrongAmount,
+        expected_amount_kobo: input.expected_amount_kobo ?? null,
+      });
+
+      return {
+        status: wrongAmount ? "FLAGGED" as const : "OK" as const,
+        reference,
+        transactionId: txId,
+        merchantId: dva.merchantId,
+        wrongAmount,
+      };
+    }),
+
   /** Paystack POST /dedicated_account/assign — single-step create+validate+assign. */
   assign: protectedProcedure
     .input(z.object({

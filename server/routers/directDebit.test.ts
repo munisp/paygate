@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const h = vi.hoisted(() => {
   const state = {
     selects: [] as any[][],
+    returnings: [] as any[][],
   };
   const calls = {
     insert: [] as { table: string; values: any }[],
@@ -34,7 +35,7 @@ const h = vi.hoisted(() => {
         return c;
       },
       where: () => c,
-      returning: async () => [{ id: 'new-id' }],
+      returning: async () => state.returnings.shift() ?? [{ id: 'new-id' }],
     };
     return c;
   }
@@ -83,6 +84,7 @@ vi.mock('../webhookEvents', () => ({
 
 vi.mock('../pbac', () => ({
   requirePermission: vi.fn(async () => {}),
+  resolveMerchantTeamRole: vi.fn(async () => ({ merchantId: 'merch_1', role: 'owner' })),
 }));
 
 vi.mock('../logger', () => ({
@@ -125,6 +127,7 @@ function mandate(over: Partial<any> = {}) {
 
 beforeEach(() => {
   h.state.selects.length = 0;
+  h.state.returnings.length = 0;
   h.calls.insert.length = 0;
   h.calls.update.length = 0;
   h.calls.events.length = 0;
@@ -273,6 +276,17 @@ describe('activationCharge', () => {
     h.state.selects.push([mandate({ status: 'pending' })]);
     await expect(caller.activationCharge({ authorization_id: 'ddm_1' })).rejects.toMatchObject({ code: 'CONFLICT' });
   });
+
+  it('H15: activationCharge runs through withIdempotency when a key is supplied', async () => {
+    const { withIdempotency } = await import('../idempotency');
+    const mock = withIdempotency as unknown as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValueOnce({ mandateId: 'ddm_1', status: 'queued', amountKobo: 5000, refundable: true });
+    const res = await caller.activationCharge({ authorization_id: 'ddm_1', idempotencyKey: 'idem-act-123456' });
+    expect(res.status).toBe('queued');
+    expect(mock).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'idem-act-123456', operation: 'direct_debit.activationCharge',
+    }));
+  });
 });
 
 // ─── Debit ────────────────────────────────────────────────────────────────────
@@ -314,6 +328,18 @@ describe('debit', () => {
     h.state.selects.push([mandate({ status: 'active' })]);
     await expect(caller.debit({ ...debitInput, email: 'other@example.com' }))
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('H15: refuses the debit when the atomic claim loses a concurrent status change', async () => {
+    process.env.DIRECT_DEBIT_RAIL_URL = 'http://rail.local';
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    h.state.selects.push([mandate({ status: 'active' })]);
+    h.state.returnings.push([]); // guarded UPDATE ... WHERE status='active' → 0 rows
+    await expect(caller.debit(debitInput)).rejects.toMatchObject({ code: 'CONFLICT' });
+    // No rail call, no transaction row.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(h.calls.insert.filter((i) => i.table === 'transactions')).toHaveLength(0);
   });
 
   it('replays idempotent responses instead of re-executing', async () => {

@@ -50,11 +50,67 @@ const acknowledgedIds = new Set<string>();
 
 export function acknowledgeAlert(deliveryId: string): void {
   acknowledgedIds.add(deliveryId);
+  acknowledgedIds.add(`dlq:${deliveryId}`); // also ack the dead-letter form
 }
 
 // ─── Core polling logic ───────────────────────────────────────────────────────
 
 let lastCheckedAt = new Date(Date.now() - 5 * 60 * 1000); // start 5 min ago
+// H20: separate cursor for dead-letter rows — a delivery dead-letters long
+// after created_at, so the freshness cursor must be COALESCE(updated_at,
+// created_at) (updated_at added by migration 0104; falls back when absent).
+let lastDeadLetterCheckedAt = new Date(Date.now() - 60 * 60 * 1000); // start 1h ago
+
+/**
+ * H20: poll dead-lettered deliveries (attemptCount >= 7, terminal) that reached
+ * dead-letter since the last check. These are CRITICAL — 7 attempts failed.
+ */
+async function pollDeadLetters(): Promise<WebhookFailureAlert[]> {
+  const drizzle = await getDb();
+  if (!drizzle) return [];
+  const { sql } = await import("drizzle-orm");
+
+  const since = lastDeadLetterCheckedAt.toISOString();
+  lastDeadLetterCheckedAt = new Date();
+
+  const result = await drizzle.execute(sql`
+    SELECT
+      wd.id,
+      wd.merchant_id,
+      COALESCE(m.business_name, 'Unknown Merchant') as merchant_name,
+      wd.webhook_id,
+      wd.event_type,
+      wd.response_status,
+      wd.response_body,
+      wd.attempt_count,
+      COALESCE(wd.updated_at, wd.created_at) as failed_at
+    FROM webhook_deliveries wd
+    LEFT JOIN merchants m ON m.id = wd.merchant_id
+    WHERE wd.status = 'failed'
+      AND wd.attempt_count >= 7
+      AND wd.next_retry_at IS NULL
+      AND COALESCE(wd.updated_at, wd.created_at) >= ${since}::timestamptz
+    ORDER BY COALESCE(wd.updated_at, wd.created_at) DESC
+    LIMIT 100
+  `);
+
+  const rows: any[] = Array.isArray(result) ? result : (result as any).rows ?? [];
+
+  return rows
+    .filter((r) => !acknowledgedIds.has(`dlq:${r.id}`))
+    .map((r) => ({
+      id: `dlq:${r.id}`,
+      merchantId: r.merchant_id,
+      merchantName: r.merchant_name ?? "Unknown",
+      webhookId: r.webhook_id,
+      eventType: r.event_type,
+      responseStatus: r.response_status ? Number(r.response_status) : null,
+      errorMessage: r.response_body ? String(r.response_body).slice(0, 200) : null,
+      attemptCount: Number(r.attempt_count ?? 0),
+      failedAt: r.failed_at instanceof Date ? r.failed_at.toISOString() : String(r.failed_at),
+      severity: "critical" as const, // dead-lettered after MAX_ATTEMPTS — always critical
+    }));
+}
 
 export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
   try {
@@ -101,10 +157,33 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
         severity: getSeverity(r.response_status, r.attempt_count),
       }));
 
+    // H20: fold in newly dead-lettered deliveries (attemptCount >= 7).
+    let deadLetters: WebhookFailureAlert[] = [];
+    try {
+      deadLetters = await pollDeadLetters();
+    } catch (dlErr) {
+      // updated_at may not exist yet (migration 0104 pending) — degrade gracefully.
+      if (!isSuppressedWorkerError(dlErr)) {
+        console.error("[webhookFailureAlerts] Dead-letter poll error:", dlErr);
+      }
+    }
+    if (deadLetters.length > 0) {
+      alerts.push(...deadLetters);
+      await notifyOwner({
+        title: `🚨 ${deadLetters.length} Webhook Deliver${deadLetters.length > 1 ? "ies" : "y"} DEAD-LETTERED`,
+        content: deadLetters
+          .slice(0, 5)
+          .map((a) => `• ${a.merchantName} — ${a.eventType} (${a.attemptCount} attempts exhausted, HTTP ${a.responseStatus ?? "timeout"})`)
+          .join("\n"),
+      }).catch((e) => {
+        console.error("[webhookFailureAlerts] dead-letter owner alert FAILED — alert lost:", e instanceof Error ? e.message : String(e));
+      });
+    }
+
     if (alerts.length > 0) {
       broadcastAlerts(alerts);
       // Notify owner if there are critical failures
-      const critical = alerts.filter((a) => a.severity === "critical");
+      const critical = alerts.filter((a) => a.severity === "critical" && !a.id.startsWith("dlq:"));
       if (critical.length > 0) {
         await notifyOwner({
           title: `⚠️ ${critical.length} Critical Webhook Failure${critical.length > 1 ? "s" : ""}`,

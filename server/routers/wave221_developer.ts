@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
-import { db } from "../db";
+import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import {
   developerApiKeys,
   developerWebhooks,
@@ -22,6 +22,19 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import crypto from "crypto";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+/**
+ * M19: merchant-domain rows must be keyed by the merchant the caller OWNS,
+ * resolved server-side from the session — ctx.user.id is NOT a merchant id.
+ * Fail-closed: throws FORBIDDEN when the caller owns no merchant.
+ */
+async function resolveMerchantId(openId: string): Promise<string> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  return merchant.id;
+}
+
 function generateApiKey(env: string): { raw: string; prefix: string; hash: string } {
   const raw = `pg_${env === "live" ? "live" : "test"}_${crypto.randomBytes(24).toString("hex")}`;
   const prefix = raw.slice(0, 16);
@@ -36,6 +49,7 @@ function generateSigningSecret(): string {
 // ── API Keys Sub-router ───────────────────────────────────────────────────────
 const apiKeyRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     return db
       .select({
         id: developerApiKeys.id,
@@ -49,7 +63,7 @@ const apiKeyRouter = router({
         createdAt: developerApiKeys.createdAt,
       })
       .from(developerApiKeys)
-      .where(eq(developerApiKeys.merchantId, ctx.user.id.toString()))
+      .where(eq(developerApiKeys.merchantId, merchantId))
       .orderBy(desc(developerApiKeys.createdAt));
   }),
 
@@ -63,11 +77,12 @@ const apiKeyRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const { raw, prefix, hash } = generateApiKey(input.environment);
       const id = `key_${crypto.randomUUID()}`;
       await db.insert(developerApiKeys).values({
         id,
-        merchantId: ctx.user.id.toString(),
+        merchantId: merchantId,
         name: input.name,
         keyPrefix: prefix,
         keyHash: hash,
@@ -82,11 +97,12 @@ const apiKeyRouter = router({
   revoke: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       await db
         .update(developerApiKeys)
         .set({ isActive: false, updatedAt: new Date() })
         .where(
-          and(eq(developerApiKeys.id, input.id), eq(developerApiKeys.merchantId, ctx.user.id.toString()))
+          and(eq(developerApiKeys.id, input.id), eq(developerApiKeys.merchantId, merchantId))
         );
       return { success: true };
     }),
@@ -94,10 +110,11 @@ const apiKeyRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       await db
         .delete(developerApiKeys)
         .where(
-          and(eq(developerApiKeys.id, input.id), eq(developerApiKeys.merchantId, ctx.user.id.toString()))
+          and(eq(developerApiKeys.id, input.id), eq(developerApiKeys.merchantId, merchantId))
         );
       return { success: true };
     }),
@@ -106,10 +123,11 @@ const apiKeyRouter = router({
 // ── Webhook Sub-router ────────────────────────────────────────────────────────
 const webhookRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     return db
       .select()
       .from(developerWebhooks)
-      .where(eq(developerWebhooks.merchantId, ctx.user.id.toString()))
+      .where(eq(developerWebhooks.merchantId, merchantId))
       .orderBy(desc(developerWebhooks.createdAt));
   }),
 
@@ -124,11 +142,12 @@ const webhookRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const id = `wh_${crypto.randomUUID()}`;
       const signingSecret = generateSigningSecret();
       await db.insert(developerWebhooks).values({
         id,
-        merchantId: ctx.user.id.toString(),
+        merchantId: merchantId,
         url: input.url,
         description: input.description,
         events: JSON.stringify(input.events),
@@ -153,6 +172,7 @@ const webhookRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const { id, ...updates } = input;
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (updates.url !== undefined) updateData.url = updates.url;
@@ -165,7 +185,7 @@ const webhookRouter = router({
         .update(developerWebhooks)
         .set(updateData)
         .where(
-          and(eq(developerWebhooks.id, id), eq(developerWebhooks.merchantId, ctx.user.id.toString()))
+          and(eq(developerWebhooks.id, id), eq(developerWebhooks.merchantId, merchantId))
         );
       return { success: true };
     }),
@@ -173,10 +193,11 @@ const webhookRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       await db
         .delete(developerWebhooks)
         .where(
-          and(eq(developerWebhooks.id, input.id), eq(developerWebhooks.merchantId, ctx.user.id.toString()))
+          and(eq(developerWebhooks.id, input.id), eq(developerWebhooks.merchantId, merchantId))
         );
       return { success: true };
     }),
@@ -184,12 +205,13 @@ const webhookRouter = router({
   rotateSecret: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const newSecret = generateSigningSecret();
       await db
         .update(developerWebhooks)
         .set({ signingSecret: newSecret, updatedAt: new Date() })
         .where(
-          and(eq(developerWebhooks.id, input.id), eq(developerWebhooks.merchantId, ctx.user.id.toString()))
+          and(eq(developerWebhooks.id, input.id), eq(developerWebhooks.merchantId, merchantId))
         );
       return { signingSecret: newSecret };
     }),
@@ -207,7 +229,8 @@ const deliveryLogRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const conditions = [eq(developerWebhookDeliveries.merchantId, ctx.user.id.toString())];
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions = [eq(developerWebhookDeliveries.merchantId, merchantId)];
       if (input.webhookId) {
         conditions.push(eq(developerWebhookDeliveries.webhookId, input.webhookId));
       }
@@ -227,6 +250,7 @@ const deliveryLogRouter = router({
   retry: protectedProcedure
     .input(z.object({ deliveryId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       // Mark as retrying — in production this would enqueue a job
       await db
         .update(developerWebhookDeliveries)
@@ -234,7 +258,7 @@ const deliveryLogRouter = router({
         .where(
           and(
             eq(developerWebhookDeliveries.id, input.deliveryId),
-            eq(developerWebhookDeliveries.merchantId, ctx.user.id.toString())
+            eq(developerWebhookDeliveries.merchantId, merchantId)
           )
         );
       return { success: true };
@@ -243,7 +267,8 @@ const deliveryLogRouter = router({
   stats: protectedProcedure
     .input(z.object({ webhookId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      const conditions = [eq(developerWebhookDeliveries.merchantId, ctx.user.id.toString())];
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions = [eq(developerWebhookDeliveries.merchantId, merchantId)];
       if (input.webhookId) {
         conditions.push(eq(developerWebhookDeliveries.webhookId, input.webhookId));
       }
@@ -262,11 +287,12 @@ const deliveryLogRouter = router({
 // ── Saga Sub-router ───────────────────────────────────────────────────────────
 const sagaRouter = router({
   getActive: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     const rows = await db
       .select()
       .from(sagaInstances)
       .where(
-        and(eq(sagaInstances.merchantId, ctx.user.id.toString()), eq(sagaInstances.status, "running"))
+        and(eq(sagaInstances.merchantId, merchantId), eq(sagaInstances.status, "running"))
       )
       .orderBy(desc(sagaInstances.startedAt))
       .limit(20);
@@ -282,7 +308,8 @@ const sagaRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const conditions = [eq(sagaInstances.merchantId, ctx.user.id.toString())];
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions = [eq(sagaInstances.merchantId, merchantId)];
       if (input.sagaType) conditions.push(eq(sagaInstances.sagaType, input.sagaType));
       if (input.status) conditions.push(eq(sagaInstances.status, input.status));
       return db
@@ -300,6 +327,7 @@ const sagaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const id = `saga_${crypto.randomUUID()}`;
       const isFHIR = input.sagaType === "fhir_payment";
       const steps = isFHIR
@@ -321,7 +349,7 @@ const sagaRouter = router({
       await db.insert(sagaInstances).values({
         id,
         sagaType: input.sagaType,
-        merchantId: ctx.user.id.toString(),
+        merchantId: merchantId,
         status: "running",
         currentStep: 0,
         totalSteps: steps.length,
@@ -332,6 +360,7 @@ const sagaRouter = router({
     }),
 
   getMetrics: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     const rows = await db
       .select({
         sagaType: sagaInstances.sagaType,
@@ -343,7 +372,7 @@ const sagaRouter = router({
         p99: sql<number>`percentile_cont(0.99) within group (order by duration_ms)::int`,
       })
       .from(sagaInstances)
-      .where(eq(sagaInstances.merchantId, ctx.user.id.toString()))
+      .where(eq(sagaInstances.merchantId, merchantId))
       .groupBy(sagaInstances.sagaType, sagaInstances.status);
     return rows;
   }),
@@ -351,10 +380,11 @@ const sagaRouter = router({
   getRecent: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
     .query(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       return db
         .select()
         .from(sagaInstances)
-        .where(eq(sagaInstances.merchantId, ctx.user.id.toString()))
+        .where(eq(sagaInstances.merchantId, merchantId))
         .orderBy(desc(sagaInstances.startedAt))
         .limit(input.limit);
     }),
@@ -458,10 +488,11 @@ const domainHealthRouter = router({
 // ── Cost Centre Sub-router ────────────────────────────────────────────────────
 const costCentreRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     return db
       .select()
       .from(costCentres)
-      .where(eq(costCentres.merchantId, ctx.user.id.toString()))
+      .where(eq(costCentres.merchantId, merchantId))
       .orderBy(desc(costCentres.createdAt));
   }),
 
@@ -476,10 +507,11 @@ const costCentreRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const id = `cc_${crypto.randomUUID()}`;
       await db.insert(costCentres).values({
         id,
-        merchantId: ctx.user.id.toString(),
+        merchantId: merchantId,
         name: input.name,
         code: input.code,
         domain: input.domain,
@@ -501,25 +533,28 @@ const costCentreRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const { id, ...updates } = input;
       await db
         .update(costCentres)
         .set({ ...updates, updatedAt: new Date() })
-        .where(and(eq(costCentres.id, id), eq(costCentres.merchantId, ctx.user.id.toString())));
+        .where(and(eq(costCentres.id, id), eq(costCentres.merchantId, merchantId)));
       return { success: true };
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       await db
         .delete(costCentres)
-        .where(and(eq(costCentres.id, input.id), eq(costCentres.merchantId, ctx.user.id.toString())));
+        .where(and(eq(costCentres.id, input.id), eq(costCentres.merchantId, merchantId)));
       return { success: true };
     }),
 
   getSummary: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await db.select().from(costCentres).where(eq(costCentres.merchantId, ctx.user.id.toString()));
+    const merchantId = await resolveMerchantId(ctx.user.openId);
+    const rows = await db.select().from(costCentres).where(eq(costCentres.merchantId, merchantId));
     const totalBudget = rows.reduce((a, r) => a + (r.budgetAmount ?? 0), 0);
     const totalSpent = rows.reduce((a, r) => a + (r.spentAmount ?? 0), 0);
     return { totalBudget, totalSpent, count: rows.length };
@@ -531,7 +566,8 @@ const beneficiaryRegistryRouter = router({
   list: protectedProcedure
     .input(z.object({ domain: z.string().optional(), search: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      const conditions = [eq(nexthubBeneficiaryRegistry.merchantId, ctx.user.id.toString())];
+      const merchantId = await resolveMerchantId(ctx.user.openId);
+      const conditions = [eq(nexthubBeneficiaryRegistry.merchantId, merchantId)];
       const rows = await db
         .select()
         .from(nexthubBeneficiaryRegistry)
@@ -564,10 +600,11 @@ const beneficiaryRegistryRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const id = `ben_${crypto.randomUUID()}`;
       await db.insert(nexthubBeneficiaryRegistry).values({
         id,
-        merchantId: ctx.user.id.toString(),
+        merchantId: merchantId,
         fullName: input.fullName,
         nin: input.nin,
         bvn: input.bvn,
@@ -587,7 +624,7 @@ const beneficiaryRegistryRouter = router({
   verify: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const merchantId = ctx.user.id.toString();
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const [row] = await db
         .select()
         .from(nexthubBeneficiaryRegistry)
@@ -629,12 +666,13 @@ const beneficiaryRegistryRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       await db
         .delete(nexthubBeneficiaryRegistry)
         .where(
           and(
             eq(nexthubBeneficiaryRegistry.id, input.id),
-            eq(nexthubBeneficiaryRegistry.merchantId, ctx.user.id.toString())
+            eq(nexthubBeneficiaryRegistry.merchantId, merchantId)
           )
         );
       return { success: true };
@@ -806,10 +844,11 @@ const protocolValidatorRouter = router({
 // ── Domain Quota Sub-router ───────────────────────────────────────────────────
 const domainQuotaRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
+    const merchantId = await resolveMerchantId(ctx.user.openId);
     return db
       .select()
       .from(nexthubDomainQuotas)
-      .where(eq(nexthubDomainQuotas.merchantId, ctx.user.id.toString()));
+      .where(eq(nexthubDomainQuotas.merchantId, merchantId));
   }),
 
   update: protectedProcedure
@@ -822,12 +861,13 @@ const domainQuotaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user.openId);
       const { id, ...updates } = input;
       await db
         .update(nexthubDomainQuotas)
         .set(updates)
         .where(
-          and(eq(nexthubDomainQuotas.id, id), eq(nexthubDomainQuotas.merchantId, ctx.user.id.toString()))
+          and(eq(nexthubDomainQuotas.id, id), eq(nexthubDomainQuotas.merchantId, merchantId))
         );
       return { success: true };
     }),

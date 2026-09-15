@@ -936,6 +936,52 @@ async function sweepExpiredRedEnvelopes() {
   }
 }
 
+// ─── Platform-ops sweepers (audit fixes) ─────────────────────────────────────
+// Each sweeper is loaded via dynamic import so a missing module/export (e.g.
+// another fixer's work not yet landed) logs ONE warning and is skipped — it
+// must never crash cron boot. Every run is wrapped in per-run error
+// containment (a throwing sweeper never kills the interval or other jobs).
+type SweeperDef = { name: string; module: string; exportName: string; intervalMs: number };
+const PLATFORM_SWEEPERS: SweeperDef[] = [
+  // Stripe webhook durability processor (C9) — re-attempts pending/failed events.
+  { name: "processPendingStripeEvents", module: "./stripe", exportName: "processPendingStripeEvents", intervalMs: 60_000 },
+  // Subscription renewal engine (C10).
+  { name: "runDueSubscriptionRenewals", module: "./jobs/subscriptionRenewal", exportName: "runDueSubscriptionRenewals", intervalMs: 5 * 60_000 },
+  // Receipt email retry (M9).
+  { name: "resendMissingReceipts", module: "./jobs/auditSweepers", exportName: "resendMissingReceipts", intervalMs: 15 * 60_000 },
+  // Cross-fixer sweepers (each module's docstring says "called by cronJobs").
+  { name: "reconcileProcessingRefunds", module: "./routers/refunds", exportName: "reconcileProcessingRefunds", intervalMs: 5 * 60_000 },
+  { name: "autoAcceptExpiredDisputes", module: "./routers/nexthubDisputes", exportName: "autoAcceptExpiredDisputes", intervalMs: 15 * 60_000 },
+  { name: "autoAcceptExpiredChargebacks", module: "./routers/chargebackLifecycle", exportName: "autoAcceptExpiredChargebacks", intervalMs: 15 * 60_000 },
+  { name: "executeApprovedPayouts", module: "./routers", exportName: "executeApprovedPayouts", intervalMs: 60_000 },
+  { name: "expireStalePendingApprovals", module: "./routers", exportName: "expireStalePendingApprovals", intervalMs: 5 * 60_000 },
+  { name: "expireStalePendingCharges", module: "./routers/publicRest", exportName: "expireStalePendingCharges", intervalMs: 5 * 60_000 },
+  { name: "reapStaleDvaAssignments", module: "./routers/dedicatedAccounts", exportName: "reapStaleDvaAssignments", intervalMs: 15 * 60_000 },
+];
+
+async function registerPlatformSweeper(def: SweeperDef): Promise<void> {
+  let fn: unknown;
+  try {
+    const mod: any = await import(def.module);
+    fn = mod?.[def.exportName];
+  } catch (err) {
+    logger.warn(`[Cron] sweeper '${def.name}' SKIPPED: module '${def.module}' failed to import (${err instanceof Error ? err.message : err}) — will not retry this boot`);
+    return;
+  }
+  if (typeof fn !== "function") {
+    logger.warn(`[Cron] sweeper '${def.name}' SKIPPED: '${def.module}' does not export ${def.exportName} — will not retry this boot`);
+    return;
+  }
+  const run = fn as () => Promise<unknown>;
+  const tick = () => {
+    run().catch((e) => {
+      if (!isSuppressedWorkerError(e)) logger.error(`[Cron] sweeper '${def.name}' run failed: ${e instanceof Error ? e.message : e}`);
+    });
+  };
+  setInterval(tick, def.intervalMs);
+  logger.info(`[Cron] sweeper registered: ${def.name} (every ${Math.round(def.intervalMs / 1000)}s)`);
+}
+
 // ─── Cron Scheduler ──────────────────────────────────────────────────────────
 let cronStarted = false;
 
@@ -971,6 +1017,12 @@ export function startCronJobs() {
 
   // Red envelope expiry sweeper — every 15 minutes (spec #14)
   setInterval(sweepExpiredRedEnvelopes, 15 * 60 * 1000);
+
+  // Platform-ops sweepers (C9/C10/M9 + cross-fixer exports) — dynamically
+  // imported, warn-once-and-skip when unavailable.
+  for (const def of PLATFORM_SWEEPERS) {
+    void registerPlatformSweeper(def);
+  }
 
   // Run immediately on startup (after a short delay to let DB connect)
   setTimeout(() => {

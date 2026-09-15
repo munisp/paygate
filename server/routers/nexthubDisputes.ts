@@ -11,6 +11,27 @@ import { getDb } from "../db";
 import { transferDisputes, feePostings } from "../../drizzle/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { dispatchWebhookEvent } from "../webhookEvents";
+import { logger } from "../logger";
+import { runInTx, debitMerchantWallet } from "./refunds";
+import crypto from "crypto";
+
+const TENANT_ID = "ten_default";
+
+async function emitDisputeEvent(event: string, data: Record<string, unknown>) {
+  try {
+    await dispatchWebhookEvent({
+      event: event as any,
+      id: `evt_${crypto.randomBytes(10).toString("hex")}`,
+      tenantId: TENANT_ID,
+      merchantId: (data.merchant_id as string) ?? "",
+      timestamp: new Date().toISOString(),
+      data,
+    });
+  } catch (err) {
+    logger.error("dispute webhook dispatch failed", { err, event });
+  }
+}
 
 // SLA in hours per dispute type
 const DISPUTE_SLA_HOURS: Record<string, number> = {
@@ -309,9 +330,93 @@ export const nexthubDisputesRouter = router({
           resolvedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(transferDisputes.id, input.disputeId))
+        .where(and(
+          eq(transferDisputes.id, input.disputeId),
+          // H7a: guarded flip — a double-resolve (or resolve racing an
+          // uphold/reject) yields 0 rows and fails with CONFLICT.
+          sql`${transferDisputes.status} IN ('OPEN', 'UNDER_REVIEW', 'ESCALATED')`,
+        ))
         .returning();
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Dispute not found" });
+      if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Dispute was already resolved or does not exist" });
       return { ...updated, outcome: updated.resolution };
     }),
 });
+
+/**
+ * autoAcceptExpiredDisputes — called by cronJobs.
+ * Disputes past their SLA deadline with no response are auto-accepted:
+ * status → RESOLVED with resolution 'auto_accepted_sla', and the responding
+ * party's wallet is debited for the disputed amount in the SAME DB
+ * transaction (guarded flip makes the sweep idempotent). dispute.resolved is
+ * emitted per row. Per-row failures are logged (fail loud); the sweep
+ * continues with the remaining rows.
+ */
+export async function autoAcceptExpiredDisputes(): Promise<{
+  scanned: number;
+  accepted: number;
+  errors: Array<{ disputeId: string; error: string }>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("autoAcceptExpiredDisputes: DB unavailable");
+  const res = await db.execute(sql`
+    SELECT * FROM transfer_disputes
+    WHERE status IN ('OPEN', 'UNDER_REVIEW', 'ESCALATED')
+      AND sla_deadline IS NOT NULL AND sla_deadline < now()
+    ORDER BY sla_deadline ASC
+    LIMIT 200
+  `);
+  const rows = res.rows as any[];
+  const out = { scanned: rows.length, accepted: 0, errors: [] as any[] };
+  for (const d of rows) {
+    try {
+      const flipped = await runInTx(db, async (tx) => {
+        const now = new Date();
+        const upd = await tx.execute(sql`
+          UPDATE transfer_disputes SET
+            status = 'RESOLVED', resolution = 'auto_accepted_sla',
+            resolution_notes = 'Auto-accepted: SLA deadline elapsed with no response',
+            resolved_at = ${now}, updated_at = ${now}
+          WHERE id = ${d.id} AND status IN ('OPEN', 'UNDER_REVIEW', 'ESCALATED')
+          RETURNING id
+        `);
+        if (!upd.rows[0]) return false; // resolved concurrently — nothing to do
+        // Debit the responding party's wallet (merchant_id or user_id match).
+        const wRes = await tx.execute(sql`
+          SELECT merchant_id FROM wallets
+          WHERE (merchant_id = ${d.responding_dfsp_id} OR user_id = ${d.responding_dfsp_id})
+            AND currency = ${d.currency}
+          ORDER BY id ASC LIMIT 1
+        `);
+        const merchantId = (wRes.rows[0] as any)?.merchant_id;
+        if (!merchantId) {
+          throw new Error(
+            `No wallet found for responding DFSP '${d.responding_dfsp_id}'; ` +
+            `cannot auto-accept dispute ${d.id} (fail loud)`,
+          );
+        }
+        await debitMerchantWallet(tx, {
+          merchantId,
+          amountKobo: Number(d.amount_kobo),
+          currency: d.currency,
+          reason: "dispute",
+          reference: `dispute_${d.id}`,
+          description: `Dispute ${d.id} auto-accepted (SLA) — wallet debit`,
+        });
+        return true;
+      });
+      if (!flipped) continue; // lost the race — another resolver owns the event
+      await emitDisputeEvent("dispute.resolved", {
+        dispute_id: d.id,
+        transfer_id: d.transfer_id,
+        resolution: "auto_accepted_sla",
+        amount_kobo: d.amount_kobo,
+        currency: d.currency,
+      });
+      out.accepted++;
+    } catch (err: any) {
+      logger.error("autoAcceptExpiredDisputes row failed", { err, disputeId: d.id });
+      out.errors.push({ disputeId: d.id, error: err?.message ?? "unknown" });
+    }
+  }
+  return out;
+}

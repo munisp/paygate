@@ -13,6 +13,7 @@ import {
   products, productVariants, carts, cartItems,
   checkoutSessions, orders, orderItems, fulfilmentEvents,
 } from "../../drizzle/schema";
+import { logger } from "../logger";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,11 @@ async function publishKafkaEvent(topic: string, payload: Record<string, unknown>
   }
 }
 
-// Record TigerBeetle double-entry transfer
+// Record TigerBeetle double-entry transfer via the Go bridge's REAL ledger
+// route (POST /v1/ledger/transfer → handlers.CreateLedgerTransfer, backed by
+// the TigerBeetle client). On ANY failure a durable ledger_outbox row is
+// persisted and the error logged loudly — null is returned only AFTER the
+// outbox write, so the settlement is never silently dropped.
 async function recordTigerBeetleTransfer(opts: {
   ledgerId: number;
   debitAccountId: bigint;
@@ -146,24 +151,63 @@ async function recordTigerBeetleTransfer(opts: {
   amountKobo: number;
   code: number;
   userData: bigint;
+  tenantId: string;
+  merchantId: string;
+  reference: string;
 }): Promise<bigint | null> {
   const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL;
-  if (!bridgeUrl) return null;
+  const body = {
+    debitAccountId: opts.debitAccountId.toString(),
+    creditAccountId: opts.creditAccountId.toString(),
+    amount: opts.amountKobo,
+    ledger: opts.ledgerId,
+    code: opts.code,
+  };
+  const fail = async (reason: string): Promise<null> => {
+    logger.error("[ecommerce] TigerBeetle transfer failed — persisting to ledger_outbox", {
+      reference: opts.reference, merchantId: opts.merchantId, amountKobo: opts.amountKobo, reason,
+    });
+    try {
+      await db.execute(sql`
+        INSERT INTO ledger_outbox
+          (tenant_id, merchant_id, kind, reference, amount_kobo, payload, status, attempts, last_error)
+        VALUES (
+          ${opts.tenantId}, ${opts.merchantId}, 'ledger.transfer', ${opts.reference},
+          ${opts.amountKobo}, ${JSON.stringify({ ...body, userData: opts.userData.toString() })}::jsonb,
+          'pending', 1, ${reason}
+        )
+      `);
+    } catch (err) {
+      logger.error("[ecommerce] CRITICAL: ledger_outbox persistence failed — manual reconciliation required", {
+        reference: opts.reference,
+        merchantId: opts.merchantId,
+        originalError: reason,
+        outboxError: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return null;
+  };
+  if (!bridgeUrl) return fail("MIDDLEWARE_BRIDGE_URL unset");
   try {
-    const res = await fetch(`${bridgeUrl}/tigerbeetle/transfer`, {
+    const res = await fetch(`${bridgeUrl}/v1/ledger/transfer`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Internal-Key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
       },
-      body: JSON.stringify(opts),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      return fail(`HTTP ${res.status}: ${text}`);
+    }
     const json = await res.json() as { transferId?: string };
-    return json.transferId ? BigInt(json.transferId) : null;
-  } catch {
-    return null;
+    if (!json.transferId) return fail("bridge returned no transferId");
+    // The bridge returns the transfer id as a UUID; derive a stable numeric id.
+    return BigInt(parseInt(json.transferId.replace(/-/g, "").slice(0, 15), 16));
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -730,6 +774,9 @@ const checkoutRouter = router({
         amountKobo: Number(session.amountKobo),
         code: 1100, // Order payment code
         userData: BigInt("0x" + order.id.replace(/-/g, "").slice(0, 16)),
+        tenantId: session.tenantId,
+        merchantId: session.merchantId,
+        reference: orderNumber,
       });
 
       if (tbTransferId) {

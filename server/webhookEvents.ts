@@ -31,6 +31,7 @@ import { webhooks, webhookDeliveries } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { deliverWebhookViaMiddleware } from "./middlewareBridge";
+import { scheduleRetry } from "./webhookRetry";
 
 export type WebhookEventType =
   // ── Core payment events ──────────────────────────────────────────────────
@@ -135,7 +136,17 @@ export type WebhookEventType =
   | "customer.identification.failed"
   | "subscription.not_renew"
   | "subscription.expiring_cards"
-  | "subscription.manage_link.created";
+  | "subscription.manage_link.created"
+  // ── Deep-audit fix events (W1/W2/W5) ────────────────────────────────────
+  | "bank.transfer.rejected"
+  | "wallet.charge.failed"
+  | "split.reversed"
+  | "chargeback.open"
+  | "chargeback.under_review"
+  | "chargeback.pre_arbitration"
+  | "chargeback.arbitration"
+  | "chargeback.closed_won"
+  | "chargeback.closed_lost";
 
 export interface WebhookEventPayload<T extends WebhookEventType = WebhookEventType> {
   event: T;
@@ -221,6 +232,9 @@ export async function dispatchWebhookEvent(
           responseBody: responseBody.slice(0, 2000),
           status: success ? "success" as const : "failed" as const,
           attemptCount: 1,
+          // C15: a failed FIRST delivery must enter the retry schedule so the
+          // webhookRetry worker picks it up (attempt 2 = +1 minute backoff).
+          nextRetryAt: success ? null : scheduleRetry(1),
           deliveredAt: success ? new Date() : null,
           createdAt: new Date(),
         });
@@ -228,7 +242,10 @@ export async function dispatchWebhookEvent(
         logger.error("[webhookEvents] Failed to log delivery:", dbErr);
       }
 
-      // Also dispatch via middleware for Kafka fan-out + Lakehouse audit
+      // H19: the direct POST above is THE delivery path — exactly one HTTP
+      // delivery per endpoint per event. The middleware bridge is used ONLY
+      // for Kafka fan-out + Lakehouse audit; targetUrl is stripped so the
+      // bridge can never re-POST to the merchant endpoint.
       try {
         await deliverWebhookViaMiddleware({
           deliveryId: `del_${crypto.randomBytes(8).toString("hex")}`,
@@ -236,7 +253,7 @@ export async function dispatchWebhookEvent(
           merchantId: payload.merchantId,
           eventType: payload.event,
           payload: JSON.parse(payloadStr) as Record<string, unknown>,
-          targetUrl: endpoint.url,
+          targetUrl: "",
           secret: endpoint.secret ?? "default-secret",
         });
       } catch {

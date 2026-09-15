@@ -329,10 +329,56 @@ export async function getTransactionStats(merchantId: string, from?: Date, to?: 
     .where(where);
   const total = Number(row?.totalTransactions ?? 0);
   const success = Number(row?.successCount ?? 0);
+  const grossVolume = Number(row?.totalVolume ?? 0);
+
+  // M10: net volume = completed volume − processed refunds − lost chargebacks.
+  // Refunds with NULL amount_kobo mean "full remaining balance" and cannot be
+  // priced here — count only priced refunds (fail loud via refund stats, never
+  // fabricate a number for unpriced ones).
+  let processedRefunds = 0;
+  let lostChargebacks = 0;
+  try {
+    const refundConds = [
+      eq(schema.refunds.merchantId, merchantId),
+      eq(schema.refunds.status, "processed"),
+    ];
+    if (from) refundConds.push(gte(schema.refunds.createdAt, from));
+    if (to) refundConds.push(lte(schema.refunds.createdAt, to));
+    const [refundRow] = await database
+      .select({
+        processedRefunds: sql<string>`coalesce(sum(${schema.refunds.amountKobo}), 0)`,
+      })
+      .from(schema.refunds)
+      .where(and(...refundConds));
+    processedRefunds = Number(refundRow?.processedRefunds ?? 0);
+
+    const cbConds = [
+      eq(schema.chargebacks.merchantId, merchantId),
+      eq(schema.chargebacks.status, "lost"),
+    ];
+    if (from) cbConds.push(gte(schema.chargebacks.createdAt, from));
+    if (to) cbConds.push(lte(schema.chargebacks.createdAt, to));
+    const [cbRow] = await database
+      .select({
+        lostChargebacks: sql<string>`coalesce(sum(${schema.chargebacks.amountKobo}), 0)`,
+      })
+      .from(schema.chargebacks)
+      .where(and(...cbConds));
+    lostChargebacks = Number(cbRow?.lostChargebacks ?? 0);
+  } catch (err) {
+    // refunds/chargebacks tables may predate migration 0095/0104 — degrade to
+    // net == gross with a loud log rather than breaking the analytics endpoint.
+    console.warn(`[db] netVolume components unavailable (netVolume=grossVolume): ${err instanceof Error ? err.message : err}`);
+  }
+
   return {
     totalTransactions: total,
-    totalVolume: Number(row?.totalVolume ?? 0),
+    totalVolume: grossVolume,
     totalFees: Number(row?.totalFees ?? 0),
+    // M10: additive net metrics — gross fields above are unchanged.
+    netVolume: grossVolume - processedRefunds - lostChargebacks,
+    processedRefunds,
+    lostChargebacks,
     successCount: success,
     failedCount: Number(row?.failedCount ?? 0),
     pendingCount: Number(row?.pendingCount ?? 0),

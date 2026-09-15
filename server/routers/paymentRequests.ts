@@ -17,7 +17,7 @@
  * (alertSubscriptions.ts pattern).
  */
 import { z } from "zod";
-import { randomUUID, createHash, timingSafeEqual } from "crypto";
+import { randomUUID, createHash, createHmac, timingSafeEqual } from "crypto";
 import { sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -113,8 +113,20 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
+/**
+ * H23: OTPs are 6 digits — plain SHA-256 is trivially rainbow-tableable.
+ * Hash with HMAC-SHA256 keyed by a server secret. FAILS LOUD when no secret
+ * is configured (never silently downgrade to a keyless hash).
+ */
 export function hashOtp(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
+  const secret = process.env.TRANSFER_OTP_HMAC_SECRET ?? process.env.INTERNAL_API_KEY ?? "";
+  if (!secret) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "TRANSFER_OTP_HMAC_SECRET (or INTERNAL_API_KEY) is not configured — cannot hash OTPs",
+    });
+  }
+  return createHmac("sha256", secret).update(code).digest("hex");
 }
 
 // ─── payment request domain helpers ─────────────────────────────────────────
@@ -474,12 +486,30 @@ export const paymentRequestsRouter = router({
     const merchantId = await resolveMerchantId(ctx.user.openId);
     const row = await getRequestForMerchant(db, merchantId, input.id);
     if (row.status === "archived") return row;
+    // M4: only drafts or never-paid pending requests may be archived. A
+    // partially/fully paid request is financial history — refusing to archive
+    // it keeps collected money visible.
+    const paidSoFar = BigInt(row.amount_paid_kobo ?? 0);
+    const archivable = row.status === "draft" || (row.status === "pending" && paidSoFar === 0n);
+    if (!archivable) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `Cannot archive a payment request in status '${row.status}' with ${paidSoFar} kobo already paid — only draft or unpaid pending requests can be archived`,
+      });
+    }
+    // Guarded update: re-assert the archivable condition atomically so a
+    // concurrent payment cannot be hidden by this archive.
     const upd = await db.execute(sql`
       UPDATE payment_requests SET status = 'archived', updated_at = now()
       WHERE id = ${row.id}
+        AND (status = 'draft' OR (status = 'pending' AND amount_paid_kobo = 0))
       RETURNING *
     `);
-    return rowsOf(upd)[0];
+    const updated = rowsOf(upd)[0];
+    if (!updated) {
+      throw new TRPCError({ code: "CONFLICT", message: "Payment request changed concurrently — archive refused" });
+    }
+    return updated;
   }),
 
   recordOfflinePayment: protectedProcedure.input(z.object({
@@ -506,26 +536,39 @@ export const paymentRequestsRouter = router({
         if (row.status === "archived") throw new TRPCError({ code: "CONFLICT", message: "Cannot pay an archived payment request" });
         if (row.status === "draft") throw new TRPCError({ code: "CONFLICT", message: "Cannot pay a draft payment request" });
 
-        const alreadyPaid = BigInt(row.amount_paid_kobo);
-        const total = BigInt(row.amount_kobo);
-        const incoming = BigInt(input.amount);
-        const newPaid = alreadyPaid + incoming;
-        if (newPaid > total) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Payment of ${input.amount} kobo exceeds pending amount ${total - alreadyPaid} kobo` });
-        }
-        const full = newPaid === total;
+        // H17: ONE guarded UPDATE performs the accumulation, the overpayment
+        // check and the status flip atomically (bigint in Postgres — no
+        // read-modify-write race). 0 rows → overpayment or a concurrent
+        // status change; the payment is rejected, never silently dropped.
+        const paidAt = input.paid_at ?? new Date().toISOString();
         const upd = await db.execute(sql`
           UPDATE payment_requests SET
             amount_paid_kobo = amount_paid_kobo + ${input.amount},
             pending_amount_kobo = amount_kobo - (amount_paid_kobo + ${input.amount}),
-            paid = ${full},
-            paid_at = ${full ? (input.paid_at ?? new Date().toISOString()) : null},
-            status = ${full ? "success" : "pending"},
+            paid = (amount_paid_kobo + ${input.amount} = amount_kobo),
+            paid_at = CASE
+              WHEN amount_paid_kobo + ${input.amount} = amount_kobo THEN ${paidAt}
+              ELSE paid_at
+            END,
+            status = CASE
+              WHEN amount_paid_kobo + ${input.amount} = amount_kobo THEN 'success'
+              ELSE 'pending'
+            END,
             updated_at = now()
           WHERE id = ${row.id}
+            AND status = 'pending'
+            AND amount_paid_kobo + ${input.amount} <= amount_kobo
           RETURNING *
         `);
         const updated = rowsOf(upd)[0];
+        if (!updated) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Payment of ${input.amount} kobo rejected: it would exceed the pending amount, or the request changed status concurrently`,
+          });
+        }
+        // paid/success is derived from the RETURNED row, not local math.
+        const full = updated.status === "success" || updated.paid === true;
         if (full) {
           await emitEvent(PAYMENTREQUEST_SUCCESS, merchantId, {
             paymentRequestId: updated.id,

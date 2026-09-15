@@ -3,7 +3,11 @@
  * controls parity tests. Mocking pattern follows paymentRequests.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createHash } from 'crypto';
+import { createHmac } from 'crypto';
+
+/** H23: OTPs are HMAC-SHA256 hashed with a server secret (set in beforeEach). */
+const OTP_SECRET = 'test-otp-hmac-secret';
+const otpHash = (code: string) => createHmac('sha256', OTP_SECRET).update(code).digest('hex');
 
 // ─── hoisted mock state ───────────────────────────────────────────────────────
 const h = vi.hoisted(() => ({
@@ -107,6 +111,7 @@ beforeEach(() => {
   h.merchant = { id: 'merch_1', ownerId: 99, tenantId: 'ten_default' };
   h.novuKey = 'test-novu-key';
   h.nibssKey = 'test-nibss-key';
+  process.env.TRANSFER_OTP_HMAC_SECRET = OTP_SECRET;
   h.fetchImpl = async () => ({ ok: true, status: 202, json: async () => ({}), text: async () => '' } as any);
   vi.stubGlobal('fetch', (...a: any[]) => {
     h.fetchCalls.push(a);
@@ -292,11 +297,11 @@ describe('transfer OTP controls', () => {
     const otp: string = body.payload.otp;
     expect(otp).toMatch(/^\d{6}$/);
 
-    // Finalize with wrong OTP → rejected.
+    // Finalize with wrong OTP → rejected (attempt recorded).
     const wrong = otp === '000000' ? '000001' : '000000';
     h.execQueue.push({
       match: 'FROM merchant_transfer_otp_challenges',
-      rows: [{ id: 'chal_1', code_hash: createHash('sha256').update(otp).digest('hex') }],
+      rows: [{ id: 'chal_1', code_hash: otpHash(otp), attempts: 0 }],
     });
     await expect(caller().finalizeDisableOtp({ otp: wrong }))
       .rejects.toMatchObject({ code: 'UNAUTHORIZED' });
@@ -305,7 +310,7 @@ describe('transfer OTP controls', () => {
     h.execQueue.push(
       {
         match: 'FROM merchant_transfer_otp_challenges',
-        rows: [{ id: 'chal_1', code_hash: createHash('sha256').update(otp).digest('hex') }],
+        rows: [{ id: 'chal_1', code_hash: otpHash(otp), attempts: 1 }],
       },
       { match: 'UPDATE merchant_transfer_otp_challenges', rows: [] }, // consume
       { match: 'UPDATE merchant_transfer_settings', rows: [{ merchant_id: 'merch_1', otp_required: false }] },
@@ -318,6 +323,32 @@ describe('transfer OTP controls', () => {
     h.execQueue.push({ match: 'FROM merchant_transfer_otp_challenges', rows: [] });
     await expect(caller().finalizeDisableOtp({ otp: '123456' }))
       .rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('H23: the 5th failed attempt locks the challenge (treated as consumed)', async () => {
+    h.execQueue.push({
+      match: 'FROM merchant_transfer_otp_challenges',
+      rows: [{ id: 'chal_9', code_hash: otpHash('654321'), attempts: 4 }],
+    });
+    await expect(caller().finalizeDisableOtp({ otp: '000000' }))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED', message: expect.stringMatching(/locked/i) });
+    const lockUpdate = h.execCalls.find((c) => c.includes('UPDATE merchant_transfer_otp_challenges'));
+    expect(lockUpdate).toBeTruthy();
+
+    // A locked challenge (attempts >= 5) rejects even the CORRECT OTP.
+    h.execQueue.push({
+      match: 'FROM merchant_transfer_otp_challenges',
+      rows: [{ id: 'chal_9', code_hash: otpHash('654321'), attempts: 5 }],
+    });
+    await expect(caller().finalizeDisableOtp({ otp: '654321' }))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED', message: expect.stringMatching(/locked/i) });
+  });
+
+  it('H23: OTP hashing fails loud when no server secret is configured', async () => {
+    delete process.env.TRANSFER_OTP_HMAC_SECRET;
+    delete process.env.INTERNAL_API_KEY;
+    const { hashOtp } = await import('./paymentRequests');
+    expect(() => hashOtp('123456')).toThrowError(/TRANSFER_OTP_HMAC_SECRET/);
   });
 
   it('enableOtp re-enables and getTransferSettings returns the row', async () => {

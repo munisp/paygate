@@ -128,10 +128,27 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+// ─── M15: boot-time env hard checks (degraded-liveness tracking) ─────────────
+// Reasons the process considers itself degraded at boot. /healthz stays 200
+// (liveness must not crash-loop the pod) but reports degraded:true + reasons.
+const bootDegradedReasons: string[] = [];
+
 async function startServer() {
   // Fail closed on missing critical configuration (production) and warn
   // loudly about unconfigured integrations everywhere else.
   validateServerEnv();
+
+  // M15: in production a missing Stripe webhook secret means verified Stripe
+  // events can NEVER be processed — that is a loud boot error and marks the
+  // instance degraded (not fatal: the rest of the API still serves).
+  if (process.env.NODE_ENV === "production" && !ENV.stripeWebhookSecret) {
+    console.error(
+      "[boot] ERROR: NODE_ENV=production but STRIPE_WEBHOOK_SECRET is unset — " +
+      "POST /api/webhooks/stripe will 503 and Stripe events will NOT be processed. " +
+      "Set STRIPE_WEBHOOK_SECRET before sending live Stripe traffic to this instance."
+    );
+    bootDegradedReasons.push("STRIPE_WEBHOOK_SECRET unset");
+  }
 
   const app = express();
   const server = createServer(app);
@@ -186,7 +203,13 @@ async function startServer() {
   // the DB is down) is the readinessProbe; using a dependency-aware probe for
   // liveness crash-loops pods during a DB outage for no benefit.
   app.get("/healthz", (_req, res) => {
-    res.status(200).json({ status: "alive", timestamp: new Date().toISOString() });
+    // M15: stays 200 (liveness) but surfaces boot-degraded state.
+    res.status(200).json({
+      status: bootDegradedReasons.length > 0 ? "degraded" : "alive",
+      degraded: bootDegradedReasons.length > 0,
+      degradedReasons: bootDegradedReasons,
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // ── Health probe (Dockerfile HEALTHCHECK + k8s readiness) ────────────────
@@ -196,10 +219,11 @@ async function startServer() {
       const db = await getDb();
       await db.execute(sql`SELECT 1`);
       res.status(200).json({
-        status: bridge.degraded ? "degraded" : "ok",
+        status: bridge.degraded || bootDegradedReasons.length > 0 ? "degraded" : "ok",
         db: "up",
         bridge: bridge.degraded ? "degraded" : "up",
         bridgeFailuresInWindow: bridge.failuresInWindow,
+        degradedReasons: bootDegradedReasons,
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
@@ -444,6 +468,16 @@ async function gracefulShutdown(signal: string, server: Server): Promise<void> {
   // 2. Stop cron / background workers.
   stopBackgroundWorkers();
 
+  // 2b. C9: drain in-flight Stripe webhook event processors before tearing
+  // down connections — a processor mid-credit must finish writing its row.
+  try {
+    const { drainStripeEventProcessors } = await import("../stripe");
+    await drainStripeEventProcessors(10_000);
+    console.info("[shutdown] Stripe event processors drained");
+  } catch (err) {
+    console.warn("[shutdown] Stripe processor drain failed:", err instanceof Error ? err.message : err);
+  }
+
   // 3. Close Redis.
   try {
     const { getRedis } = await import("../redisClient");
@@ -458,9 +492,15 @@ async function gracefulShutdown(signal: string, server: Server): Promise<void> {
     console.warn("[shutdown] Redis close failed:", err instanceof Error ? err.message : err);
   }
 
-  // 4. Kafka: the producer registers its own beforeExit disconnect hook in
-  // kafkaClient.ts; consumer stop handles are returned per-startConsumer call.
-  console.info("[shutdown] Kafka producer disconnect delegated to kafkaClient beforeExit hook");
+  // 4. M14: disconnect the Kafka producer EXPLICITLY — the beforeExit hook in
+  // kafkaClient.ts never fires on a SIGTERM-driven shutdown, which leaked the
+  // producer socket (and its in-flight idempotent produce requests).
+  try {
+    const { disconnectKafkaProducer } = await import("../kafkaClient");
+    await disconnectKafkaProducer();
+  } catch (err) {
+    console.warn("[shutdown] Kafka producer disconnect failed:", err instanceof Error ? err.message : err);
+  }
 
   // 5. Close the Postgres pool.
   try {
