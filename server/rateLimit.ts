@@ -252,14 +252,22 @@ export function expressRateLimit(opts: RateLimitOptions = {}): RequestHandler {
  */
 const FINANCIAL_TRPC_PREFIXES = new Set([
   "payout", "payouts",
-  "wallet", "wallets", "multiWallet",
+  "wallet", "wallets", "multiWallet", "walletPay",
   "ledger", "tigerbeetle",
   "settlement", "settlements",
   "transaction", "transactions", "tx",
   "billing", "billingExt", "portalBilling", "nexthubBilling",
   "chargeback", "chargebacks", "chargebackLifecycle",
   "dispute", "disputes",
-  "transfer", "transfers",
+  "transfer", "transfers", "transferRecipients",
+  "refunds",
+  "paymentRequests",
+  "hostedCheckout",
+  "dedicatedAccounts", "dva",
+  "splitEngine",
+  "subscriptionExtras",
+  "ecommerce",
+  "directDebit",
   "fx", "crossborder", "corridor",
   "usdc", "crypto",
   "escrow", "bnpl", "sip",
@@ -277,14 +285,76 @@ const EXPORT_TRPC_PREFIXES = new Set(["export", "reports", "regulatoryReports"])
 
 /** First path segment (procedure router name) of each procedure in a batch. */
 function trpcProcedurePrefixes(req: Request): string[] {
+  return trpcProcedureNames(req)
+    .map(p => p.split(".")[0]?.trim())
+    .filter((p): p is string => Boolean(p));
+}
+
+/** Full "<router>.<method>" name of each procedure in a (possibly batched) call. */
+function trpcProcedureNames(req: Request): string[] {
   // After app.use("/api/trpc", …), req.path is "/<proc1>,<proc2>,…" (tRPC batch)
   // or "/<proc>". Each procedure is "<router>.<method>".
   const raw = req.path.replace(/^\/+/, "");
   if (!raw) return [];
   return raw
     .split(",")
+    .map(p => p.trim())
+    .filter(Boolean);
+}
+
+// ─── H24: OTP finalize/verify strict bucket ───────────────────────────────────
+/**
+ * Any procedure whose name touches OTP finalize/verify/submit (e.g.
+ * transfer.finalizeDisableOtp, charge.submit_otp / submitOtp) gets a dedicated
+ * strict bucket (5/min/IP) — OTP endpoints are credential-verification paths
+ * and must not share the generous financial/mutation budgets.
+ */
+const OTP_TRPC_PATTERN = /otp/i;
+
+// ─── H24: public hosted-checkout bucket ───────────────────────────────────────
+/** Unauthenticated checkout money paths — keyed by IP+merchantId (see below). */
+const PUBLIC_CHECKOUT_PROCS = new Set([
+  "hostedCheckout.initiatePayment",
+  "hostedCheckout.confirmPayment",
+]);
+
+/**
+ * Best-effort extraction of merchantId(s) from a parsed tRPC request body.
+ * Body shapes: { input: {...} } or batched { "0": { input: {...} }, ... }.
+ * Returns [] when the body was not parsed upstream (fail-safe: "unknown" key).
+ */
+function extractMerchantIds(body: unknown): string[] {
+  const ids = new Set<string>();
+  const visit = (v: any, depth: number) => {
+    if (!v || typeof v !== "object" || depth > 4) return;
+    if (typeof v.merchantId === "string" && v.merchantId) ids.add(v.merchantId.slice(0, 128));
+    for (const k of Object.keys(v)) {
+      if (k === "input" || k === "json" || /^\d+$/.test(k)) visit(v[k], depth + 1);
+    }
+  };
+  visit(body, 0);
+  return Array.from(ids);
+}
+
+/**
+ * H24 bucket classification for a tRPC-over-HTTP request. Exported for unit
+ * tests. `procedures` are full "<router>.<method>" names (empty for reads).
+ */
+export type TrpcBucket = "read" | "otp" | "export" | "payout" | "checkout" | "financial" | "mutation";
+export function classifyTrpcRequest(method: string, procedures: string[]): TrpcBucket {
+  if (method !== "POST" && method !== "PUT" && method !== "PATCH" && method !== "DELETE") {
+    return "read";
+  }
+  const prefixes = procedures
     .map(p => p.split(".")[0]?.trim())
     .filter((p): p is string => Boolean(p));
+  // OTP finalize/verify paths are the most sensitive — classify first.
+  if (procedures.some(p => OTP_TRPC_PATTERN.test(p))) return "otp";
+  if (procedures.some(p => PUBLIC_CHECKOUT_PROCS.has(p))) return "checkout";
+  if (prefixes.some(p => EXPORT_TRPC_PREFIXES.has(p))) return "export";
+  if (prefixes.some(p => PAYOUT_TRPC_PREFIXES.has(p))) return "payout";
+  if (prefixes.some(p => FINANCIAL_TRPC_PREFIXES.has(p))) return "financial";
+  return "mutation";
 }
 
 /**
@@ -303,22 +373,39 @@ function trpcProcedurePrefixes(req: Request): string[] {
 export function trpcApiRateLimit(): RequestHandler {
   const buckets = {
     read: expressRateLimit({ max: 300, windowMs: 60_000, keyPrefix: "trpc:read" }),
+    otp: expressRateLimit({ max: 5, windowMs: 60_000, keyPrefix: "trpc:otp" }),
     export: expressRateLimit({ max: 5, windowMs: 60_000, keyPrefix: "trpc:export" }),
     payout: expressRateLimit({ max: 10, windowMs: 60_000, keyPrefix: "trpc:payout" }),
     financial: expressRateLimit({ max: 20, windowMs: 60_000, keyPrefix: "trpc:financial" }),
     mutation: expressRateLimit({ max: 100, windowMs: 60_000, keyPrefix: "trpc:mutation" }),
   } as const;
 
-  return function trpcApiRateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
-    // tRPC mutations arrive as POST, queries as GET.
-    if (req.method !== "POST" && req.method !== "PUT" && req.method !== "PATCH" && req.method !== "DELETE") {
-      return buckets.read(req, res, next);
+  // Public checkout limiters are keyed by IP+merchantId, so one merchant's
+  // checkout traffic cannot exhaust another merchant's budget. Limiters are
+  // cached per merchantId (bounded — stale entries are evicted FIFO).
+  const checkoutLimiters = new Map<string, RequestHandler>();
+  const CHECKOUT_MAX_KEYS = 1000;
+  const checkoutBucket = (merchantId: string): RequestHandler => {
+    let l = checkoutLimiters.get(merchantId);
+    if (!l) {
+      if (checkoutLimiters.size >= CHECKOUT_MAX_KEYS) {
+        const oldest = checkoutLimiters.keys().next().value;
+        if (oldest !== undefined) checkoutLimiters.delete(oldest);
+      }
+      l = expressRateLimit({ max: 20, windowMs: 60_000, keyPrefix: `trpc:checkout:${merchantId}` });
+      checkoutLimiters.set(merchantId, l);
     }
-    const prefixes = trpcProcedurePrefixes(req);
-    if (prefixes.some(p => EXPORT_TRPC_PREFIXES.has(p))) return buckets.export(req, res, next);
-    if (prefixes.some(p => PAYOUT_TRPC_PREFIXES.has(p))) return buckets.payout(req, res, next);
-    if (prefixes.some(p => FINANCIAL_TRPC_PREFIXES.has(p))) return buckets.financial(req, res, next);
-    return buckets.mutation(req, res, next);
+    return l;
+  };
+
+  return function trpcApiRateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
+    const names = trpcProcedureNames(req);
+    const bucket = classifyTrpcRequest(req.method, names);
+    if (bucket === "checkout") {
+      const merchantIds = extractMerchantIds((req as any).body);
+      return checkoutBucket(merchantIds[0] ?? "unknown")(req, res, next);
+    }
+    return buckets[bucket](req, res, next);
   };
 }
 
