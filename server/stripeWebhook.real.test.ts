@@ -73,10 +73,15 @@ vi.mock("./db", async (importOriginal) => {
         };
         return {
           returning: async () => doInsert(),
+          // C9: stripe_webhook_events durability insert (migration 0104) —
+          // accepted by the fake without touching wallet state.
+          onConflictDoNothing: async () => [],
           then: (res: any, rej: any) => Promise.resolve().then(() => { doInsert(); return []; }).then(res, rej),
         };
       },
     }),
+    // C9: processStoredStripeEvent records status via raw sql execute.
+    execute: async () => ({ rows: [] }),
     update: (table: any) => ({
       set: (v: any) => ({
         where: async () => {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	tb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 	"github.com/google/uuid"
 	"github.com/paygate/go-bridge/internal/fluvio"
 	"time"
@@ -284,10 +285,63 @@ func P2PTransfer(w http.ResponseWriter, r *http.Request) {
 
 	// Atomic transfer: sender → receiver
 	transferID := tb.ReferenceToID(req.Reference)
-	if err := client.Transfer(transferID, senderID, receiverID, req.Amount, ledger, tb.CodeWallet); err != nil {
-		slog.Error("P2P transfer", "err", err, "ref", req.Reference)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("p2p transfer failed: %v", err))
-		return
+
+	// C5: map TigerBeetle result codes to precise HTTP semantics instead of a
+	// blanket 500:
+	//   - exists           → 200 idempotent replay of the original transfer
+	//                        (reference-derived transfer ID == original)
+	//   - exceeds_credits  → 402 insufficient funds (wallet accounts are
+	//                        created with debits_must_not_exceed_credits)
+	// The reference idempotency contract is preserved: same reference ⇒ same
+	// deterministic transfer ID.
+	if twr, ok := client.(interface {
+		TransferWithResult(
+			transferID tb_types.Uint128,
+			debitAccountID tb_types.Uint128,
+			creditAccountID tb_types.Uint128,
+			amount uint64,
+			ledger uint32,
+			code uint16,
+		) (tb.TransferResult, error)
+	}); ok {
+		result, err := twr.TransferWithResult(transferID, senderID, receiverID, req.Amount, ledger, tb.CodeWallet)
+		if err != nil {
+			slog.Error("P2P transfer", "err", err, "ref", req.Reference)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("p2p transfer failed: %v", err))
+			return
+		}
+		switch result {
+		case tb_types.TransferOK:
+			// applied — fall through to success response below
+		case tb_types.TransferExists:
+			// Idempotent replay: the original transfer with this reference
+			// already exists. Return the original outcome (200).
+			slog.Info("p2p transfer idempotent replay", "ref", req.Reference)
+			senderBal, _ := client.GetBalance(senderID)
+			receiverBal, _ := client.GetBalance(receiverID)
+			writeJSON(w, http.StatusOK, types.P2PResponse{
+				TransferID:         transferID.String(),
+				SenderNewBalance:   senderBal,
+				ReceiverNewBalance: receiverBal,
+				Status:             "transferred",
+			})
+			return
+		case tb_types.TransferExceedsCredits:
+			slog.Warn("p2p transfer insufficient funds", "ref", req.Reference, "sender", req.SenderWalletID, "amount", req.Amount)
+			writeError(w, http.StatusPaymentRequired, "insufficient funds")
+			return
+		default:
+			slog.Error("P2P transfer rejected by ledger", "result", result, "ref", req.Reference)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("p2p transfer failed: ledger result %v", result))
+			return
+		}
+	} else {
+		// Mock client (tests): no result-code surface — legacy path.
+		if err := client.Transfer(transferID, senderID, receiverID, req.Amount, ledger, tb.CodeWallet); err != nil {
+			slog.Error("P2P transfer", "err", err, "ref", req.Reference)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("p2p transfer failed: %v", err))
+			return
+		}
 	}
 
 	senderBal, _ := client.GetBalance(senderID)

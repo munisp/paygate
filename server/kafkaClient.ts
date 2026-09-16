@@ -89,6 +89,21 @@ async function getProducer() {
   return _producer;
 }
 
+/**
+ * M14: explicitly disconnect the shared producer during graceful shutdown
+ * (server/_core/index.ts gracefulShutdown calls this) instead of relying on
+ * the beforeExit hook — beforeExit never fires on SIGTERM-driven exit paths.
+ * Idempotent; safe to call when no producer was ever created.
+ */
+export async function disconnectKafkaProducer(): Promise<void> {
+  const producer = _producer;
+  _producer = null;
+  if (producer) {
+    await producer.disconnect();
+    console.info("[kafka] producer disconnected");
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
