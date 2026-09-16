@@ -77,6 +77,29 @@ export interface ApplySplitInput {
    * feeKobo as the total flat fee charged on this transaction.
    */
   transactionChargeKobo?: number;
+  /**
+   * Optional ISO currency of the payment being split (H18). Pure math is
+   * currency-agnostic; recordSplitSettlement/previewSplit validate it loudly
+   * against the split group's currency.
+   */
+  currency?: string;
+}
+
+/**
+ * Hard cap for flat member sums (kobo). Anything larger cannot be represented
+ * safely in double-precision integers (M16) — reject instead of overflowing.
+ */
+export const MAX_SPLIT_SUM_KOBO = Number.MAX_SAFE_INTEGER;
+
+/** Validate flat member sums against the representability cap (createGroup + addMember). */
+export function validateFlatSumWithinCap(members: SplitPartyInput[]): void {
+  const total = members.reduce((a, m) => a + m.share, 0);
+  if (!Number.isSafeInteger(total) || total > MAX_SPLIT_SUM_KOBO) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Flat split member shares sum to ${total}k which exceeds the safe cap of ${MAX_SPLIT_SUM_KOBO}k`,
+    });
+  }
 }
 
 export interface SplitAllocation {
@@ -117,16 +140,32 @@ async function resolveMerchantId(openId: string): Promise<string> {
  */
 export function applySplit(input: ApplySplitInput): ApplySplitResult {
   const { amountKobo, type, bearerType, subaccounts } = input;
-  if (!Number.isInteger(amountKobo) || amountKobo <= 0) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "amountKobo must be a positive integer" });
+  // M16: reject anything outside the safe-integer range, then compute in BIGINT
+  // internally so amounts approaching 2^53 never lose precision.
+  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "amountKobo must be a positive safe integer (kobo)" });
   }
   const charge = input.transactionChargeKobo ?? input.feeKobo ?? 0;
-  if (charge < 0 || !Number.isInteger(charge)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "charge must be a non-negative integer kobo" });
+  if (charge < 0 || !Number.isSafeInteger(charge)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "charge must be a non-negative safe integer kobo" });
+  }
+  for (const s of subaccounts) {
+    if (!Number.isSafeInteger(s.share) || s.share < 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `share for '${s.ref}' must be a non-negative safe integer` });
+    }
+  }
+  const amount = BigInt(amountKobo);
+  const chargeB = BigInt(charge);
+  // C4: a charge larger than the payment itself can only mint money — reject.
+  if (chargeB > amount) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Charge ${charge}k exceeds the transaction amount ${amountKobo}k — refusing to apply the split`,
+    });
   }
 
-  // ── 1. Gross allocations (floored) ────────────────────────────────────────
-  let gross: number[];
+  // ── 1. Gross allocations (floored, bigint) ───────────────────────────────
+  let gross: bigint[];
   if (type === "percentage") {
     const totalBps = subaccounts.reduce((a, s) => a + s.share, 0);
     if (totalBps > PERCENTAGE_TOTAL_BPS) {
@@ -135,7 +174,7 @@ export function applySplit(input: ApplySplitInput): ApplySplitResult {
         message: `Percentage shares sum to ${totalBps}bps (> ${PERCENTAGE_TOTAL_BPS}bps = 100%)`,
       });
     }
-    gross = subaccounts.map((s) => Math.floor((amountKobo * s.share) / PERCENTAGE_TOTAL_BPS));
+    gross = subaccounts.map((s) => (amount * BigInt(s.share)) / BigInt(PERCENTAGE_TOTAL_BPS));
   } else {
     const totalFlat = subaccounts.reduce((a, s) => a + s.share, 0);
     if (totalFlat > amountKobo) {
@@ -144,17 +183,17 @@ export function applySplit(input: ApplySplitInput): ApplySplitResult {
         message: `Flat shares sum to ${totalFlat}k which exceeds the transaction amount ${amountKobo}k`,
       });
     }
-    gross = subaccounts.map((s) => s.share);
+    gross = subaccounts.map((s) => BigInt(s.share));
   }
-  const subsGrossTotal = gross.reduce((a, b) => a + b, 0);
-  const mainGross = amountKobo - subsGrossTotal; // absorbs rounding remainder
+  const subsGrossTotal = gross.reduce((a, b) => a + b, 0n);
+  const mainGross = amount - subsGrossTotal; // absorbs rounding remainder
 
   // ── 2. Charge distribution across parties (index n = main) ───────────────
   const n = subaccounts.length;
-  const feeShares = new Array<number>(n + 1).fill(0);
-  if (charge > 0) {
+  const feeShares = new Array<bigint>(n + 1).fill(0n);
+  if (chargeB > 0n) {
     if (bearerType === "account") {
-      feeShares[n] = charge;
+      feeShares[n] = chargeB;
     } else if (bearerType === "subaccount") {
       const idx = subaccounts.findIndex((s) => s.ref === input.bearerSubaccountRef);
       if (idx === -1) {
@@ -163,47 +202,72 @@ export function applySplit(input: ApplySplitInput): ApplySplitResult {
           message: `bearer_type=subaccount requires bearerSubaccountRef matching a member (got '${input.bearerSubaccountRef ?? "none"}')`,
         });
       }
-      feeShares[idx] = charge;
+      // C4: a single bearer can never be charged more than its gross — the
+      // shortfall would otherwise be fabricated out of thin air by the main account.
+      if (chargeB > gross[idx]) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            `bearer_type=subaccount: charge ${charge}k exceeds bearer '${input.bearerSubaccountRef}' ` +
+            `gross ${Number(gross[idx])}k — refusing to apply the split`,
+        });
+      }
+      feeShares[idx] = chargeB;
     } else if (bearerType === "all") {
-      const each = Math.floor(charge / (n + 1));
+      const parties = BigInt(n + 1);
+      const each = chargeB / parties;
       for (let i = 0; i <= n; i++) feeShares[i] = each;
-      feeShares[n] += charge - each * (n + 1); // remainder → main
+      feeShares[n] += chargeB - each * parties; // remainder → main
     } else {
       // all_proportional — pro-rata to gross, remainder → main
       const weights = [...gross, mainGross];
-      const weightTotal = weights.reduce((a, b) => a + b, 0);
-      let assigned = 0;
+      const weightTotal = weights.reduce((a, b) => a + b, 0n);
+      let assigned = 0n;
       for (let i = 0; i <= n; i++) {
-        feeShares[i] = weightTotal === 0 ? 0 : Math.floor((charge * weights[i]) / weightTotal);
+        feeShares[i] = weightTotal === 0n ? 0n : (chargeB * weights[i]) / weightTotal;
         assigned += feeShares[i];
       }
-      feeShares[n] += charge - assigned;
+      feeShares[n] += chargeB - assigned;
     }
   }
 
-  // ── 3. Net amounts; clamp at zero ─────────────────────────────────────────
-  // The charge is deducted from its bearer(s) and credited to the MAIN account
-  // (the platform/main account collects transaction charges), so allocations
-  // always sum EXACTLY to amountKobo: main is the residual sink.
+  // ── 3. Net amounts — COLLECTED fees only, never the nominal charge ────────
+  // C4 (money-mint fix): a bearer's fee share is clamped at its gross; the MAIN
+  // account is credited ONLY with what was actually withheld from subaccounts
+  // (sum of per-party collected amounts) plus its own retained gross. Crediting
+  // the full nominal charge while clamping the bearer's net at zero would
+  // fabricate money. The main account's own fee share is a wash (borne and
+  // collected by itself), so it never changes main's net.
   const allocations: SplitAllocation[] = [];
-  let subsNetTotal = 0;
+  let collectedSubs = 0n;
   for (let i = 0; i < n; i++) {
     const fee = feeShares[i];
-    const net = Math.max(0, gross[i] - fee);
-    subsNetTotal += net;
-    allocations.push({ ref: subaccounts[i].ref, grossKobo: gross[i], feeKobo: fee, netKobo: net });
-  }
-  const mainFee = feeShares[n];
-  const mainNet = mainGross - mainFee + charge;
-  if (mainNet < 0) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message:
-        `Charge ${charge}k plus subaccount shares exceed the transaction amount ` +
-        `${amountKobo}k — split cannot be applied without driving the main account negative`,
+    const collected = fee > gross[i] ? gross[i] : fee; // clamp at zero net
+    const net = gross[i] - collected;
+    collectedSubs += collected;
+    allocations.push({
+      ref: subaccounts[i].ref,
+      grossKobo: Number(gross[i]),
+      feeKobo: Number(collected),
+      netKobo: Number(net),
     });
   }
-  allocations.push({ ref: "MAIN", grossKobo: mainGross, feeKobo: mainFee, netKobo: mainNet });
+  const mainNet = mainGross + collectedSubs;
+  allocations.push({
+    ref: "MAIN",
+    grossKobo: Number(mainGross),
+    feeKobo: Number(feeShares[n]),
+    netKobo: Number(mainNet),
+  });
+
+  // ── 4. Conservation invariant: Σ allocations === amountKobo (bigint) ──────
+  const sumNet = allocations.reduce((a, x) => a + BigInt(x.netKobo), 0n);
+  if (sumNet !== amount) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `Split invariant violated: allocations sum to ${sumNet}k != amount ${amount}k — refusing to settle`,
+    });
+  }
 
   return { totalKobo: amountKobo, chargeKobo: charge, bearerType, allocations };
 }
@@ -272,6 +336,12 @@ export async function recordSplitSettlement(opts: {
   amountKobo: number;
   feeKobo?: number;
   transactionChargeKobo?: number;
+  /**
+   * Optional payment currency (H18). When supplied it MUST match the split
+   * group's currency — a mismatch fails loud instead of settling NGN shares
+   * against a GHS payment.
+   */
+  currency?: string;
 }): Promise<{ splitPaymentId: string; result: ApplySplitResult }> {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -283,6 +353,12 @@ export async function recordSplitSettlement(opts: {
       message: `Active split group '${opts.splitCode}' not found for this merchant`,
     });
   }
+  if (opts.currency && group.currency.toUpperCase() !== opts.currency.toUpperCase()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Split group '${group.split_code}' is ${group.currency} but the payment currency is ${opts.currency.toUpperCase()} — refusing cross-currency settlement`,
+    });
+  }
   const members = await listMembers(db, group.id);
   const result = applySplit({
     amountKobo: opts.amountKobo,
@@ -292,6 +368,7 @@ export async function recordSplitSettlement(opts: {
     subaccounts: members.map((m) => ({ ref: m.subaccount_ref, share: Number(m.share) })),
     feeKobo: opts.feeKobo,
     transactionChargeKobo: opts.transactionChargeKobo,
+    currency: opts.currency ?? group.currency,
   });
 
   const splitPaymentId = `sp_${crypto.randomBytes(12).toString("hex")}`;
@@ -347,6 +424,7 @@ export const splitEngineRouter = router({
     .mutation(async ({ input, ctx }) => {
       const merchantId = await resolveMerchantId(ctx.user.openId);
       if (input.type === "percentage") validatePercentageSum(input.members);
+      else validateFlatSumWithinCap(input.members);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -474,6 +552,10 @@ export const splitEngineRouter = router({
             message: `Percentage split members would total ${totalBps}bps (> ${PERCENTAGE_TOTAL_BPS}bps = 100%)`,
           });
         }
+      } else {
+        // H18/M16: flat groups enforce the representability cap on EVERY edit,
+        // not just at createGroup time.
+        validateFlatSumWithinCap(nextMembers);
       }
 
       // Upsert semantics: add or update the share for this subaccount.
@@ -527,6 +609,8 @@ export const splitEngineRouter = router({
         dynamic: dynamicSplitInput.optional(),
         feeKobo: z.number().int().min(0).optional(),
         transactionChargeKobo: z.number().int().min(0).optional(),
+        /** Payment currency (H18): must match the group's currency when set. */
+        currency: z.string().length(3).optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
@@ -558,6 +642,12 @@ export const splitEngineRouter = router({
         const group = await getGroupForMerchant(db, merchantId, input.splitCode!);
         if (!group || !group.active) {
           throw new TRPCError({ code: "NOT_FOUND", message: `Active split group '${input.splitCode}' not found` });
+        }
+        if (input.currency && group.currency.toUpperCase() !== input.currency.toUpperCase()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Split group '${group.split_code}' is ${group.currency} but the payment currency is ${input.currency.toUpperCase()} — refusing cross-currency preview`,
+          });
         }
         const members = await listMembers(db, group.id);
         splitInput = {
