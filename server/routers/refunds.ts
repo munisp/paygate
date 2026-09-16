@@ -77,6 +77,8 @@ export interface RefundRow {
   expected_at: string | null;
   refunded_at: string | null;
   retry_account: unknown | null;
+  /** Stripe refund id issued/adopted on the rail (drizzle/0100). */
+  stripe_refund_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +204,19 @@ export async function transitionRefundStatus(
   return row;
 }
 
+/** Persist the issued/adopted Stripe refund id (C8) without touching status. */
+export async function setRefundStripeId(
+  db: any,
+  merchantId: string,
+  id: string,
+  stripeRefundId: string,
+): Promise<void> {
+  await db.execute(sql`
+    UPDATE refunds SET stripe_refund_id = ${stripeRefundId}, updated_at = ${new Date().toISOString()}
+    WHERE id = ${id} AND merchant_id = ${merchantId} AND stripe_refund_id IS NULL
+  `);
+}
+
 async function emitRefundEvent(
   merchantId: string,
   status: RefundStatus,
@@ -239,12 +254,144 @@ async function emitRefundEvent(
   }
 }
 
+// ─── Transaction helper ──────────────────────────────────────────────────────
+/**
+ * Run fn inside a DB transaction when the driver supports it. The unit-test
+ * fake db exposes only `execute`, so we degrade to running directly on it —
+ * production drizzle instances always take the real transaction path.
+ */
+export async function runInTx<T>(db: any, fn: (tx: any) => Promise<T>): Promise<T> {
+  if (typeof db.transaction === "function") return db.transaction(fn);
+  return fn(db);
+}
+
+// ─── Merchant wallet debit (H9 / H6c) ────────────────────────────────────────
+/**
+ * Debit the merchant's wallet inside the CALLER's transaction. The balance is
+ * allowed to go negative (amount becomes payable to the platform). A guarded
+ * UPDATE (balance re-check) plus a wallet_transactions audit row make the
+ * debit fail loud and idempotent via the (tenant_id, reference) unique key.
+ */
+export async function debitMerchantWallet(
+  db: any,
+  opts: {
+    merchantId: string;
+    amountKobo: number;
+    currency: string;
+    reason: "refund" | "chargeback" | "dispute";
+    reference: string;
+    description: string;
+  },
+): Promise<{ walletId: number; balanceBefore: string; balanceAfter: string }> {
+  const wRes = await db.execute(sql`
+    SELECT id, balance FROM wallets
+    WHERE merchant_id = ${opts.merchantId} AND currency = ${opts.currency}
+    ORDER BY id ASC LIMIT 1
+    FOR UPDATE
+  `);
+  const wallet = wRes.rows[0] as any | undefined;
+  if (!wallet) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        `No ${opts.currency} wallet found for merchant '${opts.merchantId}'; ` +
+        `cannot book ${opts.reason} debit of ${opts.amountKobo}k`,
+    });
+  }
+  const before = BigInt(wallet.balance);
+  const after = before - BigInt(opts.amountKobo);
+  const now = new Date().toISOString();
+  const upd = await db.execute(sql`
+    UPDATE wallets SET balance = ${after.toString()}, updated_at = ${now}
+    WHERE id = ${wallet.id} AND balance = ${wallet.balance}
+    RETURNING id
+  `);
+  if (!upd.rows[0]) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "Wallet balance changed concurrently — retry",
+    });
+  }
+  await db.execute(sql`
+    INSERT INTO wallet_transactions (
+      tenant_id, wallet_id, type, amount, currency,
+      balance_before, balance_after, description, reference, channel, status
+    ) VALUES (
+      ${TENANT_ID}, ${wallet.id}, ${"debit"}, ${String(opts.amountKobo)}, ${opts.currency},
+      ${before.toString()}, ${after.toString()}, ${opts.description}, ${opts.reference},
+      ${opts.reason}, ${"completed"}
+    )
+    ON CONFLICT (tenant_id, reference) DO NOTHING
+  `);
+  return { walletId: Number(wallet.id), balanceBefore: before.toString(), balanceAfter: after.toString() };
+}
+
+/**
+ * Transition a refund to processed AND debit the merchant wallet in ONE DB
+ * transaction (H9). refunded_at / deducted_amount are set on the flip and the
+ * refund.processed event is emitted by transitionRefundStatus.
+ */
+export async function markRefundProcessed(
+  db: any,
+  merchantId: string,
+  id: string,
+  opts: { amountKobo: number; currency: string },
+): Promise<RefundRow> {
+  return runInTx(db, async (tx) => {
+    const row = await transitionRefundStatus(tx, merchantId, id, "processed", {
+      deducted_amount: opts.amountKobo,
+      fully_deducted: true,
+      refunded_at: new Date().toISOString(),
+    });
+    await debitMerchantWallet(tx, {
+      merchantId,
+      amountKobo: opts.amountKobo,
+      currency: opts.currency,
+      reason: "refund",
+      reference: `refund_${id}`,
+      description: `Refund ${id} processed — merchant wallet debit`,
+    });
+    return row;
+  });
+}
+
 // ─── Rail reversal ───────────────────────────────────────────────────────────
 interface ReversalOutcome {
   ok: boolean;
   processor: string;
   expectedAt?: string;
   reason?: string;
+  /** Stripe refund id issued or adopted (C8) — stored on the refunds row. */
+  stripeRefundId?: string;
+}
+
+/**
+ * After a timeout/abort we cannot know whether Stripe created the refund.
+ * Ask Stripe (GET /v1/refunds?payment_intent=...) before parking in
+ * needs_attention; if a matching refund exists we ADOPT it instead of
+ * risking a duplicate re-issue later (C8).
+ */
+async function adoptExistingStripeRefund(
+  paymentIntentId: string,
+  amountKobo: number,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.stripe.com/v1/refunds?payment_intent=${encodeURIComponent(paymentIntentId)}&limit=10`,
+      {
+        headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return null;
+    const body: any = typeof res.json === "function" ? await res.json().catch(() => null) : null;
+    const match = (body?.data ?? []).find(
+      (r: any) => Number(r?.amount) === amountKobo && r?.status !== "failed" && r?.status !== "canceled",
+    ) ?? body?.data?.[0];
+    return match?.id ? String(match.id) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -257,6 +404,8 @@ export async function driveReversal(opts: {
   amountKobo: number;
   currency: string;
   retryAccount?: RetryAccountDetails | null;
+  /** Our refund id — drives the Stripe Idempotency-Key (C8). */
+  refundId?: string;
 }): Promise<ReversalOutcome> {
   const meta = (opts.transaction.metadata ?? {}) as Record<string, unknown>;
   const stripePaymentIntent =
@@ -269,6 +418,8 @@ export async function driveReversal(opts: {
         headers: {
           Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
           "Content-Type": "application/x-www-form-urlencoded",
+          // C8: retries with the same refund id replay safely on Stripe's side.
+          "Idempotency-Key": `refund_${opts.refundId ?? opts.transaction.reference}`,
         },
         body: new URLSearchParams({
           payment_intent: stripePaymentIntent,
@@ -284,8 +435,19 @@ export async function driveReversal(opts: {
           reason: `Stripe refund failed (HTTP ${res.status}): ${body.slice(0, 300)}`,
         };
       }
-      return { ok: true, processor: "stripe" };
+      const body: any = typeof res.json === "function" ? await res.json().catch(() => null) : null;
+      return {
+        ok: true,
+        processor: "stripe",
+        stripeRefundId: body?.id ? String(body.id) : undefined,
+      };
     } catch (err: any) {
+      // Timeout/abort: Stripe may have created the refund anyway. Adopt it if
+      // so — never park needs_attention while a rail refund is in flight.
+      const adopted = await adoptExistingStripeRefund(stripePaymentIntent, opts.amountKobo);
+      if (adopted) {
+        return { ok: true, processor: "stripe", stripeRefundId: adopted };
+      }
       return {
         ok: false,
         processor: "stripe",
@@ -352,73 +514,100 @@ export const refundsRouter = router({
       operation: "refunds.create",
       requestBody: input,
       execute: async () => {
-        // 1. Transaction must belong to this merchant and be successful.
-        const txRes = await db.execute(sql`
-          SELECT id, reference, amount, currency, status, channel, metadata
-          FROM transactions
-          WHERE reference = ${input.transactionRef} AND merchant_id = ${merchantId}
-          LIMIT 1
-        `);
-        const tx = txRes.rows[0] as any | undefined;
-        if (!tx) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Transaction '${input.transactionRef}' not found for this merchant`,
-          });
-        }
-        if (tx.status !== "success" && tx.status !== "completed") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Only successful transactions can be refunded (status='${tx.status}')`,
-          });
-        }
+        // Steps 1–3 run in ONE DB transaction. The SELECT ... FOR UPDATE on
+        // the transactions row serializes concurrent refund creates for the
+        // same transaction, so the prior-refund sum cannot be raced by a
+        // second create carrying a different idempotency key (C2).
+        const { refund, tx } = await runInTx(db, async (txDb) => {
+          // 1. Transaction must belong to this merchant and be successful.
+          const txRes = await txDb.execute(sql`
+            SELECT id, reference, amount, currency, status, channel, metadata,
+              (SELECT COUNT(*)::int FROM chargebacks c
+               WHERE (c.transaction_id = transactions.id OR c.transaction_id = transactions.reference)
+                 AND c.status IN ('open', 'under_review', 'pre_arbitration', 'arbitration')
+              ) AS open_chargebacks
+            FROM transactions
+            WHERE reference = ${input.transactionRef} AND merchant_id = ${merchantId}
+            LIMIT 1
+            FOR UPDATE OF transactions
+          `);
+          const tx = txRes.rows[0] as any | undefined;
+          if (!tx) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Transaction '${input.transactionRef}' not found for this merchant`,
+            });
+          }
+          if (tx.status !== "success" && tx.status !== "completed") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Only successful transactions can be refunded (status='${tx.status}')`,
+            });
+          }
 
-        // 2. Partial must fit within original minus prior refunds.
-        const original = Number(tx.amount);
-        const prior = await sumPriorRefunds(db, merchantId, tx.reference);
-        const remaining = original - prior;
-        const amountKobo = input.amountKobo ?? remaining;
-        if (amountKobo <= 0 || amountKobo > remaining) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              `Refund amount ${amountKobo}k exceeds refundable balance ` +
-              `${remaining}k (original ${original}k, already refunded ${prior}k)`,
-          });
-        }
+          // H27: an open chargeback already claims these funds.
+          if (Number(tx.open_chargebacks ?? 0) > 0) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                `Transaction '${input.transactionRef}' has an open chargeback; ` +
+                "refunds are blocked until the chargeback is closed.",
+            });
+          }
 
-        // 3. Persist as pending and emit refund.pending.
-        const now = new Date().toISOString();
-        const refund = await insertRefund(db, {
-          id: `ref_${crypto.randomBytes(12).toString("hex")}`,
-          merchant_id: merchantId,
-          transaction_ref: tx.reference,
-          transaction_id: tx.id,
-          amount_kobo: amountKobo,
-          currency: tx.currency ?? "NGN",
-          status: "pending",
-          merchant_note: input.merchantNote ?? null,
-          customer_note: input.customerNote ?? null,
-          processor: null,
-          refunded_by: ctx.user.openId,
-          deducted_amount: null,
-          fully_deducted: false,
-          expected_at: null,
-          refunded_at: null,
-          retry_account: null,
-          created_at: now,
-          updated_at: now,
+          // 2. Partial must fit within original minus prior refunds.
+          const original = Number(tx.amount);
+          const prior = await sumPriorRefunds(txDb, merchantId, tx.reference);
+          const remaining = original - prior;
+          const amountKobo = input.amountKobo ?? remaining;
+          if (amountKobo <= 0 || amountKobo > remaining) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                `Refund amount ${amountKobo}k exceeds refundable balance ` +
+                `${remaining}k (original ${original}k, already refunded ${prior}k)`,
+            });
+          }
+
+          // 3. Persist as pending and emit refund.pending.
+          const now = new Date().toISOString();
+          const refund = await insertRefund(txDb, {
+            id: `ref_${crypto.randomBytes(12).toString("hex")}`,
+            merchant_id: merchantId,
+            transaction_ref: tx.reference,
+            transaction_id: tx.id,
+            amount_kobo: amountKobo,
+            currency: tx.currency ?? "NGN",
+            status: "pending",
+            merchant_note: input.merchantNote ?? null,
+            customer_note: input.customerNote ?? null,
+            processor: null,
+            refunded_by: ctx.user.openId,
+            deducted_amount: null,
+            fully_deducted: false,
+            expected_at: null,
+            refunded_at: null,
+            retry_account: null,
+            created_at: now,
+            updated_at: now,
+          });
+          return { refund, tx, amountKobo };
         });
         await emitRefundEvent(merchantId, "pending", refund);
+        const amountKobo = Number(refund.amount_kobo);
 
         // 4. Drive the reversal. Fail loud: no rail → needs_attention.
         const outcome = await driveReversal({
           transaction: { reference: tx.reference, channel: tx.channel, metadata: tx.metadata },
           amountKobo,
           currency: refund.currency,
+          refundId: refund.id,
         });
 
         if (outcome.ok) {
+          if (outcome.stripeRefundId) {
+            await setRefundStripeId(db, merchantId, refund.id, outcome.stripeRefundId);
+          }
           const processing = await transitionRefundStatus(db, merchantId, refund.id, "processing", {
             processor: outcome.processor,
             expected_at: outcome.expectedAt ?? null as any,
@@ -515,6 +704,21 @@ export const refundsRouter = router({
             LIMIT 1
           `);
           const tx = txRes.rows[0] as any | undefined;
+
+          // C8: a Stripe refund was already issued/adopted for this refund —
+          // never re-issue; just re-attach the row to the processing path.
+          const existingStripeId = (refund as any).stripe_refund_id as string | null | undefined;
+          if (existingStripeId) {
+            const processing = await transitionRefundStatus(
+              db, merchantId, refund.id, "processing",
+              { processor: "stripe", retry_account: input.account },
+            );
+            return {
+              ...processing,
+              reversal: { accepted: true, processor: "stripe", adopted: true, stripeRefundId: existingStripeId },
+            };
+          }
+
           const outcome = await driveReversal({
             transaction: {
               reference: refund.transaction_ref,
@@ -524,7 +728,11 @@ export const refundsRouter = router({
             amountKobo: Number(refund.amount_kobo),
             currency: refund.currency,
             retryAccount: input.account,
+            refundId: refund.id,
           });
+          if (outcome.ok && outcome.stripeRefundId) {
+            await setRefundStripeId(db, merchantId, refund.id, outcome.stripeRefundId);
+          }
 
           const base = {
             processor: outcome.processor,
@@ -586,5 +794,83 @@ export const refundsRouter = router({
       return { byStatus, totalCount, totalKobo };
     }),
 });
+
+// ─── Settlement reconciler (H8) ─────────────────────────────────────────────
+/**
+ * reconcileProcessingRefunds — called by cronJobs.
+ *
+ * Finds refunds stuck in `processing` for more than 5 minutes and polls the
+ * rail for the truth:
+ *   Stripe status succeeded          → processed (wallet debited, refund.processed)
+ *   Stripe status failed / canceled  → failed (refund.failed)
+ *   Stripe status requires_attention → needs_attention (refund.needs_attention)
+ *   Stripe status pending / unknown  → left for the next sweep
+ * Each row is handled independently: a per-row failure is logged (fail loud)
+ * and the sweep continues with the remaining rows.
+ */
+export async function reconcileProcessingRefunds(): Promise<{
+  scanned: number;
+  processed: number;
+  failed: number;
+  needsAttention: number;
+  errors: Array<{ refundId: string; error: string }>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("reconcileProcessingRefunds: DB unavailable");
+  const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+  const res = await db.execute(sql`
+    SELECT * FROM refunds
+    WHERE status = 'processing' AND updated_at < ${cutoff}
+    ORDER BY updated_at ASC
+    LIMIT 200
+  `);
+  const rows = res.rows as unknown as RefundRow[];
+  const out = { scanned: rows.length, processed: 0, failed: 0, needsAttention: 0, errors: [] as any[] };
+
+  for (const refund of rows) {
+    try {
+      const stripeId = refund.stripe_refund_id;
+      if (!stripeId || !process.env.STRIPE_SECRET_KEY) {
+        // No rail handle to poll — park loudly instead of pretending progress.
+        await transitionRefundStatus(db, refund.merchant_id, refund.id, "needs_attention", {
+          processor: refund.processor ?? "unknown",
+        });
+        out.needsAttention++;
+        continue;
+      }
+      const sRes = await fetch(`https://api.stripe.com/v1/refunds/${encodeURIComponent(stripeId)}`, {
+        headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!sRes.ok) {
+        throw new Error(`Stripe GET /v1/refunds/${stripeId} → HTTP ${sRes.status}`);
+      }
+      const sBody: any = typeof sRes.json === "function" ? await sRes.json().catch(() => null) : null;
+      const sStatus = String(sBody?.status ?? "");
+      if (sStatus === "succeeded") {
+        await markRefundProcessed(db, refund.merchant_id, refund.id, {
+          amountKobo: Number(refund.amount_kobo),
+          currency: refund.currency,
+        });
+        out.processed++;
+      } else if (sStatus === "failed" || sStatus === "canceled") {
+        await transitionRefundStatus(db, refund.merchant_id, refund.id, "failed", {
+          processor: "stripe",
+        });
+        out.failed++;
+      } else if (sStatus === "requires_attention") {
+        await transitionRefundStatus(db, refund.merchant_id, refund.id, "needs_attention", {
+          processor: "stripe",
+        });
+        out.needsAttention++;
+      }
+      // pending / unknown: leave in processing for the next sweep.
+    } catch (err: any) {
+      logger.error("reconcileProcessingRefunds row failed", { err, refundId: refund.id });
+      out.errors.push({ refundId: refund.id, error: err?.message ?? "unknown" });
+    }
+  }
+  return out;
+}
 
 export type RefundsRouter = typeof refundsRouter;
