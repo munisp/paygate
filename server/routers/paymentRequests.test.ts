@@ -251,6 +251,22 @@ describe('paymentRequests lifecycle', () => {
     await expect(caller().update({ id: 'pr_1', description: 'x' })).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
+  it('M4: archive is refused for partially or fully paid requests', async () => {
+    h.execQueue.push({ match: 'SELECT * FROM payment_requests WHERE id', rows: [baseRow({ amount_paid_kobo: '40000' })] });
+    await expect(caller().archive({ id: 'pr_1' })).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    h.execQueue.push({ match: 'SELECT * FROM payment_requests WHERE id', rows: [baseRow({ status: 'success', paid: true, amount_paid_kobo: '100000' })] });
+    await expect(caller().archive({ id: 'pr_1' })).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    // Drafts are archivable.
+    h.execQueue.push(
+      { match: 'SELECT * FROM payment_requests WHERE id', rows: [baseRow({ status: 'draft' })] },
+      { match: "status = 'archived'", rows: [baseRow({ status: 'archived' })] },
+    );
+    const res = await caller().archive({ id: 'pr_1' });
+    expect(res.status).toBe('archived');
+  });
+
   it('archive flips status and verify hides archived requests', async () => {
     h.execQueue.push(
       { match: 'SELECT * FROM payment_requests WHERE id', rows: [baseRow()] },
@@ -292,11 +308,15 @@ describe('paymentRequests.recordOfflinePayment', () => {
     expect(h.events.map((e) => e.event)).toContain('paymentrequest.success');
   });
 
-  it('rejects overpayment beyond the pending amount', async () => {
-    h.execQueue.push({ match: 'WHERE offline_reference', rows: [baseRow({ amount_paid_kobo: '40000' })] });
+  it('rejects overpayment beyond the pending amount (H17 guarded update → CONFLICT)', async () => {
+    h.execQueue.push(
+      { match: 'WHERE offline_reference', rows: [baseRow({ amount_paid_kobo: '40000' })] },
+      // The guarded UPDATE finds no row satisfying amount_paid + x <= amount → 0 rows.
+      { match: 'UPDATE payment_requests SET', rows: [] },
+    );
     await expect(caller().recordOfflinePayment({
       offline_reference: 'OFR_XYZ', amount: 60001, idempotencyKey: 'idem-pay-3',
-    })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    })).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
   it('rejects unknown offline reference', async () => {

@@ -52,6 +52,10 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn((c: any) => ({ op: 'desc', c })),
 }));
 
+vi.mock('../../drizzle/schema', () => ({
+  transactions: { __t: 'transactions' },
+}));
+
 vi.mock('../../server/db', () => ({
   getDb: vi.fn(async () => h.fakeDb),
   getUserByOpenId: vi.fn(async () => ({ id: 7, openId: 'open-1', name: 'Tester' })),
@@ -297,17 +301,41 @@ describe('wallet instruments', () => {
     })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE', message: expect.stringMatching(/CARD_CHARGE_RAIL_URL/) });
   });
 
-  it('charge completes when decrypt + rail are configured', async () => {
+  it('charge completes when decrypt + rail are configured (transaction row persisted)', async () => {
     process.env.WALLET_TOKEN_DECRYPT_KEY = TEST_KEY.toString('hex');
     process.env.CARD_CHARGE_RAIL_URL = 'http://rail.local';
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
     const token = encryptWalletToken({ panLast4: '1234', cryptogram: 'crypto' });
     h.state.selects.push([instrument()]);
     const res = await caller.chargeWalletInstrument({
-      instrument_id: 'wpi_1', amount: 100000, token, idempotencyKey: 'idem-wallet-3',
+      instrument_id: 'wpi_1', amount: 100000, currency: 'GHS', token, idempotencyKey: 'idem-wallet-3',
     });
     expect(res.status).toBe('completed');
     expect(res.reference).toMatch(/^WLT_/);
+    expect(res.currency).toBe('GHS');
+    // M3: a processing transactions row was inserted BEFORE the rail call,
+    // then flipped to completed.
+    const txInsert = h.calls.insert.find((i) => i.table === 'transactions');
+    expect(txInsert).toBeTruthy();
+    expect(txInsert!.values.status).toBe('processing');
+    expect(txInsert!.values.currency).toBe('GHS');
+    expect(h.calls.update.some((u) => u.table === 'transactions' && u.set.status === 'completed')).toBe(true);
+    // The rail received the requested currency (no hardcoded NGN).
+    expect(JSON.stringify(fetchSpy.mock.calls[0][1]?.body)).toContain('GHS');
+  });
+
+  it('charge marks the transaction failed when the rail rejects', async () => {
+    process.env.WALLET_TOKEN_DECRYPT_KEY = TEST_KEY.toString('hex');
+    process.env.CARD_CHARGE_RAIL_URL = 'http://rail.local';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502 })));
+    const token = encryptWalletToken({ panLast4: '1234', cryptogram: 'crypto' });
+    h.state.selects.push([instrument()]);
+    await expect(caller.chargeWalletInstrument({
+      instrument_id: 'wpi_1', amount: 100000, token, idempotencyKey: 'idem-wallet-5',
+    })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(h.calls.update.some((u) => u.table === 'transactions' && u.set.status === 'failed')).toBe(true);
+    expect(h.calls.events.some((e) => e.event === 'wallet.charge.failed')).toBe(true);
   });
 
   it('charge rejects an inactive instrument', async () => {
