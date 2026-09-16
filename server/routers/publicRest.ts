@@ -54,6 +54,61 @@ function fail(res: Response, httpStatus: number, message: string) {
   return res.status(httpStatus).json({ status: false, message, data: null });
 }
 
+/**
+ * M7: a merchant-supplied `reference` replayed with a DIFFERENT amount or
+ * currency is a conflict, not an idempotent replay. Carries the expected
+ * values so the handler can answer 409 with a machine-readable payload.
+ */
+export class ReferenceConflictError extends Error {
+  constructor(
+    public readonly expectedAmount: number,
+    public readonly expectedCurrency: string,
+  ) {
+    super("reference_conflict");
+    this.name = "ReferenceConflictError";
+  }
+}
+
+// ─── M8: per-currency minimum charge amounts (smallest currency unit) ────────
+export const MIN_CHARGE_AMOUNTS: Record<string, number> = {
+  NGN: 10_000, // ₦100.00 in kobo
+  GHS: 10,
+  USD: 20,
+  ZAR: 100,
+};
+
+/** Enforce the per-currency minimum on initialize + charge (fail loud 400). */
+export function assertMinimumAmount(currency: string, amount: number): void {
+  const cur = String(currency ?? "").toUpperCase();
+  const min = MIN_CHARGE_AMOUNTS[cur];
+  if (min != null && amount < min) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `amount ${amount} is below the minimum charge amount for ${cur} (${min} in the smallest currency unit)`,
+    });
+  }
+}
+
+/**
+ * C20: stamp the caller's environment onto rows created via the REST API.
+ * The `environment` column (drizzle/0103_parity_fixes.sql, NOT NULL DEFAULT
+ * 'live') is intentionally NOT in drizzle/schema.ts (owned by another
+ * workstream), so it is maintained through raw SQL. Live is the DB default —
+ * only non-live rows need the extra write.
+ */
+export async function persistEnvironment(
+  db: any,
+  table: "transactions" | "hosted_payment_sessions",
+  id: string,
+  environment: string,
+): Promise<void> {
+  const env = environment === "test" ? "test" : "live";
+  if (env === "live") return; // column default already correct
+  if (typeof db?.execute !== "function") return; // lightweight fake DBs in tests
+  const tableSql = table === "transactions" ? sql`transactions` : sql`hosted_payment_sessions`;
+  await db.execute(sql`UPDATE ${tableSql} SET environment = ${env} WHERE id = ${id}`);
+}
+
 /** Map a TRPCError (from withIdempotency etc.) onto the REST envelope. */
 function failFromTrpc(res: Response, err: TRPCError) {
   const map: Record<string, number> = {
@@ -115,6 +170,17 @@ async function withRestIdempotency<T>(
 type Handler = (req: Request, res: Response) => Promise<unknown>;
 const h = (fn: Handler) => (req: Request, res: Response) => {
   fn(req, res).catch((err) => {
+    if (err instanceof ReferenceConflictError) {
+      return res.status(409).json({
+        status: false,
+        message: "A transaction with this reference already exists with a different amount or currency",
+        data: {
+          code: "reference_conflict",
+          expected_amount: err.expectedAmount,
+          expected_currency: err.expectedCurrency,
+        },
+      });
+    }
     if (err instanceof TRPCError) return failFromTrpc(res, err);
     return fail(res, 500, err instanceof Error ? err.message : String(err));
   });
@@ -122,12 +188,18 @@ const h = (fn: Handler) => (req: Request, res: Response) => {
 
 // ─── Rail clients (fail loud) ────────────────────────────────────────────────
 
-async function stripeRequest(path: string, body: URLSearchParams): Promise<any> {
-  const key = process.env.STRIPE_SECRET_KEY;
+async function stripeRequest(path: string, body: URLSearchParams, environment: "live" | "test" = "live"): Promise<any> {
+  // C20: test-mode keys must NEVER hit the live Stripe rail. A test
+  // environment without a separately configured test rail fails loud (503).
+  const key = environment === "test"
+    ? process.env.STRIPE_TEST_SECRET_KEY
+    : process.env.STRIPE_SECRET_KEY;
   if (!key) {
     throw new TRPCError({
       code: "SERVICE_UNAVAILABLE",
-      message: "Card rail is unavailable (STRIPE_SECRET_KEY not configured)",
+      message: environment === "test"
+        ? "Test card rail is not configured (STRIPE_TEST_SECRET_KEY unset) — refusing to charge test-mode cards against the live rail; configure a test rail or use live keys"
+        : "Card rail is unavailable (STRIPE_SECRET_KEY not configured)",
     });
   }
   let res: globalThis.Response;
@@ -240,18 +312,29 @@ export function createPublicRestRouter(): Router {
       if (typeof amount !== "number" || !Number.isInteger(amount) || amount <= 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "amount must be a positive integer (kobo)" });
       }
+      assertMinimumAmount(String(currency), amount);
 
       const db = await getDb();
       const ref = typeof reference === "string" && reference.length > 0 ? reference : generateReference();
 
       // Reference-based idempotency: an existing session/transaction with this
-      // reference is returned, never duplicated.
+      // reference is returned, never duplicated. C13: the lookup is scoped to
+      // THIS merchant — references are not globally unique and must never leak
+      // another merchant's session. M7: a replay with a DIFFERENT amount or
+      // currency is a 409 reference_conflict, not a silent reuse.
       const [existingSession] = await db
         .select()
         .from(hostedPaymentSessions)
-        .where(eq(hostedPaymentSessions.reference, ref))
+        .where(and(
+          eq(hostedPaymentSessions.merchantId, auth.merchantId),
+          eq(hostedPaymentSessions.reference, ref),
+        ))
         .limit(1);
       if (existingSession) {
+        if (Number(existingSession.amountKobo) !== amount
+          || String(existingSession.currency).toUpperCase() !== String(currency).toUpperCase()) {
+          throw new ReferenceConflictError(Number(existingSession.amountKobo), existingSession.currency);
+        }
         return {
           authorization_url: `${checkoutBaseUrl(req)}/pay/${existingSession.reference}`,
           access_code: existingSession.id,
@@ -265,6 +348,10 @@ export function createPublicRestRouter(): Router {
         .where(and(eq(transactions.merchantId, auth.merchantId), eq(transactions.reference, ref)))
         .limit(1);
       if (existingTx) {
+        if (Number(existingTx.amount) !== amount
+          || String(existingTx.currency).toUpperCase() !== String(currency).toUpperCase()) {
+          throw new ReferenceConflictError(Number(existingTx.amount), existingTx.currency);
+        }
         return {
           authorization_url: `${checkoutBaseUrl(req)}/pay/${existingTx.reference}`,
           access_code: existingTx.id,
@@ -296,9 +383,12 @@ export function createPublicRestRouter(): Router {
           ...(transaction_charge != null ? { transaction_charge: String(transaction_charge) } : {}),
           ...(bearer ? { bearer } : {}),
           source: "rest_v1",
+          environment: auth.environment,
         },
         expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       });
+      // C20: persist the caller's environment on the row (test/live isolation).
+      await persistEnvironment(db, "hosted_payment_sessions", sessionId, auth.environment);
 
       void fireEvent(PUBLIC_REST_EVENTS.TRANSACTION_CREATED, auth.merchantId, tenantId, {
         reference: ref, amount, currency, email,
@@ -365,6 +455,13 @@ export function createPublicRestRouter(): Router {
     const auth = authOf(req);
     const db = await requireDb(res); if (!db) return;
 
+    // C20: analytics default to LIVE data only; ?environment=test|live|all
+    // widens the scope explicitly. Test-mode rows never pollute live totals.
+    const envParam = String(req.query.environment ?? "live").toLowerCase();
+    const envFilter = envParam === "all"
+      ? undefined
+      : sql`environment = ${envParam === "test" ? "test" : "live"}`;
+
     const rows = await db
       .select({
         currency: transactions.currency,
@@ -372,13 +469,13 @@ export function createPublicRestRouter(): Router {
         volume: sql<number>`coalesce(sum(${transactions.amount}),0)::bigint`,
       })
       .from(transactions)
-      .where(eq(transactions.merchantId, auth.merchantId))
+      .where(and(eq(transactions.merchantId, auth.merchantId), envFilter))
       .groupBy(transactions.currency);
 
     const [pending] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(transactions)
-      .where(and(eq(transactions.merchantId, auth.merchantId), eq(transactions.status, "pending")));
+      .where(and(eq(transactions.merchantId, auth.merchantId), eq(transactions.status, "pending"), envFilter));
 
     return ok(res, {
       by_currency: rows,
@@ -461,6 +558,11 @@ export function createPublicRestRouter(): Router {
     if (req.query.status) filters.push(eq(transactions.status, String(req.query.status) as never));
     if (req.query.from) filters.push(gte(transactions.createdAt, new Date(String(req.query.from))));
     if (req.query.to) filters.push(lte(transactions.createdAt, new Date(String(req.query.to))));
+    // C20: optional environment filter (?environment=test|live).
+    if (req.query.environment) {
+      const env = String(req.query.environment).toLowerCase() === "test" ? "test" : "live";
+      filters.push(sql`environment = ${env}` as never);
+    }
 
     const rows = await db
       .select()
@@ -550,6 +652,7 @@ async function executeChargeAuthorization(opts: {
   db: any; merchantId: string; tenantId: string;
   authorizationCode: string; email: string; amount: number;
   currency: string; reference: string; queue: boolean;
+  environment?: "live" | "test";
 }): Promise<ChargeReply> {
   const { db, merchantId, tenantId } = opts;
 
@@ -569,6 +672,26 @@ async function executeChargeAuthorization(opts: {
     throw new TRPCError({ code: "BAD_REQUEST", message: "email does not match the authorization's customer" });
   }
 
+  // H16: atomic claim — re-verify the authorization is STILL active+reusable
+  // with a guarded UPDATE (0 rows → it was deactivated between our read and
+  // the charge; fixes the deactivation TOCTOU).
+  const claimed = await db
+    .update(cardAuthorizations)
+    .set({ active: true }) // no-op write; the WHERE clause is the atomic guard
+    .where(and(
+      eq(cardAuthorizations.merchantId, merchantId),
+      eq(cardAuthorizations.authorizationCode, opts.authorizationCode),
+      eq(cardAuthorizations.active, true),
+      eq(cardAuthorizations.reusable, true),
+    ))
+    .returning({ id: cardAuthorizations.id });
+  if (!claimed?.[0]) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "This authorization was deactivated concurrently — charge refused",
+    });
+  }
+
   const txId = `txn_${randomBytes(10).toString("hex")}`;
   const base = {
     reference: opts.reference,
@@ -580,31 +703,61 @@ async function executeChargeAuthorization(opts: {
     } as Record<string, unknown>,
   };
 
+  // H16: persist the transaction row BEFORE touching the rail. If this insert
+  // fails the bridge is never called — the ledger never loses a charge.
   if (opts.queue) {
     await db.insert(transactions).values({
       id: txId, tenantId, merchantId, reference: opts.reference,
       amount: opts.amount, currency: opts.currency, status: "pending", channel: "card",
       customerEmail: opts.email,
-      metadata: { queued: true, authorization: base.authorization, source: "rest_v1.charge_authorization" },
+      metadata: { queued: true, authorization: base.authorization, source: "rest_v1.charge_authorization", environment: opts.environment ?? "live" },
     });
+    await persistEnvironment(db, "transactions", txId, opts.environment ?? "live");
     return { ...base, status: "pending", display_text: "Charge queued for processing" };
   }
 
+  await db.insert(transactions).values({
+    id: txId, tenantId, merchantId, reference: opts.reference,
+    amount: opts.amount, currency: opts.currency, status: "processing", channel: "card",
+    customerEmail: opts.email,
+    metadata: { authorization: base.authorization, source: "rest_v1.charge_authorization", environment: opts.environment ?? "live" },
+  });
+  await persistEnvironment(db, "transactions", txId, opts.environment ?? "live");
+
+  const finalize = async (status: "completed" | "failed" | "pending", extraMeta: Record<string, unknown>) => {
+    await db.update(transactions)
+      .set({
+        status,
+        completedAt: status === "completed" ? new Date() : null,
+        metadata: {
+          authorization: base.authorization,
+          source: "rest_v1.charge_authorization",
+          environment: opts.environment ?? "live",
+          ...extraMeta,
+        } as never,
+      })
+      .where(eq(transactions.id, txId));
+  };
+
   // 2FA-paused flow: when the rail requires customer presence we return
   // paused:true + an authorization_url instead of charging silently.
-  const bridge = await bridgeRequest("/v1/charge/authorization", {
-    merchantId, authorizationCode: opts.authorizationCode,
-    email: opts.email, amountKobo: opts.amount, currency: opts.currency,
-    reference: opts.reference,
-  });
+  let bridge: any;
+  try {
+    bridge = await bridgeRequest("/v1/charge/authorization", {
+      merchantId, authorizationCode: opts.authorizationCode,
+      email: opts.email, amountKobo: opts.amount, currency: opts.currency,
+      reference: opts.reference,
+    });
+  } catch (err) {
+    // Rail failed AFTER the row was persisted → mark it failed, then rethrow.
+    await finalize("failed", {
+      gateway_response: err instanceof TRPCError ? err.message : "rail unreachable",
+    }).catch(() => undefined);
+    throw err;
+  }
 
   if (bridge.paused === true || bridge.requires2fa === true) {
-    await db.insert(transactions).values({
-      id: txId, tenantId, merchantId, reference: opts.reference,
-      amount: opts.amount, currency: opts.currency, status: "pending", channel: "card",
-      customerEmail: opts.email,
-      metadata: { paused: true, authorization: base.authorization, source: "rest_v1.charge_authorization" },
-    });
+    await finalize("pending", { paused: true });
     return {
       ...base, status: "pending", paused: true,
       authorization_url: bridge.authorization_url ?? `${process.env.PUBLIC_CHECKOUT_BASE_URL ?? ""}/pay/${opts.reference}`,
@@ -613,14 +766,7 @@ async function executeChargeAuthorization(opts: {
   }
 
   const succeeded = bridge.status === "success" || bridge.status === "succeeded";
-  await db.insert(transactions).values({
-    id: txId, tenantId, merchantId, reference: opts.reference,
-    amount: opts.amount, currency: opts.currency,
-    status: succeeded ? "completed" : "failed",
-    channel: "card", customerEmail: opts.email,
-    completedAt: succeeded ? new Date() : null,
-    metadata: { authorization: base.authorization, gateway_response: bridge.gateway_response ?? null, source: "rest_v1.charge_authorization" },
-  });
+  await finalize(succeeded ? "completed" : "failed", { gateway_response: bridge.gateway_response ?? null });
 
   await fireEvent(succeeded ? PUBLIC_REST_EVENTS.CHARGE_SUCCESS : PUBLIC_REST_EVENTS.CHARGE_FAILED,
     merchantId, tenantId, base);
@@ -630,6 +776,30 @@ async function executeChargeAuthorization(opts: {
     status: succeeded ? "success" : "failed",
     display_text: succeeded ? "Charge successful" : (bridge.gateway_response ?? "Charge failed"),
   };
+}
+
+/**
+ * Expire stale pending charges.
+ * called by cronJobs — transactions stuck in 'pending' for longer than
+ * ttlMinutes are flipped to status='failed' with gateway_response='expired'
+ * (H14). Returns the number of expired rows. Fails loud on DB errors.
+ */
+export async function expireStalePendingCharges(ttlMinutes = 60): Promise<{ expired: number }> {
+  if (!Number.isInteger(ttlMinutes) || ttlMinutes <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "ttlMinutes must be a positive integer" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const res: any = await db.execute(sql`
+    UPDATE transactions
+    SET status = 'failed',
+        metadata = COALESCE(metadata, '{}'::jsonb) || '{"gateway_response":"expired"}'::jsonb,
+        updated_at = now()
+    WHERE status = 'pending'
+      AND created_at < now() - make_interval(mins => ${ttlMinutes})
+    RETURNING id
+  `);
+  return { expired: (res?.rows ?? []).length };
 }
 
 function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): void {
@@ -646,6 +816,7 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
       if (typeof amount !== "number" || !Number.isInteger(amount) || amount <= 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "amount must be a positive integer (kobo)" });
       }
+      assertMinimumAmount(String(currency), amount);
       const ref = typeof reference === "string" && reference ? reference : generateReference();
       const db = await getDb();
       const [merchant] = await db.select().from(merchants).where(eq(merchants.id, auth.merchantId)).limit(1);
@@ -658,7 +829,7 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
         return executeChargeAuthorization({
           db, merchantId: auth.merchantId, tenantId,
           authorizationCode: String(code), email, amount, currency,
-          reference: ref, queue: body.queue === true,
+          reference: ref, queue: body.queue === true, environment: auth.environment,
         });
       }
 
@@ -677,7 +848,7 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
           "payment_method_data[card][exp_month]": String(expiry_month),
           "payment_method_data[card][exp_year]": String(expiry_year),
           "metadata[reference]": ref, "metadata[merchantId]": auth.merchantId,
-        }));
+        }), auth.environment);
 
         const succeeded = pi.status === "succeeded";
         const needsAction = pi.status === "requires_action";
@@ -692,8 +863,10 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
             gateway_response: pi.last_payment_error?.message ?? pi.status,
             stripePaymentIntentId: pi.id,
             source: "rest_v1.charge.card",
+            environment: auth.environment,
           },
         });
+        await persistEnvironment(db, "transactions", txId, auth.environment);
 
         if (succeeded) {
           // Tokenize: persist a reusable authorization for this card.
@@ -748,16 +921,19 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
           amountKobo: amount, reference: ref, merchantId: auth.merchantId,
           customerName: body.bank.account_name ?? email,
         });
+        const bankTxId = `txn_${randomBytes(10).toString("hex")}`;
         await db.insert(transactions).values({
-          id: `txn_${randomBytes(10).toString("hex")}`, tenantId, merchantId: auth.merchantId,
+          id: bankTxId, tenantId, merchantId: auth.merchantId,
           reference: ref, amount, currency, channel: "bank_transfer",
           customerEmail: email, status: "pending",
           metadata: {
             ...(metadata ?? {}),
             virtual_account: va.accountNumber, bank_code: va.bankCode, bank_name: va.bankName,
             source: "rest_v1.charge.bank",
+            environment: auth.environment,
           },
         });
+        await persistEnvironment(db, "transactions", bankTxId, auth.environment);
         return {
           reference: ref, status: "pending",
           display_text: `Transfer ₦${(amount / 100).toLocaleString()} to ${va.bankName} account ${va.accountNumber}`,
@@ -768,12 +944,14 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
       // ── Instrument: USSD ─────────────────────────────────────────────────
       if (body.ussd && typeof body.ussd === "object") {
         const ussdCode = buildUssdCode(String(body.ussd.bank_code ?? "000"), ref);
+        const ussdTxId = `txn_${randomBytes(10).toString("hex")}`;
         await db.insert(transactions).values({
-          id: `txn_${randomBytes(10).toString("hex")}`, tenantId, merchantId: auth.merchantId,
+          id: ussdTxId, tenantId, merchantId: auth.merchantId,
           reference: ref, amount, currency, channel: "ussd",
           customerEmail: email, status: "pending",
-          metadata: { ...(metadata ?? {}), ussd_code: ussdCode, source: "rest_v1.charge.ussd" },
+          metadata: { ...(metadata ?? {}), ussd_code: ussdCode, source: "rest_v1.charge.ussd", environment: auth.environment },
         });
+        await persistEnvironment(db, "transactions", ussdTxId, auth.environment);
         return {
           reference: ref, status: "pay_offline", ussd_code: ussdCode,
           display_text: `Dial ${ussdCode} on your phone to complete payment`,
@@ -875,7 +1053,7 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
         authorizationCode: String(authorization_code), email: String(email),
         amount, currency: String(currency),
         reference: reference ? String(reference) : generateReference(),
-        queue: queue === true,
+        queue: queue === true, environment: auth.environment,
       });
     });
     return chargeOk(res, reply, reply.status === "success" ? "Charge successful" : reply.display_text ?? "Charge attempted");
@@ -927,8 +1105,9 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
         });
       }
       const succeeded = charged > 0 && (result.status === "success" || result.status === "succeeded");
+      const pdTxId = `txn_${randomBytes(10).toString("hex")}`;
       await db.insert(transactions).values({
-        id: `txn_${randomBytes(10).toString("hex")}`, tenantId, merchantId: auth.merchantId,
+        id: pdTxId, tenantId, merchantId: auth.merchantId,
         reference: ref, amount: charged, currency: String(currency), channel: "card",
         customerEmail: String(email), status: succeeded ? "completed" : "failed",
         completedAt: succeeded ? new Date() : null,
@@ -937,8 +1116,10 @@ function registerChargeRoutes(r: Router, authOf: (req: Request) => RestAuth): vo
           authorization: { authorization_code: authz.authorizationCode, last4: authz.last4, brand: authz.brand },
           gateway_response: result.gateway_response ?? null,
           source: "rest_v1.partial_debit",
+          environment: auth.environment,
         },
       });
+      await persistEnvironment(db, "transactions", pdTxId, auth.environment);
       if (succeeded) {
         await fireEvent(PUBLIC_REST_EVENTS.CHARGE_SUCCESS, auth.merchantId, tenantId, {
           reference: ref, amount: charged, requested_amount: amount,
