@@ -81,7 +81,11 @@ func CreateSTR(w http.ResponseWriter, r *http.Request) {
 	// Redis idempotency — prevent duplicate STRs for same transaction
 	rdb := redis.Get()
 	idempKey := fmt.Sprintf("str:tx:%s", req.TransactionID)
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "str.create", idempKey)
+	// H26: non-money path (regulatory report) — log and proceed when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "str.create", idempKey)
+	if err != nil {
+		slog.Warn("[cbn_str] idempotency store unavailable — proceeding (non-money path)", "err", err)
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error": "STR already exists for this transaction",
