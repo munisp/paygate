@@ -67,7 +67,11 @@ func CreatePaymentLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rdb := redis.Get()
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "paylink.create", req.LinkID)
+	// H26: non-money path — log and proceed when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "paylink.create", req.LinkID)
+	if err != nil {
+		slog.Warn("[paymentlinks] idempotency store unavailable — proceeding (non-money path)", "err", err)
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.CreatePaymentLinkResponse{
 			LinkID:    req.LinkID,
@@ -171,7 +175,11 @@ func DeliverWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "webhook.deliver", req.DeliveryID)
+	// H26: non-money path — log and proceed when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "webhook.deliver", req.DeliveryID)
+	if err != nil {
+		slog.Warn("[webhooks] idempotency store unavailable — proceeding (non-money path)", "err", err)
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.DeliverWebhookResponse{
 			DeliveryID: req.DeliveryID,
@@ -315,7 +323,12 @@ func ReconcileMoMo(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "momo.reconcile", req.ReconID)
+	// H26: money path (ledger reconciliation) fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "momo.reconcile", req.ReconID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to reconcile (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.ReconcileMoMoResponse{
 			ReconID: req.ReconID,
