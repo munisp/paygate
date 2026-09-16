@@ -15,8 +15,8 @@ import { createHash } from 'crypto';
 
 // ─── Hoisted fake DB ─────────────────────────────────────────────────────────
 const h = vi.hoisted(() => {
-  const state = { results: [] as any[] };
-  const calls = { insert: [] as any[], update: [] as any[], events: [] as any[] };
+  const state = { results: [] as any[], execResults: [] as any[] };
+  const calls = { insert: [] as any[], update: [] as any[], events: [] as any[], exec: [] as any[] };
 
   function makeChain(kind: string): any {
     const chain: any = new Proxy({}, {
@@ -40,6 +40,11 @@ const h = vi.hoisted(() => {
     insert: () => makeChain('insert'),
     update: () => makeChain('update'),
     delete: () => makeChain('delete'),
+    // Raw-SQL channel (environment stamping, sweepers).
+    execute: async (q: any) => {
+      calls.exec.push(q);
+      return { rows: state.execResults.shift() ?? [] };
+    },
   };
   return { state, calls, fakeDb };
 });
@@ -93,10 +98,13 @@ let base: string;
 
 beforeEach(async () => {
   h.state.results.length = 0;
+  h.state.execResults.length = 0;
   h.calls.insert.length = 0;
   h.calls.update.length = 0;
   h.calls.events.length = 0;
+  h.calls.exec.length = 0;
   delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_TEST_SECRET_KEY;
   delete process.env.MIDDLEWARE_BRIDGE_URL;
   if (!server) {
     await new Promise<void>((resolve) => {
@@ -214,7 +222,7 @@ describe('POST /transaction/initialize', () => {
     queueAuth();
     h.state.results.push([{
       id: 'sess_existing', reference: 'REF_DUP', amountKobo: 50000,
-      merchantId: 'merch_1', status: 'pending',
+      currency: 'NGN', merchantId: 'merch_1', status: 'pending',
     }]);
     const res = await post('/api/v1/transaction/initialize', { ...body, reference: 'REF_DUP' });
     const json = await res.json() as any;
@@ -252,7 +260,7 @@ describe('POST /transaction/initialize', () => {
 
 // ─── Idempotency-Key on POSTs ─────────────────────────────────────────────────
 describe('Idempotency-Key', () => {
-  const body = { email: 'c@example.com', amount: 1000 };
+  const body = { email: 'c@example.com', amount: 50000 };
 
   function queueInitializeHappyPath() {
     h.state.results.push([]);                          // hosted session by ref
@@ -310,7 +318,8 @@ describe('POST /charge', () => {
   const baseCharge = { email: 'c@example.com', amount: 20000 };
 
   it('card success → status success + reusable authorization recorded', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    // The request uses an sk_test key → the TEST rail (C20) must be configured.
+    process.env.STRIPE_TEST_SECRET_KEY = 'sk_test_dummy';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       id: 'pi_1', status: 'succeeded',
       latest_charge: { payment_method_details: { card: { fingerprint: 'fp_1', brand: 'visa', issuer: 'GTB' } } },
@@ -338,7 +347,7 @@ describe('POST /charge', () => {
   });
 
   it('card requires_action → open_url state', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.STRIPE_TEST_SECRET_KEY = 'sk_test_dummy';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       id: 'pi_2', status: 'requires_action',
       next_action: { redirect_to_url: { url: 'https://3ds.example/abc' } },
@@ -467,6 +476,7 @@ describe('POST /transaction/charge_authorization', () => {
     queueAuth();
     h.state.results.push([{ tenantId: 'ten_default' }]);
     h.state.results.push([authz]);
+    h.state.results.push([{ id: 'cauth_1' }]); // H16 atomic claim (guarded update)
     const res = await post('/api/v1/transaction/charge_authorization', { ...body, queue: true });
     const json = await res.json() as any;
     expect(res.status).toBe(200);
@@ -478,8 +488,24 @@ describe('POST /transaction/charge_authorization', () => {
     queueAuth();
     h.state.results.push([{ tenantId: 'ten_default' }]);
     h.state.results.push([authz]);
+    h.state.results.push([{ id: 'cauth_1' }]); // H16 claim
     const res = await post('/api/v1/transaction/charge_authorization', body);
     expect(res.status).toBe(503);
+    // H16: the transaction row was persisted (processing) BEFORE the bridge
+    // call, then flipped to failed when the rail blew up.
+    expect(h.calls.insert.some((v) => v.status === 'processing' && v.reference)).toBe(true);
+    expect(h.calls.update.some((v) => v.status === 'failed')).toBe(true);
+  });
+
+  it('refuses the charge when the authorization is deactivated concurrently (TOCTOU claim)', async () => {
+    queueAuth();
+    h.state.results.push([{ tenantId: 'ten_default' }]);
+    h.state.results.push([authz]);
+    h.state.results.push([]); // claim loses the race → 0 rows
+    const res = await post('/api/v1/transaction/charge_authorization', body);
+    expect(res.status).toBe(409);
+    // No transaction row was inserted and no rail call happened.
+    expect(h.calls.insert.some((v) => v.reference && v.amount)).toBe(false);
   });
 
   it('2FA-paused flow → paused:true + authorization_url', async () => {
@@ -490,12 +516,94 @@ describe('POST /transaction/charge_authorization', () => {
     queueAuth();
     h.state.results.push([{ tenantId: 'ten_default' }]);
     h.state.results.push([authz]);
+    h.state.results.push([{ id: 'cauth_1' }]); // H16 claim
     const res = await post('/api/v1/transaction/charge_authorization', body);
     vi.unstubAllGlobals();
     const json = await res.json() as any;
     expect(res.status).toBe(200);
     expect(json.data.paused).toBe(true);
     expect(json.data.authorization_url).toContain('3ds.example');
+    // Row went processing → pending (paused), never completed.
+    expect(h.calls.insert.some((v) => v.status === 'processing')).toBe(true);
+    expect(h.calls.update.some((v) => v.status === 'pending')).toBe(true);
+  });
+});
+
+// ─── M8 minimum amounts / M7 reference conflict / C20 test-live ─────────────
+describe('parity guards (M8 minimums, M7 reference conflict, C20 test/live)', () => {
+  it('rejects NGN amounts below ₦100 (10000 kobo) on initialize', async () => {
+    queueAuth();
+    const res = await post('/api/v1/transaction/initialize', { email: 'c@example.com', amount: 5000 });
+    expect(res.status).toBe(400);
+    const json = await res.json() as any;
+    expect(json.message).toMatch(/minimum/i);
+  });
+
+  it('rejects sub-minimum amounts on /charge', async () => {
+    queueAuth();
+    const res = await post('/api/v1/charge', { email: 'c@example.com', amount: 100, ussd: { bank_code: '058' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('M7: replaying a reference with a different amount → 409 reference_conflict', async () => {
+    queueAuth();
+    h.state.results.push([{
+      id: 'sess_1', reference: 'REF_X', amountKobo: 50000, currency: 'NGN',
+      merchantId: 'merch_1', status: 'pending',
+    }]);
+    const res = await post('/api/v1/transaction/initialize', {
+      email: 'c@example.com', amount: 60000, currency: 'NGN', reference: 'REF_X',
+    });
+    expect(res.status).toBe(409);
+    const json = await res.json() as any;
+    expect(json.data).toMatchObject({
+      code: 'reference_conflict', expected_amount: 50000, expected_currency: 'NGN',
+    });
+  });
+
+  it('M7: replaying a reference with a different currency → 409', async () => {
+    queueAuth();
+    h.state.results.push([{
+      id: 'sess_1', reference: 'REF_X', amountKobo: 50000, currency: 'NGN',
+      merchantId: 'merch_1', status: 'pending',
+    }]);
+    const res = await post('/api/v1/transaction/initialize', {
+      email: 'c@example.com', amount: 50000, currency: 'USD', reference: 'REF_X',
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it('C20: test-mode card charge without a test rail → 503, never touches live Stripe', async () => {
+    // KEY is sk_test → environment 'test'; only STRIPE_SECRET_KEY (live) set.
+    process.env.STRIPE_SECRET_KEY = 'sk_live_should_not_be_used';
+    queueAuth();
+    h.state.results.push([{ tenantId: 'ten_default' }]);
+    const res = await post('/api/v1/charge', {
+      email: 'c@example.com', amount: 20000,
+      card: { number: '4084084084084081', cvv: '408', expiry_month: '12', expiry_year: '2030' },
+    });
+    expect(res.status).toBe(503);
+    const json = await res.json() as any;
+    expect(json.message).toMatch(/STRIPE_TEST_SECRET_KEY/);
+  });
+
+  it('C20: REST-created rows are stamped with the caller environment', async () => {
+    queueAuth();
+    h.state.results.push([]);                          // hosted session by ref
+    h.state.results.push([]);                          // transaction by ref
+    h.state.results.push([{ tenantId: 'ten_default' }]); // merchant
+    const res = await post('/api/v1/transaction/initialize', { email: 'c@example.com', amount: 50000 });
+    expect(res.status).toBe(200);
+    // sk_test caller → raw UPDATE stamping environment='test' on the session.
+    expect(h.calls.exec.length).toBeGreaterThan(0);
+  });
+
+  it('C20: totals defaults analytics to the live environment filter', async () => {
+    queueAuth();
+    h.state.results.push([]); // by_currency
+    h.state.results.push([{ count: 0 }]); // pending
+    const res = await get('/api/v1/transaction/totals');
+    expect(res.status).toBe(200);
   });
 });
 
