@@ -44,6 +44,8 @@ export const debitMandates = pgTable("debit_mandates", {
   approvedAt: timestamp("approved_at"),
   activatedAt: timestamp("activated_at"),
   cancelledAt: timestamp("cancelled_at"),
+  /** Atomic debit-claim stamp (H15; drizzle/0103_parity_fixes.sql). */
+  lastDebitAt: timestamp("last_debit_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -315,31 +317,47 @@ export const directDebitRouter = router({
    * and no success event is emitted.
    */
   activationCharge: pbacProcedure("initiate_transaction")
-    .input(z.object({ authorization_id: z.string().min(1) }))
+    .input(z.object({
+      authorization_id: z.string().min(1),
+      /** H15: optional idempotency key — replays return the cached outcome. */
+      idempotencyKey: z.string().min(8).max(128).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const merchantId = await resolveMerchantId(ctx.user.openId);
-      const m = await getMandateOrThrow(db, merchantId, eq(debitMandates.id, input.authorization_id));
-      if (m.status !== "approved") {
-        throw new TRPCError({ code: "CONFLICT", message: `Activation charge requires status 'approved' (current: '${m.status}')` });
+      const run = async () => {
+        const m = await getMandateOrThrow(db, merchantId, eq(debitMandates.id, input.authorization_id));
+        if (m.status !== "approved") {
+          throw new TRPCError({ code: "CONFLICT", message: `Activation charge requires status 'approved' (current: '${m.status}')` });
+        }
+        const rail = directDebitRailUrl(); // throws 503 when unset
+        const res = await fetch(`${rail}/debits`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reference: `DDACT_${m.mandateReference}`,
+            authorization_code: m.authorizationCode,
+            amount_kobo: m.activationChargeKobo ?? ACTIVATION_CHARGE_KOBO,
+            refundable: true,
+            purpose: "mandate_activation",
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Activation debit rail rejected the charge (HTTP ${res.status})` });
+        }
+        return { mandateId: m.id, status: "queued", amountKobo: m.activationChargeKobo ?? ACTIVATION_CHARGE_KOBO, refundable: true };
+      };
+      if (input.idempotencyKey) {
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId,
+          operation: "direct_debit.activationCharge",
+          requestBody: input,
+          execute: run,
+        });
       }
-      const rail = directDebitRailUrl(); // throws 503 when unset
-      const res = await fetch(`${rail}/debits`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reference: `DDACT_${m.mandateReference}`,
-          authorization_code: m.authorizationCode,
-          amount_kobo: m.activationChargeKobo ?? ACTIVATION_CHARGE_KOBO,
-          refundable: true,
-          purpose: "mandate_activation",
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) {
-        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Activation debit rail rejected the charge (HTTP ${res.status})` });
-      }
-      return { mandateId: m.id, status: "queued", amountKobo: m.activationChargeKobo ?? ACTIVATION_CHARGE_KOBO, refundable: true };
+      return run();
     }),
 
   /** Enqueue activation charges for every approved mandate of the given customers. */
@@ -415,6 +433,21 @@ export const directDebitRouter = router({
           }
           if (m.expiresAt && new Date(m.expiresAt).getTime() < Date.now()) {
             throw new TRPCError({ code: "CONFLICT", message: "Mandate has expired" });
+          }
+
+          // H15: atomic claim — a single guarded UPDATE proves the mandate is
+          // STILL active at the moment we debit (0 rows → concurrent pause /
+          // cancel won the race; refuse the debit). This replaces the racy
+          // read-then-check above as the enforcement point.
+          const claim = await db.update(debitMandates)
+            .set({ lastDebitAt: new Date(), updatedAt: new Date() })
+            .where(and(eq(debitMandates.id, m.id), eq(debitMandates.status, "active")))
+            .returning({ id: debitMandates.id });
+          if (!claim?.[0]) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Mandate is no longer active (concurrent status change) — debit refused",
+            });
           }
 
           const txId = `txn_${nanoid(20)}`;
