@@ -12,8 +12,116 @@ import { nanoid } from "nanoid";
 import { and, eq, sql } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
-import { consumerWallets, consumerWalletTxns } from "../drizzle/schema";
+import { consumerWallets, consumerWalletTxns, stripeWebhookEvents } from "../drizzle/schema";
 import { logger } from "./logger";
+
+// ─── C9: durable webhook processing — in-flight tracking for graceful drain ──
+let activeProcessors = 0;
+const drainWaiters: Array<() => void> = [];
+
+function trackProcessorStart(): void {
+  activeProcessors++;
+}
+function trackProcessorEnd(): void {
+  activeProcessors = Math.max(0, activeProcessors - 1);
+  if (activeProcessors === 0) {
+    for (const w of drainWaiters.splice(0)) w();
+  }
+}
+
+/**
+ * Await all in-flight Stripe event processors (graceful shutdown hook —
+ * called from server/_core/index.ts gracefulShutdown before exit).
+ */
+export function drainStripeEventProcessors(timeoutMs = 10_000): Promise<void> {
+  if (activeProcessors === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      logger.warn(`[stripeWebhook] drain timed out with ${activeProcessors} processor(s) still in flight`);
+      resolve();
+    }, timeoutMs);
+    drainWaiters.push(() => { clearTimeout(timer); resolve(); });
+  });
+}
+
+/** Persist a verified raw event BEFORE the 200 ACK (C9). Returns false if DB down. */
+async function persistStripeEvent(event: Stripe.Event): Promise<boolean> {
+  try {
+    const db = await getDb();
+    await db
+      .insert(stripeWebhookEvents)
+      .values({
+        id: event.id,
+        type: event.type,
+        payload: event as unknown as Record<string, unknown>,
+        status: "pending",
+      })
+      .onConflictDoNothing(); // Stripe redelivery of an already-stored event
+    return true;
+  } catch (err) {
+    logger.error("[stripeWebhook] CRITICAL: failed to persist verified event — NOT ACKing so Stripe retries", {
+      eventId: event.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Process one persisted event row and record the outcome on the row.
+ */
+async function processStoredStripeEvent(event: Stripe.Event): Promise<void> {
+  trackProcessorStart();
+  try {
+    await processStripeWebhookEvent(event);
+    const db = await getDb();
+    await db.execute(sql`
+      UPDATE stripe_webhook_events SET status = 'processed', processed_at = NOW(), error = NULL
+      WHERE id = ${event.id}
+    `).catch((e: Error) => logger.warn(`[stripeWebhook] status update failed for ${event.id}: ${e.message}`));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[stripeWebhook] processing failed — row kept as 'failed' for retry", { eventId: event.id, error: message });
+    const db = await getDb();
+    await db.execute(sql`
+      UPDATE stripe_webhook_events SET status = 'failed', error = ${message}
+      WHERE id = ${event.id} AND status != 'processed'
+    `).catch((e: Error) => logger.warn(`[stripeWebhook] failure update failed for ${event.id}: ${e.message}`));
+  } finally {
+    trackProcessorEnd();
+  }
+}
+
+/**
+ * C9: re-attempt pending/failed persisted Stripe events.
+ * Registered as a cronJobs interval (see server/cronJobs.ts) so a crash or a
+ * transient processing error never loses a verified event.
+ */
+export async function processPendingStripeEvents(batchSize = 25): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  // Atomically claim rows: only a row still pending/failed at claim time is
+  // processed (guards against two concurrent processor runs double-processing).
+  const claimed = await db.execute(sql`
+    UPDATE stripe_webhook_events
+    SET status = 'pending'
+    WHERE id IN (
+      SELECT id FROM stripe_webhook_events
+      WHERE status IN ('pending','failed')
+      ORDER BY created_at
+      LIMIT ${batchSize}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, payload
+  `);
+  const rows: any[] = (claimed as any)?.rows ?? [];
+  let processed = 0;
+  for (const row of rows) {
+    await processStoredStripeEvent(row.payload as Stripe.Event);
+    processed++;
+  }
+  return processed;
+}
 
 // Lazy singleton — avoids crashing at import time when key is absent (tests / CI).
 let _stripe: Stripe | null = null;
@@ -281,7 +389,7 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
   // second event for the same payment intent is a no-op.
   //
   // R4 S16 (cross-flow reuse): the consumer-wallet credit branch fires ONLY
-  // for objects explicitly stamped `metadata.type === "consumer_wallet_topup"`
+  // for objects explicitly stamped `metadata.type === "consumer_wallet_topup"
   // (stamped by wave68Router consumerStripeTopUp.createCheckout). Other flows
   // also carry `user_id` metadata — e.g. subscription checkout sessions
   // (wave34Router stamps user_id with no purpose marker) — and must NEVER
@@ -401,10 +509,20 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
     return;
   }
 
-  // ACK fast — Stripe retries on timeout; process asynchronously.
+  // C9 durability: persist the verified raw event FIRST. Only after the row
+  // exists do we ACK 200 — if the process crashes before async processing, the
+  // pending row is re-attempted by processPendingStripeEvents (cronJobs). If
+  // persistence itself fails we return 500 so Stripe redelivers.
+  const persisted = await persistStripeEvent(event);
+  if (!persisted) {
+    res.status(500).json({ error: "Failed to persist webhook event — will retry" });
+    return;
+  }
+
+  // ACK fast — Stripe retries on timeout; process asynchronously from the row.
   res.status(200).json({ received: true, id: event.id });
   setImmediate(() => {
-    processStripeWebhookEvent(event).catch((err) => {
+    processStoredStripeEvent(event).catch((err) => {
       logger.error("[stripeWebhook] async processing failed", {
         eventId: event.id, type: event.type,
         error: err instanceof Error ? err.message : String(err),

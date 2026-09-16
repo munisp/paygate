@@ -15,6 +15,7 @@ import { pgTable, text, boolean, timestamp, varchar } from "drizzle-orm/pg-core"
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
+import { transactions } from "../../drizzle/schema";
 import { withIdempotency } from "../idempotency";
 import { dispatchWebhookEvent } from "../webhookEvents";
 import { logger } from "../logger";
@@ -331,6 +332,8 @@ export const walletPayRouter = router({
     .input(z.object({
       instrument_id: z.string().min(1),
       amount: z.number().int().positive().max(100_000_000_00),
+      /** M3: charge currency — validated, never silently assumed NGN. */
+      currency: z.string().length(3).default("NGN"),
       token: z.string().min(16),
       idempotencyKey: z.string().min(8).max(128),
     }))
@@ -341,7 +344,7 @@ export const walletPayRouter = router({
         key: input.idempotencyKey,
         merchantId,
         operation: "wallet.charge",
-        requestBody: { instrument_id: input.instrument_id, amount: input.amount },
+        requestBody: { instrument_id: input.instrument_id, amount: input.amount, currency: input.currency },
         execute: async () => {
           const [inst] = await db.select().from(walletPaymentInstruments)
             .where(and(
@@ -351,6 +354,10 @@ export const walletPayRouter = router({
           if (!inst) throw new TRPCError({ code: "NOT_FOUND", message: "Wallet instrument not found" });
           if (!inst.active) throw new TRPCError({ code: "CONFLICT", message: "Wallet instrument is deactivated" });
 
+          const currency = input.currency.toUpperCase();
+          if (!/^[A-Z]{3}$/.test(currency)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid currency '${input.currency}'` });
+          }
           const decrypted = decryptWalletToken(inst.provider as WalletProvider, input.token);
 
           const railUrl = process.env.CARD_CHARGE_RAIL_URL;
@@ -361,13 +368,34 @@ export const walletPayRouter = router({
             });
           }
           const reference = `WLT_${Date.now()}_${nanoid(8)}`;
-          const res = await fetch(`${railUrl}/charges`, {
+
+          // M3: persist the transaction row BEFORE the rail call (processing),
+          // then flip to completed/failed from the rail outcome — the ledger
+          // never loses a wallet charge. An insert failure aborts the charge.
+          const txId = `txn_${nanoid(20)}`;
+          await db.insert(transactions).values({
+            id: txId,
+            tenantId: "ten_default",
+            merchantId,
+            reference,
+            amount: input.amount,
+            currency,
+            status: "processing",
+            channel: "card",
+            customerEmail: inst.customerEmail,
+            description: `Wallet charge (${inst.provider})`,
+            metadata: { instrumentId: inst.id, provider: inst.provider, channel: "wallet_pay" },
+          } as never).returning();
+
+          let res: globalThis.Response;
+          try {
+            res = await fetch(`${railUrl}/charges`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               reference,
               amount_kobo: input.amount,
-              currency: "NGN",
+              currency,
               wallet: {
                 provider: decrypted.provider,
                 pan_last4: decrypted.panLast4,
@@ -377,15 +405,35 @@ export const walletPayRouter = router({
                 token_ref: inst.tokenRef,
               },
             }),
-            signal: AbortSignal.timeout(15000),
-          });
+              signal: AbortSignal.timeout(15000),
+            });
+          } catch (err) {
+            await db.update(transactions).set({ status: "failed", updatedAt: new Date() })
+              .where(eq(transactions.id, txId)).returning();
+            await emit(merchantId, "wallet.charge.failed", {
+              instrumentId: inst.id, reference, amountKobo: input.amount, currency,
+              provider: inst.provider, error: err instanceof Error ? err.message : String(err),
+            });
+            throw new TRPCError({
+              code: "SERVICE_UNAVAILABLE",
+              message: `Card rail unreachable: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
           if (!res.ok) {
+            await db.update(transactions).set({ status: "failed", updatedAt: new Date() })
+              .where(eq(transactions.id, txId)).returning();
+            await emit(merchantId, "wallet.charge.failed", {
+              instrumentId: inst.id, reference, amountKobo: input.amount, currency,
+              provider: inst.provider, error: `rail HTTP ${res.status}`,
+            });
             throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Card rail rejected wallet charge (HTTP ${res.status})` });
           }
+          await db.update(transactions).set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
+            .where(eq(transactions.id, txId)).returning();
           await emit(merchantId, "wallet.charge.success", {
-            instrumentId: inst.id, reference, amountKobo: input.amount, provider: inst.provider,
+            instrumentId: inst.id, reference, amountKobo: input.amount, currency, provider: inst.provider,
           });
-          return { reference, status: "completed", amountKobo: input.amount, provider: inst.provider };
+          return { reference, transactionId: txId, status: "completed", amountKobo: input.amount, currency, provider: inst.provider };
         },
       });
     }),
