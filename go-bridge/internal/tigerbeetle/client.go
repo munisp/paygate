@@ -9,6 +9,7 @@ package tigerbeetle
 import (
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 	"sync"
@@ -200,12 +201,20 @@ func (c *Client) EnsureAccount(id tb_types.Uint128, ledger uint32, code uint16) 
 		return nil
 	}
 
+	// C5: wallet accounts must NEVER go negative — enforce at the ledger with
+	// debits_must_not_exceed_credits. Float/fee-pool accounts are platform
+	// operational accounts and may legitimately run a managed overdraft.
+	var flags uint16
+	if code == CodeWallet {
+		flags = tb_types.AccountFlags{DebitsMustNotExceedCredits: true}.ToUint16()
+	}
+
 	accounts := []tb_types.Account{
 		{
 			ID:     id,
 			Ledger: ledger,
 			Code:   code,
-			Flags:  0,
+			Flags:  flags,
 		},
 	}
 	results, err := c.inner.CreateAccounts(accounts)
@@ -222,6 +231,8 @@ func (c *Client) EnsureAccount(id tb_types.Uint128, ledger uint32, code uint16) 
 
 // GetBalance returns the available balance of an account.
 // Available balance = credits_posted - debits_posted.
+// C5: a negative balance is NEVER silently clamped to zero — the exact signed
+// deficit is returned in the error so reconciliation can detect it.
 func (c *Client) GetBalance(id tb_types.Uint128) (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -237,7 +248,8 @@ func (c *Client) GetBalance(id tb_types.Uint128) (uint64, error) {
 	cp := acc.CreditsPosted.BigInt()
 	dp := acc.DebitsPosted.BigInt()
 	if dp.Cmp(&cp) > 0 {
-		return 0, nil
+		deficit := new(big.Int).Sub(&dp, &cp)
+		return 0, fmt.Errorf("GetBalance: account is OVERDRAWN by %s (credits_posted=%s debits_posted=%s)", deficit.String(), cp.String(), dp.String())
 	}
 	cp.Sub(&cp, &dp)
 	return cp.Uint64(), nil
@@ -275,6 +287,48 @@ func (c *Client) Transfer(
 		}
 	}
 	return nil
+}
+
+// TransferResult is the TigerBeetle per-transfer result code, surfaced so
+// callers can map specific outcomes (e.g. idempotent replay vs insufficient
+// funds) to distinct responses instead of a generic 500.
+type TransferResult = tb_types.CreateTransferResult
+
+// TransferWithResult executes a single transfer and returns the raw
+// TigerBeetle result code. TransferOK means the transfer was applied;
+// TransferExists means a transfer with the same ID already exists (idempotent
+// replay). Any other non-OK result is returned for the caller to map.
+func (c *Client) TransferWithResult(
+	transferID tb_types.Uint128,
+	debitAccountID tb_types.Uint128,
+	creditAccountID tb_types.Uint128,
+	amount uint64,
+	ledger uint32,
+	code uint16,
+) (TransferResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	transfers := []tb_types.Transfer{
+		{
+			ID:              transferID,
+			DebitAccountID:  debitAccountID,
+			CreditAccountID: creditAccountID,
+			Amount:          tb_types.ToUint128(amount),
+			Ledger:          ledger,
+			Code:            code,
+		},
+	}
+	results, err := c.inner.CreateTransfers(transfers)
+	if err != nil {
+		return tb_types.TransferOK, fmt.Errorf("CreateTransfers: %w", err)
+	}
+	for _, r := range results {
+		if r.Result != tb_types.TransferOK {
+			return r.Result, nil
+		}
+	}
+	return tb_types.TransferOK, nil
 }
 
 // ─── Batch transfers ────────────────────────────────────────────────────────
