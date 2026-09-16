@@ -223,6 +223,26 @@ export const subscriptionExtrasRouter = router({
       if (new Date(stored.expiresAt).getTime() < Date.now()) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Manage token expired" });
       }
+      // M20: manage tokens are SINGLE-USE. Claim the token atomically — the
+      // first successful verify stamps used_at; any later use (including a
+      // race that loses the guarded update) gets a 410-style error.
+      if (stored.usedAt) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Manage token has already been used (single-use link — request a fresh one)",
+        });
+      }
+      const claim = rowsOf(await database.execute(sql`
+        UPDATE subscription_manage_tokens SET used_at = now()
+        WHERE token_hash = ${tokenHash(input.token)} AND used_at IS NULL
+        RETURNING id
+      `));
+      if (!claim[0]) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Manage token has already been used (single-use link — request a fresh one)",
+        });
+      }
       const subs = rowsOf(await database.execute(sql`
         ${SUB_SELECT} WHERE id = ${claims.subscriptionId} AND merchant_id = ${stored.merchantId} LIMIT 1
       `));

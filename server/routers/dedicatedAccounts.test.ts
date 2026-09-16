@@ -52,10 +52,15 @@ vi.mock("../idempotency", () => ({
   withIdempotency: vi.fn(async (opts: any) => opts.execute()),
 }));
 
+vi.mock("../pbac", () => ({
+  requirePermission: vi.fn(async () => {}),
+  resolveMerchantTeamRole: vi.fn(async () => ({ merchantId: "merch_1", role: "owner" })),
+}));
+
 const dispatchSpy = vi.hoisted(() => vi.fn(async () => ({ dispatched: 1, failed: 0 })));
 vi.mock("../webhookEvents", () => ({ dispatchWebhookEvent: dispatchSpy }));
 
-import { dedicatedAccountsRouter } from "./dedicatedAccounts";
+import { dedicatedAccountsRouter, reapStaleDvaAssignments } from "./dedicatedAccounts";
 
 const ctx = { user: { id: 7, openId: "open-1", name: "Tester", email: "t@example.com", role: "user" } } as any;
 const caller = dedicatedAccountsRouter.createCaller(ctx);
@@ -69,7 +74,8 @@ const BANK_ROW = {
 };
 
 function reset() {
-  h.state.matchers = [];
+  // H12 duplicate-assign guard: no pre-existing active DVA by default.
+  h.state.matchers = [{ match: "dva_active_dup_check", respond: () => [] }];
   h.state.executed = [];
   dispatchSpy.mockClear();
   process.env.MIDDLEWARE_BRIDGE_URL = "http://bridge.test";
@@ -206,6 +212,100 @@ describe("dedicatedAccounts splits", () => {
     h.state.matchers.push({ match: "FROM nip_virtual_accounts", respond: () => [] });
     await expect(caller.addSplit({ account_number: "9999999999", split_code: "SPL_x" }))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("H12 duplicate assign guard", () => {
+  it("returns the existing active DVA idempotently instead of provisioning a second", async () => {
+    h.state.matchers = [
+      {
+        match: "dva_active_dup_check",
+        respond: () => [{
+          id: 42, merchantId: "merch_1", customerId: "cus_1",
+          customerEmail: "ada@example.com", accountNumber: "9876543210",
+          assignmentStatus: "assigned", status: "active", reference: "dva_existing",
+        }],
+      },
+      { match: "INSERT INTO customers", respond: () => [{ id: "cus_1" }] },
+    ];
+    const result: any = await caller.assign({
+      email: "ada@example.com", first_name: "Ada", last_name: "Lovelace",
+      phone: "08012345678", preferred_bank: "test-bank", country: "NG",
+    });
+    expect(result.reused).toBe(true);
+    expect(result.accountNumber).toBe("9876543210");
+    // No new DVA row was inserted, no provider call made.
+    expect(h.state.executed.some((t) => t.includes("INSERT INTO nip_virtual_accounts"))).toBe(false);
+  });
+});
+
+describe("H12 reapStaleDvaAssignments (called by cronJobs)", () => {
+  it("flips stale assignment_pending rows to failed and emits events", async () => {
+    h.state.matchers.push({
+      match: "UPDATE nip_virtual_accounts",
+      respond: () => [
+        { merchant_id: "merch_1", reference: "dva_stale1", customer_id: "cus_1", customer_email: "a@b.c" },
+        { merchant_id: "merch_1", reference: "dva_stale2", customer_id: "cus_2", customer_email: "c@d.e" },
+      ],
+    });
+    const res = await reapStaleDvaAssignments(30);
+    expect(res.reaped).toBe(2);
+    const failed = dispatchSpy.mock.calls.filter((c) => c[0].event === "dedicatedaccount.assign.failed");
+    expect(failed).toHaveLength(2);
+    expect(failed[0][0].data.reason).toMatch(/timed out/);
+  });
+
+  it("rejects a non-positive TTL", async () => {
+    await expect(reapStaleDvaAssignments(0)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("H12 dvaInboundCredit", () => {
+  const ACTIVE_DVA = {
+    id: 7, merchantId: "merch_1", customerId: "cus_1", customerEmail: "ada@example.com",
+    accountNumber: "0123456789", bankName: "Test Bank", status: "active",
+    assignmentStatus: "assigned", dedicated: true, deactivatedAt: null, reference: "dva_7",
+  };
+
+  it("credits an active DVA and emits payment.completed", async () => {
+    h.state.matchers.push({ match: "FROM nip_virtual_accounts", respond: () => [ACTIVE_DVA] });
+    const res: any = await caller.dvaInboundCredit({
+      account_number: "0123456789", amount_kobo: 25000,
+      sender_name: "Ada Lovelace", session_id: "nip_sess_1",
+    });
+    expect(res.status).toBe("OK");
+    expect(res.merchantId).toBe("merch_1");
+    expect(h.state.executed.some((t) => t.includes("INSERT INTO transactions"))).toBe(true);
+    const evt = dispatchSpy.mock.calls.find((c) => c[0].event === "payment.completed");
+    expect(evt).toBeTruthy();
+    expect(evt![0].data.wrong_amount).toBe(false);
+  });
+
+  it("flags a wrong-amount credit when an expected amount is supplied", async () => {
+    h.state.matchers.push({ match: "FROM nip_virtual_accounts", respond: () => [ACTIVE_DVA] });
+    const res: any = await caller.dvaInboundCredit({
+      account_number: "0123456789", amount_kobo: 20000, expected_amount_kobo: 25000,
+    });
+    expect(res.status).toBe("FLAGGED");
+    expect(res.wrongAmount).toBe(true);
+  });
+
+  it("REJECTS a deactivated account and emits bank.transfer.rejected", async () => {
+    h.state.matchers.push({
+      match: "FROM nip_virtual_accounts",
+      respond: () => [{ ...ACTIVE_DVA, deactivatedAt: new Date(), status: "cancelled" }],
+    });
+    const res: any = await caller.dvaInboundCredit({ account_number: "0123456789", amount_kobo: 25000 });
+    expect(res.status).toBe("REJECT");
+    expect(h.state.executed.some((t) => t.includes("INSERT INTO transactions"))).toBe(false);
+    expect(dispatchSpy.mock.calls.some((c) => c[0].event === "bank.transfer.rejected")).toBe(true);
+  });
+
+  it("REJECTS an unknown account number without crediting anything", async () => {
+    h.state.matchers.push({ match: "FROM nip_virtual_accounts", respond: () => [] });
+    const res: any = await caller.dvaInboundCredit({ account_number: "0000000000", amount_kobo: 25000 });
+    expect(res.status).toBe("REJECT");
+    expect(res.reason).toMatch(/unknown/);
   });
 });
 
