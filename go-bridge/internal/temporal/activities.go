@@ -142,16 +142,19 @@ func (a *ActivitySet) ExecutePayout(ctx context.Context, payoutID string) error 
 
 	transferID := tb.ReferenceToID("payout-" + payoutID)
 	if err := client.Transfer(transferID, merchantID, floatID, uint64(payout.Amount), ledger, tb.CodeFloat); err != nil {
-		_ = db.UpdatePayoutStatus(ctx, payoutID, "failed", err.Error())
+		// C7: record the failure properly — never discard this error.
+		if uerr := db.UpdatePayoutStatus(ctx, payoutID, "failed", err.Error()); uerr != nil {
+			slog.Error("[activity] ExecutePayout: failed to record payout failure status", "err", uerr, "payout_id", payoutID)
+			return fmt.Errorf("ExecutePayout: TigerBeetle transfer: %w (additionally failed to persist 'failed' status: %v)", err, uerr)
+		}
 		return fmt.Errorf("ExecutePayout: TigerBeetle transfer: %w", err)
 	}
 
-	if err := db.UpdatePayoutStatus(ctx, payoutID, "completed", ""); err != nil {
-		slog.Error("[activity] ExecutePayout: ledger debit succeeded but status update failed — reconciliation required", "err", err, "payout_id", payoutID)
-	}
-
+	// C7: publish the Kafka payout event BEFORE returning — a publish failure
+	// must surface as an activity error so Temporal retries (the activity is
+	// idempotent: the TB transfer ID and the status update are deterministic).
 	producer := kafka.GetProducer()
-	_ = producer.PublishPayout(ctx, kafka.PayoutEvent{
+	if err := producer.PublishPayout(ctx, kafka.PayoutEvent{
 		EventID:    "payout-executed-" + payoutID,
 		MerchantID: payout.MerchantID,
 		PayoutID:   payoutID,
@@ -159,7 +162,16 @@ func (a *ActivitySet) ExecutePayout(ctx context.Context, payoutID string) error 
 		Currency:   payout.Currency,
 		Status:     "completed",
 		OccurredAt: time.Now().UTC(),
-	})
+	}); err != nil {
+		return fmt.Errorf("ExecutePayout: publish payout event: %w", err)
+	}
+
+	// C7: return the UpdatePayoutStatus error so Temporal retries instead of
+	// silently leaving the payout in 'processing' forever.
+	if err := db.UpdatePayoutStatus(ctx, payoutID, "completed", ""); err != nil {
+		return fmt.Errorf("ExecutePayout: mark completed: %w", err)
+	}
+
 	slog.Info("[activity] ExecutePayout: completed", "payout_id", payoutID)
 	return nil
 }
