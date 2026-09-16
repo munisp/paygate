@@ -60,7 +60,7 @@ export const PBAC_POLICIES = {
     ownerRequired: true,
   },
   virtual_card: {
-    actions: ["view", "create", "freeze", "unfreeze", "terminate"] as const,
+    actions: ["view", "create", "freeze", "unfreeze", "terminate", "topup"] as const,
     ownerRequired: true,
   },
   settlement: {
@@ -112,6 +112,39 @@ export const PBAC_POLICIES = {
 export type ResourceType = keyof typeof PBAC_POLICIES;
 export type ActionFor<R extends ResourceType> = typeof PBAC_POLICIES[R]["actions"][number];
 
+// ─── Money actions (C14) ──────────────────────────────────────────────────────
+/**
+ * Actions that MOVE or UNBLOCK money / credentials. When the Permify backend
+ * is unreachable these must FAIL CLOSED with 503 — the local role matrix is a
+ * degraded-mode fallback and is NOT authoritative enough to move money on its
+ * own. Key format: `${resource}:${action}`.
+ */
+export const MONEY_ACTIONS: ReadonlySet<string> = new Set([
+  "payout:initiate", "payout:approve", "payout:reject", "payout:cancel",
+  "transaction:initiate", "transaction:cancel",
+  "api_key:create", "api_key:revoke", "api_key:rotate",
+  "virtual_card:create", "virtual_card:topup", "virtual_card:terminate",
+]);
+
+// ─── Recommended permission names for routers.ts (finding 6) ─────────────────
+/**
+ * RECOMMENDED_ROUTER_PERMISSIONS — named permissions that server/routers.ts
+ * MUST adopt for its pbacProcedure(...) call sites (routers.ts is owned by
+ * another change, so it is intentionally NOT edited here):
+ *
+ *   virtualCards.topUp  → "topup_virtual_card"  (virtual_card:topup)
+ *   apiKeys.revoke      → "revoke_api_keys"     (api_key:revoke)   [already in map]
+ *   webhooks.delete     → "delete_webhooks"     (webhook:delete)
+ *
+ * All three are present in PBAC_PERMISSION_MAP (server/_core/trpc.ts) and the
+ * local role matrix below.
+ */
+export const RECOMMENDED_ROUTER_PERMISSIONS = {
+  "virtualCards.topUp": "topup_virtual_card",
+  "apiKeys.revoke": "revoke_api_keys",
+  "webhooks.delete": "delete_webhooks",
+} as const;
+
 // ─── Role → Permission Matrix (fallback when Permify is offline) ──────────────
 
 const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
@@ -122,7 +155,7 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     kyc: ["view", "submit", "approve", "reject", "override"],
     api_key: ["view", "create", "revoke", "rotate"],
     webhook: ["view", "create", "update", "delete", "test"],
-    virtual_card: ["view", "create", "freeze", "unfreeze", "terminate"],
+    virtual_card: ["view", "create", "freeze", "unfreeze", "terminate", "topup"],
     settlement: ["view", "trigger", "approve", "export"],
     billing: ["view", "manage"],
     chargeback: ["view", "manage"],
@@ -142,7 +175,7 @@ const ROLE_PERMISSIONS: Record<string, Record<ResourceType, string[]>> = {
     kyc: ["view", "submit", "approve", "reject", "override"],
     api_key: ["view", "create", "revoke", "rotate"],
     webhook: ["view", "create", "update", "delete", "test"],
-    virtual_card: ["view", "create", "freeze", "unfreeze", "terminate"],
+    virtual_card: ["view", "create", "freeze", "unfreeze", "terminate", "topup"],
     settlement: ["view", "trigger", "approve", "export"],
     billing: ["view", "manage"],
     chargeback: ["view", "manage"],
@@ -276,9 +309,12 @@ interface PermifyCheckResponse {
 
 /**
  * Call Permify's /v1/tenants/{tenant}/permissions/check endpoint.
- * Falls back to the local role-permission matrix if Permify is unreachable.
+ * Tri-state result so callers can distinguish a definitive DENY from a
+ * backend outage: "unavailable" means Permify could not be consulted at all
+ * (network error, timeout, or non-OK status) and the local matrix would be
+ * used as a degraded fallback.
  */
-async function permifyCheck(req: PermifyCheckRequest): Promise<boolean> {
+async function permifyCheck(req: PermifyCheckRequest): Promise<"allowed" | "denied" | "unavailable"> {
   const { permifyUrl, permifyApiKey } = env;
   const tenantId = req.tenantId || "t1";
 
@@ -314,17 +350,17 @@ async function permifyCheck(req: PermifyCheckRequest): Promise<boolean> {
         entity: req.entityType,
         permission: req.permission,
       });
-      return false;
+      return "unavailable";
     }
 
     const data = (await response.json()) as PermifyCheckResponse;
-    return data.can === "RESULT_ALLOWED";
+    return data.can === "RESULT_ALLOWED" ? "allowed" : "denied";
   } catch (err: unknown) {
     // Permify offline — fall back to local matrix (fail-open for read, fail-closed for write)
     logger.warn("[PBAC] Permify unreachable, using local role matrix", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return false; // Signal to caller to use local fallback
+    return "unavailable"; // Signal to caller to use local fallback
   }
 }
 
@@ -373,16 +409,22 @@ export async function permifyWriteRelationship(
  * 2. Fall back to local role-permission matrix
  * 3. Log all decisions for audit trail
  */
-export async function checkPermission(
+export interface PermissionDecision {
+  allowed: boolean;
+  /** True when Permify could not be consulted and the local matrix answered. */
+  permifyDown: boolean;
+}
+
+export async function checkPermissionDetailed(
   userId: string,
   userRole: string,
   resource: ResourceType,
   action: string,
   resourceId?: string,
   tenantId: string = "t1"
-): Promise<boolean> {
+): Promise<PermissionDecision> {
   // 1. Try Permify
-  const permifyAllowed = await permifyCheck({
+  const permifyResult = await permifyCheck({
     tenantId,
     entityType: resource,
     entityId: resourceId ?? "*",
@@ -392,9 +434,9 @@ export async function checkPermission(
   });
 
   // If Permify returned a definitive answer, use it
-  if (permifyAllowed) {
+  if (permifyResult === "allowed") {
     logger.info("[PBAC] Permify ALLOWED", { userId, resource, action, resourceId });
-    return true;
+    return { allowed: true, permifyDown: false };
   }
 
   // 2. Fall back to local role matrix
@@ -410,9 +452,21 @@ export async function checkPermission(
     resourceId,
     allowed,
     source: "local_matrix",
+    permifyDown: permifyResult === "unavailable",
   });
 
-  return allowed;
+  return { allowed, permifyDown: permifyResult === "unavailable" };
+}
+
+export async function checkPermission(
+  userId: string,
+  userRole: string,
+  resource: ResourceType,
+  action: string,
+  resourceId?: string,
+  tenantId: string = "t1"
+): Promise<boolean> {
+  return (await checkPermissionDetailed(userId, userRole, resource, action, resourceId, tenantId)).allowed;
 }
 
 /**
@@ -427,13 +481,76 @@ export async function requirePermission(
   resourceId?: string,
   tenantId?: string
 ): Promise<void> {
-  const allowed = await checkPermission(userId, userRole, resource, action, resourceId, tenantId);
-  if (!allowed) {
+  const decision = await checkPermissionDetailed(userId, userRole, resource, action, resourceId, tenantId);
+  // C14 fail-closed: when Permify is DOWN, money actions must not silently
+  // fall through to the degraded local matrix — refuse with 503 so the caller
+  // retries when the authoritative backend is back.
+  if (decision.permifyDown && MONEY_ACTIONS.has(`${resource}:${action}`)) {
+    logger.error("[PBAC] Permify unavailable during money action — failing closed (503)", {
+      userId, resource, action, resourceId,
+    });
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Authorization backend unavailable; ${action} on ${resource} cannot be verified. Retry shortly.`,
+    });
+  }
+  if (!decision.allowed) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: `Permission denied: ${action} on ${resource}${resourceId ? ` (${resourceId})` : ""}`,
     });
   }
+}
+
+// ─── Merchant team-role resolution (C14) ─────────────────────────────────────
+
+/**
+ * Resolve the caller's MERCHANT-team role — the role used by requirePermission.
+ *
+ * Precedence (fail-closed):
+ *  1. team_members row for the caller (userId) with a live membership
+ *     (status not suspended/removed) → that row's role + merchantId.
+ *  2. No team row, but the caller OWNS a merchant (getMerchantByOwnerId) →
+ *     compat path: role "owner".
+ *  3. Neither → FORBIDDEN (the global users.role is NEVER trusted here —
+ *     it is not merchant-scoped).
+ */
+export async function resolveMerchantTeamRole(
+  openId: string
+): Promise<{ merchantId: string; role: string }> {
+  const { getDb, getUserByOpenId, getMerchantByOwnerId } = await import("./db");
+  const { teamMembers } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+
+  const user = await getUserByOpenId(openId);
+  if (!user) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  }
+
+  const db = await getDb();
+  if (db) {
+    const memberships = await db
+      .select({ merchantId: teamMembers.merchantId, role: teamMembers.role, status: teamMembers.status })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+      .limit(1);
+    const m = memberships[0];
+    if (m) {
+      if (m.status === "disabled") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Merchant team membership is not active" });
+      }
+      return { merchantId: m.merchantId, role: m.role };
+    }
+  }
+
+  // Compat path: no team row, but the caller owns the merchant → owner role.
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (merchant) {
+    return { merchantId: merchant.id, role: "owner" };
+  }
+
+  // No membership and no owned merchant → deny (fail closed).
+  throw new TRPCError({ code: "FORBIDDEN", message: "Merchant team membership required" });
 }
 
 // ─── tRPC Procedure Factories ─────────────────────────────────────────────────
@@ -449,8 +566,9 @@ export async function requirePermission(
  */
 export function pbacProcedure(resource: ResourceType, action: string, resourceId?: string) {
   return protectedProcedure.use(async ({ ctx, next }) => {
-    const userRole = (ctx.user as any).role ?? "user";
-    await requirePermission(String(ctx.user.id), userRole, resource, action, resourceId);
+    // C14: merchant-team role, never the global users.role.
+    const { role } = await resolveMerchantTeamRole(ctx.user.openId);
+    await requirePermission(String(ctx.user.id), role, resource, action, resourceId);
     return next({ ctx });
   });
 }
@@ -468,9 +586,10 @@ export function pbacProcedure(resource: ResourceType, action: string, resourceId
  */
 export function resourceProcedure(resource: ResourceType, action: string, resourceIdField: string) {
   return protectedProcedure.use(async ({ ctx, input, next }) => {
-    const userRole = (ctx.user as any).role ?? "user";
+    // C14: merchant-team role, never the global users.role.
+    const { role } = await resolveMerchantTeamRole(ctx.user.openId);
     const resourceId = ((input as unknown) as Record<string, unknown>)?.[resourceIdField] as string | undefined;
-    await requirePermission(String(ctx.user.id), userRole, resource, action, resourceId);
+    await requirePermission(String(ctx.user.id), role, resource, action, resourceId);
     return next({ ctx });
   });
 }
