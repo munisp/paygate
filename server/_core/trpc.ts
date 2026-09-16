@@ -128,6 +128,8 @@ const PBAC_PERMISSION_MAP = {
   initiate_transaction: { resource: "transaction", action: "initiate" },
   export_transactions: { resource: "transaction", action: "export" },
   manage_virtual_cards: { resource: "virtual_card", action: "create" },
+  topup_virtual_card: { resource: "virtual_card", action: "topup" },
+  delete_webhooks: { resource: "webhook", action: "delete" },
   trigger_settlement: { resource: "settlement", action: "trigger" },
   // Billing engine (tenant fee configs, DFSP fee tiers, invoices) — admin/finance.
   view_billing: { resource: "billing", action: "view" },
@@ -153,10 +155,14 @@ export function pbacProcedure(permission: PbacPermission | (string & {})) {
     const user = ctx.user;
     try {
       // Lazy import to avoid a module cycle (pbac.ts imports protectedProcedure).
-      const { requirePermission } = await import("../pbac");
+      const { requirePermission, resolveMerchantTeamRole } = await import("../pbac");
+      // C14: the role passed to requirePermission is the caller's MERCHANT-TEAM
+      // role (team_members row; owner-compat fallback) — NEVER the global
+      // users.role, which is not merchant-scoped and was the audited defect.
+      const { role } = await resolveMerchantTeamRole(user.openId);
       await requirePermission(
         String(user.id),
-        (user as { role?: string }).role ?? "user",
+        role,
         mapping.resource as never,
         mapping.action,
       );

@@ -217,13 +217,41 @@ func IdempotencyKey(operation, reference string) string {
 
 // CheckAndSetIdempotency returns true if this reference has already been
 // processed (duplicate), false if it is new (and marks it as processed).
+//
+// H26: the check-and-set is a SINGLE atomic `SET key 1 NX EX 86400` — the
+// previous EXISTS→SETEX pair had a TOCTOU window where two concurrent
+// requests both passed the EXISTS check and both executed the money path.
+//
+// Fail-closed contract: when Redis is unreachable the function returns a
+// non-nil error (not "false, nil"). Money-path callers MUST treat that error
+// as 503 and abort; non-money paths may log and proceed.
 func (c *Client) CheckAndSetIdempotency(ctx context.Context, operation, reference string) (bool, error) {
 	key := IdempotencyKey(operation, reference)
-	if c.Exists(ctx, key) {
+	if !c.enabled {
+		// Dev mode: no Redis — treat every reference as new.
+		return false, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn, err := c.dial()
+	if err != nil {
+		slog.Error("[redis] idempotency dial failed — failing closed", "operation", operation, "reference", reference, "err", err)
+		return false, fmt.Errorf("redis.CheckAndSetIdempotency: dial: %w", err)
+	}
+	defer conn.Close()
+	ttlSec := fmt.Sprintf("%d", int(idempotencyTTL.Seconds()))
+	resp, err := sendCommand(conn, "SET", key, "1", "NX", "EX", ttlSec)
+	if err != nil {
+		slog.Error("[redis] idempotency SET NX EX failed — failing closed", "operation", operation, "reference", reference, "err", err)
+		return false, fmt.Errorf("redis.CheckAndSetIdempotency: SET NX EX: %w", err)
+	}
+	// SET ... NX returns +OK when the key was set (new reference) and a null
+	// bulk reply ($-1) when the key already existed (duplicate).
+	if resp == "$-1\r\n" {
 		slog.Info("[redis] idempotency hit", "operation", operation, "reference", reference)
 		return true, nil
 	}
-	return false, c.SetEX(ctx, key, "1", idempotencyTTL)
+	return false, nil
 }
 
 // ─── NIP cache helpers ────────────────────────────────────────────────────────
