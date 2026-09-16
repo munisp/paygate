@@ -61,6 +61,21 @@ vi.mock("./stripe", () => ({
   }),
 }));
 
+// ─── PBAC: allow in these tests ─────────────────────────────────────────────
+// The money-path procedures are gated by pbacProcedure → requirePermission,
+// which (C14) fails CLOSED with SERVICE_UNAVAILABLE when the Permify backend
+// is unreachable — as it always is in this sandbox. PBAC enforcement is not
+// the contract under test here (it is covered by pbac.test.ts); allow it so
+// the payout/wallet semantics below are what actually get exercised.
+vi.mock("./pbac", async (importOriginal) => {
+  const orig = await importOriginal<any>();
+  return {
+    ...orig,
+    requirePermission: async () => {},
+    resolveMerchantTeamRole: async () => ({ role: "owner", teamId: "team_test" }),
+  };
+});
+
 // ─── Stateful in-memory Postgres stand-in ───────────────────────────────────
 type Wallet = {
   id: string; userId?: string; merchantId?: string; tenantId: string;
@@ -77,6 +92,7 @@ type State = {
   users: Record<string, any>;
   merchant: any;
   fxRates: Array<{ targetCurrency: string; rate: string }>;
+  payoutOutbox: any[];
   createPayoutCalls: number;
   createTransferCalls: number;
 };
@@ -102,6 +118,7 @@ function freshState(): State {
       { targetCurrency: "NGN", rate: "1500" },
       { targetCurrency: "USD", rate: "1.2" },
     ],
+    payoutOutbox: [],
     createPayoutCalls: 0,
     createTransferCalls: 0,
   };
@@ -110,11 +127,12 @@ function freshState(): State {
 let state: State;
 
 // Integer-cents helpers for the fake (no float money math in the tests either).
-const toCents = (s: string): number => {
+const toCents = (v: string | number): number => {
+  const s = String(v);
   const neg = s.startsWith("-");
   const [i, f = ""] = s.replace("-", "").split(".");
-  const v = parseInt(i || "0", 10) * 100 + parseInt((f + "00").slice(0, 2), 10);
-  return neg ? -v : v;
+  const cents = parseInt(i || "0", 10) * 100 + parseInt((f + "00").slice(0, 2), 10);
+  return neg ? -cents : cents;
 };
 const fromCents = (c: number): string =>
   `${c < 0 ? "-" : ""}${Math.floor(Math.abs(c) / 100)}.${String(Math.abs(c) % 100).padStart(2, "0")}`;
@@ -141,6 +159,120 @@ vi.mock("./db", async (importOriginal) => {
   /** Execute one of the known raw SQL statements against the fake state. */
   function execSql(q: any, journal: Array<() => void>): { rows: any[] } {
     const { text, params } = renderSql(q);
+    // H2 reserve-at-creation / legacy reserve-at-approve: guarded debit of the
+    // MERCHANT settlement wallet via a subquery —
+    //   UPDATE wallets SET balance = (balance::numeric - T)::text, ...
+    //   WHERE id = (SELECT id FROM wallets WHERE merchant_id AND currency AND status='active' ...)
+    //   AND balance::numeric >= T  RETURNING id
+    // Params: [total, merchantId, currency, total]. 0 rows ⇒ no wallet or
+    // insufficient funds (the procedure then throws PRECONDITION_FAILED 402).
+    if (/UPDATE wallets\s+SET balance = \(balance::numeric - /.test(text) && /SELECT id FROM wallets/.test(text) && /balance::numeric >= /.test(text)) {
+      const [total, merchantId, currency] = params;
+      const w = state.wallets.find(
+        (x) => x.merchantId === merchantId && x.currency === currency && x.status === "active",
+      );
+      if (!w || toCents(w.balance) < toCents(total)) return { rows: [] }; // guard fails → 0 rows
+      const prev = w.balance;
+      w.balance = fromCents(toCents(w.balance) - toCents(total));
+      journal.push(() => { w.balance = prev; });
+      return { rows: [{ id: w.id }] };
+    }
+    // H2 release-reservation credit back to the merchant settlement wallet
+    // (merchant subquery, no balance guard). Params: [amt, merchantId, currency].
+    if (/UPDATE wallets\s+SET balance = \(balance::numeric \+ /.test(text) && /SELECT id FROM wallets/.test(text)) {
+      const [amt, merchantId, currency] = params;
+      const w = state.wallets.find(
+        (x) => x.merchantId === merchantId && x.currency === currency && x.status === "active",
+      );
+      if (!w) return { rows: [] };
+      const prev = w.balance;
+      w.balance = fromCents(toCents(w.balance) + toCents(amt));
+      journal.push(() => { w.balance = prev; });
+      return { rows: [{ id: w.id }] };
+    }
+    // SELECT reserved_amount FROM payouts WHERE id = ?
+    if (/SELECT reserved_amount FROM payouts/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      return { rows: [{ reserved_amount: p?.reserved_amount ?? 0 }] };
+    }
+    // Release/consume reservation: UPDATE payouts SET reserved_amount = 0
+    // WHERE id = ? AND reserved_amount > 0 [RETURNING reserved_amount, currency]
+    if (/UPDATE payouts SET reserved_amount = 0/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      if (!p || !(Number(p.reserved_amount) > 0)) return { rows: [] };
+      const prev = p.reserved_amount;
+      p.reserved_amount = 0;
+      journal.push(() => { p.reserved_amount = prev; });
+      if (/RETURNING reserved_amount, currency/.test(text)) {
+        return { rows: [{ reserved_amount: prev, currency: p.currency ?? "NGN" }] };
+      }
+      return { rows: [] };
+    }
+    // Track reservation on the payout row: UPDATE payouts SET reserved_amount = X WHERE id = ?
+    if (/UPDATE payouts SET reserved_amount = /.test(text)) {
+      const [amt, id] = params;
+      const p = state.payouts.get(id);
+      if (!p) return { rows: [] };
+      const prev = p.reserved_amount;
+      p.reserved_amount = amt;
+      journal.push(() => { p.reserved_amount = prev; });
+      return { rows: [] };
+    }
+    // H3 double-approval guard: flip pending_approval → approving (0 rows ⇒ 409)
+    if (/UPDATE payouts SET status = 'approving'/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      if (!p || p.status !== "pending_approval") return { rows: [] };
+      const prev = p.status;
+      p.status = "approving";
+      journal.push(() => { p.status = prev; });
+      return { rows: [{ id }] };
+    }
+    // Bridge-fallback revert: approving → pending_approval
+    if (/UPDATE payouts SET status = 'pending_approval', updated_at = now\(\)\s+WHERE id = \?\s+AND status = 'approving'/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      if (!p || p.status !== "approving") return { rows: [] };
+      const prev = p.status;
+      p.status = "pending_approval";
+      journal.push(() => { p.status = prev; });
+      return { rows: [] };
+    }
+    // Final approval flip: → pending (accepts pending_approval or approving)
+    if (/UPDATE payouts SET status = 'pending', processed_at/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      if (!p || (p.status !== "pending_approval" && p.status !== "approving")) return { rows: [] };
+      const prev = p.status;
+      p.status = "pending";
+      journal.push(() => { p.status = prev; });
+      return { rows: [{ id }] };
+    }
+    // M21 fail-loud bridge parking: → workflow_pending
+    if (/UPDATE payouts SET status = 'workflow_pending'/.test(text)) {
+      const [id] = params;
+      const p = state.payouts.get(id);
+      if (p) p.status = "workflow_pending";
+      return { rows: [] };
+    }
+    // H4 rejection with dedicated rejection_reason column
+    if (/UPDATE payouts\s+SET status = 'rejected', rejection_reason/.test(text)) {
+      const [reason, id] = params;
+      const p = state.payouts.get(id);
+      if (!p || p.status !== "pending_approval") return { rows: [] };
+      const prev = { status: p.status, rejectionReason: p.rejectionReason };
+      p.status = "rejected";
+      p.rejectionReason = reason;
+      journal.push(() => { p.status = prev.status; p.rejectionReason = prev.rejectionReason; });
+      return { rows: [{ id }] };
+    }
+    // M21 outbox row queued for the workflow retry sweeper
+    if (/INSERT INTO payout_workflow_outbox/.test(text)) {
+      state.payoutOutbox.push({ payoutId: params[0], payload: params[1] });
+      return { rows: [] };
+    }
     // Guarded debit: UPDATE wallets SET balance = balance - X WHERE id AND balance >= X
     if (/UPDATE wallets\s+SET balance = \(balance::numeric - /.test(text) && /balance::numeric >= /.test(text)) {
       const [amount, walletId, guardAmount] = params;
@@ -173,6 +305,10 @@ vi.mock("./db", async (importOriginal) => {
   }
 
   const conn: any = {
+    // Raw SQL OUTSIDE a transaction (reserve-at-creation, H3 approval guard,
+    // getPayoutReservedAmount, M21 parking). Mutations here are NOT journaled —
+    // mirroring real autocommit semantics (no rollback if a later step fails).
+    execute: async (q: any) => execSql(q, []),
     // ── withIdempotency claim: INSERT ... ON CONFLICT DO NOTHING RETURNING ──
     insert: (table: any) => ({
       values: (v: any) => {
@@ -544,7 +680,16 @@ describe("wallet.topUp — Stripe-verified crediting (real procedure)", () => {
 
 // ─── payouts.create idempotency ──────────────────────────────────────────────
 describe("payouts.create — idempotent creation (real procedure)", () => {
-  beforeEach(() => { state = freshState(); });
+  beforeEach(() => {
+    state = freshState();
+    // H2 reserve-at-creation: payouts.create now reserves (amount + fee) from
+    // the merchant's active settlement wallet via a guarded UPDATE at CREATION
+    // (0 rows ⇒ PRECONDITION_FAILED "Insufficient funds (402)"). Seed a funded
+    // settlement wallet so creation can succeed.
+    state.wallets.push(
+      { id: "w_settle", merchantId: "mer_1", tenantId: "ten_default", balance: "1000000.00", currency: "NGN", status: "active" },
+    );
+  });
 
   it("explicit key: replay returns the original payout, creates once", async () => {
     const caller = appRouter.createCaller(makeCtx());
@@ -593,24 +738,34 @@ describe("payouts.approve — maker-checker & atomic fund reservation (real proc
     expect(state.payouts.get("pyo_1").status).toBe("pending_approval");
   });
 
-  it("approval without a settlement wallet → PRECONDITION_FAILED, no status flip", async () => {
+  it("approval without a settlement wallet → PRECONDITION_FAILED, reservation not possible", async () => {
     const caller = appRouter.createCaller(makeCtx("admin-open-id", 1)); // different user = checker
     await expect(caller.payouts.approve({ id: "pyo_1" })).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
+      message: expect.stringMatching(/Insufficient funds \(402\)/),
     });
+    // The seeded payout is a legacy row (reserved_amount = 0), so the approve
+    // path must reserve at approve — with no settlement wallet the guarded
+    // reserve matches 0 rows ⇒ 402. The H3 guard flip (pending_approval →
+    // approving) happens BEFORE the reserve in autocommit, and IS reverted
+    // by the catch handler on this failure path, so the payout returns to
+    // 'pending_approval' and can be re-approved.
     expect(state.payouts.get("pyo_1").status).toBe("pending_approval");
   });
 
-  it("approval with insufficient settlement funds → BAD_REQUEST, reservation rolled back", async () => {
+  it("approval with insufficient settlement funds → PRECONDITION_FAILED (402), reservation rolled back", async () => {
     state.wallets.push(
       { id: "w_settle", merchantId: "mer_1", tenantId: "ten_default", balance: "100.00", currency: "NGN", status: "active" },
     );
     const caller = appRouter.createCaller(makeCtx("admin-open-id", 1));
+    // Contract change: insufficient funds on approve is now PRECONDITION_FAILED
+    // ("Insufficient funds (402)"), not BAD_REQUEST.
     await expect(caller.payouts.approve({ id: "pyo_1" })).rejects.toMatchObject({
-      code: "BAD_REQUEST", message: expect.stringMatching(/[Ii]nsufficient/),
+      code: "PRECONDITION_FAILED", message: expect.stringMatching(/Insufficient funds \(402\)/),
     });
-    expect(state.wallets[0].balance).toBe("100.00"); // untouched
-    expect(state.payouts.get("pyo_1").status).toBe("pending_approval"); // untouched
+    expect(state.wallets[0].balance).toBe("100.00"); // untouched (guarded reserve matched 0 rows)
+    // Guard flip IS reverted on the reserve-failure path (see above).
+    expect(state.payouts.get("pyo_1").status).toBe("pending_approval");
   });
 
   it("checker approval reserves amount+fee atomically and flips status", async () => {
@@ -623,6 +778,10 @@ describe("payouts.approve — maker-checker & atomic fund reservation (real proc
     // Reserved exactly amount + fee = 200000 + 1000 = 201000.00
     expect(state.wallets[0].balance).toBe("49000.00");
     expect(state.payouts.get("pyo_1").status).toBe("pending");
+    // Seeded payout is a legacy row (reserved_amount = 0), so the reservation
+    // was taken AT APPROVE and is now tracked on the row for the payout worker
+    // (which picks status='pending' AND reserved_amount > 0).
+    expect(Number(state.payouts.get("pyo_1").reserved_amount)).toBe(201000);
   });
 
   it("double approval: the second approve is rejected (status guard)", async () => {
