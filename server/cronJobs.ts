@@ -982,6 +982,40 @@ async function registerPlatformSweeper(def: SweeperDef): Promise<void> {
   logger.info(`[Cron] sweeper registered: ${def.name} (every ${Math.round(def.intervalMs / 1000)}s)`);
 }
 
+// ─── SCUML Expiry Daily Sweep ────────────────────────────────────────────────
+/**
+ * Runs the SCUML expiry check (jobs/scumlExpiryJob.ts) once per day in-process
+ * as a fallback for the external heartbeat hitting
+ * POST /api/scheduled/scuml-expiry-check. Invokes the job handler directly with
+ * the cron identity; each run is guarded — a failure is logged and does not
+ * affect subsequent ticks. Exported so tests can assert registry membership.
+ */
+export async function runScumlExpiryCheck(): Promise<{ status: number; body: unknown }> {
+  try {
+    const { scumlExpiryJobHandler } = await import("./jobs/scumlExpiryJob");
+    const apiKey = process.env.BUILT_IN_FORGE_API_KEY ?? process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+    const req = {
+      headers: { authorization: apiKey ? `Bearer ${apiKey}` : "" },
+    } as unknown as Parameters<typeof scumlExpiryJobHandler>[0];
+    let status = 200;
+    let body: unknown;
+    const res = {
+      status(code: number) { status = code; return this; },
+      json(payload: unknown) { body = payload; return this; },
+    } as unknown as Parameters<typeof scumlExpiryJobHandler>[1];
+    await scumlExpiryJobHandler(req, res);
+    if (status >= 400) {
+      logger.warn(`[Cron] SCUML expiry sweep returned status ${status}: ${JSON.stringify(body)}`);
+    } else {
+      logger.info(`[Cron] SCUML expiry sweep completed: ${JSON.stringify(body)}`);
+    }
+    return { status, body };
+  } catch (err) {
+    logger.error(`[Cron] SCUML expiry sweep failed: ${err instanceof Error ? err.message : err}`);
+    return { status: 500, body: { error: err instanceof Error ? err.message : String(err) } };
+  }
+}
+
 // ─── Cron Scheduler ──────────────────────────────────────────────────────────
 let cronStarted = false;
 
@@ -1017,6 +1051,14 @@ export function startCronJobs() {
 
   // Red envelope expiry sweeper — every 15 minutes (spec #14)
   setInterval(sweepExpiredRedEnvelopes, 15 * 60 * 1000);
+
+  // SCUML expiry notifications — daily (in-process fallback for the external
+  // heartbeat cron that POSTs /api/scheduled/scuml-expiry-check at 06:30 UTC)
+  setInterval(() => {
+    runScumlExpiryCheck().catch(e => {
+      if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SCUML expiry tick failed: ${e instanceof Error ? e.message : e}`);
+    });
+  }, 24 * 60 * 60 * 1000);
 
   // Platform-ops sweepers (C9/C10/M9 + cross-fixer exports) — dynamically
   // imported, warn-once-and-skip when unavailable.

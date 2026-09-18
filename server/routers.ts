@@ -505,6 +505,25 @@ const authRouter = router({
     }),
 });
 
+// ─── Voice Transcription Router (O1: previously orphan — transcribeAudio existed
+// only as a doc example; now actually mounted) ─────────────────────────────────
+const voiceRouter = router({
+  transcribe: protectedProcedure
+    .input(z.object({
+      audioUrl: z.string().url(),
+      language: z.string().optional(),
+      prompt: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { transcribeAudio } = await import("./_core/voiceTranscription");
+      const result = await transcribeAudio(input);
+      if ("error" in result) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${result.code}: ${result.error}` });
+      }
+      return result;
+    }),
+});
+
 // ─── Onboarding Router ────────────────────────────────────────────────────────
 
 const onboardingRouter = router({
@@ -1245,6 +1264,8 @@ const payoutsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // G7: money initiation requires an approved KYC (fail-loud, indexed SELECT).
+      await (await import('./routers/kyc')).assertApprovedKyc(merchant.id);
       const execute = async () => {
       const feeAmount = payoutFeeKobo(input.amount);
       const payoutId = nanoid("pyo_");
@@ -1405,6 +1426,8 @@ const payoutsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // G7: money initiation requires an approved KYC (fail-loud, indexed SELECT).
+      await (await import('./routers/kyc')).assertApprovedKyc(merchant.id);
       const execute = async () => {
       const results: Array<{ index: number; success: boolean; id?: string; error?: string }> = [];
       for (let i = 0; i < input.rows.length; i++) {
@@ -4273,6 +4296,22 @@ const fraudRiskRouter = router({
     }),
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
+// G2/G3: platform-admin gate for KYC review actions. The session role is NOT
+// trusted — users.role is re-read from the DB on every call (fail closed),
+// same pattern as wave223_onboarding.requirePlatformAdmin.
+async function requireCompliancePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+  const { users: usersTbl } = await import('../drizzle/schema');
+  const { eq: eqOp } = await import('drizzle-orm');
+  const [u] = await db.select({ role: usersTbl.role }).from(usersTbl).where(eqOp(usersTbl.openId, openId)).limit(1);
+  if (!u || u.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Platform admin access required' });
+  }
+}
+
 const complianceKycRouter = router({
   // Create a new KYC submission record (called before uploading documents)
   createSubmission: protectedProcedure
@@ -4472,15 +4511,24 @@ const complianceKycRouter = router({
   updateStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(['pending','under_review','approved','rejected','expired']), rejectionReason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const user = await resolveUser(ctx.user.openId);
-      const merchant = await requireMerchant(user.id);
-      const update: any = { status: input.status };
+      // G2: KYC approval/rejection is a reviewer act — platform admin only.
+      // A merchant must NEVER be able to approve/reject its own KYC here.
+      await requireCompliancePlatformAdmin(ctx);
+      const dbAdmin = await getDb();
+      if (!dbAdmin) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { kycSubmissions: kycTblAdmin } = await import('../drizzle/schema');
+      const { eq: eqAdmin } = await import('drizzle-orm');
+      const [target] = await dbAdmin.select({ merchantId: kycTblAdmin.merchantId })
+        .from(kycTblAdmin).where(eqAdmin(kycTblAdmin.id, input.id)).limit(1);
+      if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'KYC submission not found' });
+      const merchant = { id: target.merchantId };
+      const update: any = { status: input.status, updatedAt: new Date() };
       if (input.rejectionReason) update.rejectionReason = input.rejectionReason;
       if (input.status === 'approved' || input.status === 'rejected') {
         update.reviewedAt = new Date();
         update.reviewedBy = ctx.user.openId;
       }
-      await updateKycSubmission(input.id, merchant.id, update);
+      await dbAdmin.update(kycTblAdmin).set(update).where(eqAdmin(kycTblAdmin.id, input.id));
 
       // ── DeepFace: Register face embedding on approval (Wave 178) ────────────────
       // When a KYC submission is approved, extract the face embedding and store it.
@@ -4644,12 +4692,25 @@ const complianceKycRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      await requireMerchant(user.id);
+      const merchant = await requireMerchant(user.id);
+
+      // ── G4: submission ownership check BEFORE any throttle/persist write ────
+      // The submissionId must belong to the caller's merchant — otherwise this
+      // endpoint is a cross-merchant IDOR (throttle/persist keyed by bare id).
+      const db0 = await getDb();
+      if (!db0) throw new Error('Database unavailable');
+      {
+        const { kycSubmissions: kycTblOwner } = await import('../drizzle/schema');
+        const { eq: eqOwner } = await import('drizzle-orm');
+        const [ownerRow] = await db0.select({ merchantId: kycTblOwner.merchantId })
+          .from(kycTblOwner).where(eqOwner(kycTblOwner.id, input.submissionId)).limit(1);
+        if (!ownerRow || ownerRow.merchantId !== merchant.id) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'KYC submission not found' });
+        }
+      }
 
       // ── Liveness retry throttling (Wave 171) ─────────────────────────────────
       // Block after 5 failed attempts within a 15-minute window to prevent brute-force.
-      const db0 = await getDb();
-      if (!db0) throw new Error('Database unavailable');
       if (db0) {
         const { kycSubmissions: kycTblThrottle } = await import('../drizzle/schema');
         const { eq: eqThrottle } = await import('drizzle-orm');
@@ -4777,17 +4838,19 @@ const complianceKycRouter = router({
         );
 
         if (adaptedDecision === 'spoof') {
-          await updateKycSubmission(input.submissionId, String(user.id), {
+          // G4: was String(user.id) — updateKycSubmission expects a MERCHANT id.
+          await updateKycSubmission(input.submissionId, merchant.id, {
             status: 'rejected',
             rejectionReason: `Liveness check failed: ${(result as any)?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
-        // Persist liveness result to DB regardless of outcome
+        // Persist liveness result to DB regardless of outcome (merchant-scoped —
+        // G4: never write to another merchant's submission by bare id).
         const db2 = await getDb();
         if (!db2) throw new Error('Database unavailable');
         if (db2) {
           const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
-          const { eq: eqOp } = await import('drizzle-orm');
+          const { eq: eqOp, and: andOp } = await import('drizzle-orm');
           await db2.update(kycTbl).set({
             livenessScore: livenessScore ?? null,
             livenessMode: input.mode,
@@ -4795,7 +4858,7 @@ const complianceKycRouter = router({
             livenessPassedAt: adaptedDecision === 'real' ? new Date() : null,
             livenessSessionId: result.session_id ?? input.submissionId,
             updatedAt: new Date(),
-          }).where(eqOp(kycTbl.id, input.submissionId));
+          }).where(andOp(eqOp(kycTbl.id, input.submissionId), eqOp(kycTbl.merchantId, merchant.id)));
         }
         return { ...result, decision: adaptedDecision, adaptive_threshold: adaptiveThreshold };
       } catch (e: any) {
@@ -4805,6 +4868,10 @@ const complianceKycRouter = router({
     }),
 
   // ─── Save Liveness Result (from onboarding wizard) ──────────────────────
+  // G5: the client report is NEVER authoritative. `passed`/`livenessScore` are
+  // persisted only as unverified client_reported_* metadata (migration 0105);
+  // livenessPassedAt is set exclusively by server-side checkLiveness or an
+  // admin override, and the submission status stays pending until then.
   saveLivenessResult: protectedProcedure
     .input(z.object({
       submissionId: z.string().optional(),
@@ -4820,7 +4887,7 @@ const complianceKycRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
-      const { eq: eqOp, desc: descOp } = await import('drizzle-orm');
+      const { eq: eqOp, and: andOp, desc: descOp, sql: sqlOp } = await import('drizzle-orm');
 
       let submissionId = input.submissionId;
       // If no submissionId provided, find or create the latest pending submission for this merchant
@@ -4833,7 +4900,8 @@ const complianceKycRouter = router({
         if (latest) {
           submissionId = latest.id;
         } else {
-          // Create a new submission record for liveness-only check
+          // Create a new submission record for liveness-only check (status stays
+          // pending — the client report is unverified).
           const newId = `kyc_${merchant.id}_${Date.now()}`;
           await db.insert(kycTbl).values({
             id: newId,
@@ -4841,30 +4909,48 @@ const complianceKycRouter = router({
             merchantId: merchant.id,
             docType: 'selfie' as any,
             status: 'pending',
-            livenessScore: input.livenessScore,
             livenessMode: input.livenessMode,
             livenessChallengeType: input.livenessChallengeType ?? null,
-            livenessPassedAt: input.passed ? new Date() : null,
             livenessSessionId: input.sessionId ?? null,
           } as any);
-          return { saved: true, submissionId: newId, passed: input.passed };
+          await db.execute(sqlOp`
+            UPDATE kyc_submissions
+            SET client_reported_liveness_score = ${input.livenessScore},
+                client_reported_liveness_passed = ${input.passed},
+                client_reported_liveness_at = now()
+            WHERE id = ${newId} AND merchant_id = ${merchant.id}
+          `);
+          logger.info(`[kyc.saveLivenessResult] merchant=${merchant.id} sub=${newId} clientReportedScore=${input.livenessScore} clientReportedPassed=${input.passed} (unverified)`);
+          return { saved: true, submissionId: newId, passed: input.passed, verified: false };
         }
       }
 
+      // G5: merchant-scoped update — never write to another merchant's row.
+      const scope = andOp(eqOp(kycTbl.id, submissionId), eqOp(kycTbl.merchantId, merchant.id));
+      const [owned] = await db.select({ id: kycTbl.id }).from(kycTbl).where(scope).limit(1);
+      if (!owned) throw new TRPCError({ code: 'NOT_FOUND', message: 'KYC submission not found' });
+
       await db.update(kycTbl).set({
-        livenessScore: input.livenessScore,
         livenessMode: input.livenessMode,
         livenessChallengeType: input.livenessChallengeType ?? null,
-        livenessPassedAt: input.passed ? new Date() : null,
         livenessSessionId: input.sessionId ?? null,
         updatedAt: new Date(),
-      }).where(eqOp(kycTbl.id, submissionId));
+      }).where(scope);
 
-      logger.info(`[kyc.saveLivenessResult] merchant=${merchant.id} sub=${submissionId} score=${input.livenessScore} passed=${input.passed}`);
-      return { saved: true, submissionId, passed: input.passed };
+      await db.execute(sqlOp`
+        UPDATE kyc_submissions
+        SET client_reported_liveness_score = ${input.livenessScore},
+            client_reported_liveness_passed = ${input.passed},
+            client_reported_liveness_at = now()
+        WHERE id = ${submissionId} AND merchant_id = ${merchant.id}
+      `);
+
+      logger.info(`[kyc.saveLivenessResult] merchant=${merchant.id} sub=${submissionId} clientReportedScore=${input.livenessScore} clientReportedPassed=${input.passed} (unverified)`);
+      return { saved: true, submissionId, passed: input.passed, verified: false };
     }),
 
   // Admin: manually override a borderline liveness score with a mandatory audit note
+  // G3: platform-admin gate (DB role re-check) — this sets authoritative state.
   overrideLiveness: protectedProcedure
     .input(z.object({
       submissionId: z.string(),
@@ -4872,6 +4958,7 @@ const complianceKycRouter = router({
       note: z.string().min(10, 'Note must be at least 10 characters for audit trail'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireCompliancePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
@@ -4883,6 +4970,9 @@ const complianceKycRouter = router({
           livenessOverrideNote: input.note,
           livenessOverrideBy: ctx.user.openId,
           livenessOverrideAt: new Date(),
+          // Admin override is the only non-server path allowed to stamp
+          // authoritative liveness passage.
+          ...(input.override ? { livenessPassedAt: new Date() } : {}),
           updatedAt: new Date(),
         })
         .where(eqOp(kycTbl.id, input.submissionId));
@@ -11108,6 +11198,7 @@ export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
   onboarding: onboardingRouter,
+  voice: voiceRouter,
   dashboard: dashboardRouter,
   transactions: transactionsRouter,
   customers: customersRouter,

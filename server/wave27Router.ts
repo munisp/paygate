@@ -1360,6 +1360,26 @@ import { and, desc, eq, count, sql as drizSql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { kycSubmissions, fxRates } from "../drizzle/schema";
 
+// ─── G1: KYB alias scoping ────────────────────────────────────────────────────
+// Returns null for platform admins (see all merchants); otherwise the caller's
+// own merchant id (resolved from the session user, never from client input).
+async function resolveCallerMerchantScope(ctx: any): Promise<string | null> {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const { users, merchants } = await import("../drizzle/schema");
+  const [u] = await db.select({ role: users.role })
+    .from(users)
+    .where(eq(users.openId, ctx.user.openId))
+    .limit(1);
+  if (u?.role === "admin") return null;
+  const [m] = await db.select({ id: merchants.id })
+    .from(merchants)
+    .where(eq(merchants.ownerId, ctx.user.id))
+    .limit(1);
+  if (!m) throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  return m.id;
+}
+
 const kybAliasRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -1367,9 +1387,12 @@ const kybAliasRouter = router({
       limit: z.number().min(1).max(100).default(20),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // G1: non-admins only ever see their own merchant's submissions.
+      const callerMerchantId = await resolveCallerMerchantScope(ctx);
+      const scopeWhere = callerMerchantId ? eq(kycSubmissions.merchantId, callerMerchantId) : undefined;
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select({
         id: kycSubmissions.id,
@@ -1380,27 +1403,33 @@ const kybAliasRouter = router({
         reviewNote: kycSubmissions.rejectionReason,
         documentType: kycSubmissions.docType,
       }).from(kycSubmissions)
+        .where(scopeWhere)
         .orderBy(desc(kycSubmissions.createdAt))
         .limit(input.limit).offset(offset);
-      const [{ total }] = await db.select({ total: count() }).from(kycSubmissions);
+      const [{ total }] = await db.select({ total: count() }).from(kycSubmissions).where(scopeWhere);
       const statuses = ["submitted","under_review","approved","rejected","requires_more_info"];
       const statsEntries = await Promise.all(statuses.map(async s => {
-        const [{ c }] = await db.select({ c: count() }).from(kycSubmissions).where(eq(kycSubmissions.status, s as any));
+        const statWhere = callerMerchantId
+          ? and(eq(kycSubmissions.merchantId, callerMerchantId), eq(kycSubmissions.status, s as any))
+          : eq(kycSubmissions.status, s as any);
+        const [{ c }] = await db.select({ c: count() }).from(kycSubmissions).where(statWhere);
         return [s, Number(c)] as [string, number];
       }));
       return { applications: rows, total: Number(total), stats: Object.fromEntries(statsEntries) };
     }),
-  updateStatus: protectedProcedure
+  // G1: KYC approval/rejection is a reviewer act — platform-admin only (DB
+  // role re-check via adminProcedure), never the merchant itself.
+  updateStatus: adminProcedure
     .input(z.object({
       merchantId: z.string(),
       status: z.enum(["not_started","under_review","approved","rejected","expired"]),
       reviewNote: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await db.update(kycSubmissions)
-        .set({ status: input.status, rejectionReason: input.reviewNote ?? null, reviewedAt: new Date() })
+        .set({ status: input.status, rejectionReason: input.reviewNote ?? null, reviewedAt: new Date(), reviewedBy: ctx.user.openId })
         .where(eq(kycSubmissions.merchantId, input.merchantId));
       return { success: true };
     }),

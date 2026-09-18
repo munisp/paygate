@@ -134,6 +134,12 @@ export async function startKybVerification(merchantId: string, documents: string
 
 /**
  * Start payout processing workflow.
+ *
+ * Intentionally unwired: the live payout execution path is the cron worker
+ * `executeApprovedPayouts` in server/routers.ts (~:1755), which performs the
+ * NIP transfer directly via the middleware bridge. Wire here only if
+ * Temporal-first payout execution is enabled — do NOT run both paths
+ * simultaneously (double-dispense risk).
  */
 export async function startPayoutProcessing(payoutId: string, merchantId: string, amount: number, currency: string) {
   return startWorkflow(
@@ -158,6 +164,12 @@ export async function startDisputeResolution(disputeId: string, transactionId: s
 
 /**
  * Start settlement batch workflow.
+ *
+ * Intentionally unwired: settlement execution currently runs via the
+ * in-process cron sweepers in server/cronJobs.ts (settlement SLA monitor and
+ * payout worker `executeApprovedPayouts` in server/routers.ts). Wire here only
+ * if Temporal-first execution is enabled — do NOT run both paths
+ * simultaneously (double-settlement risk).
  */
 export async function startSettlementBatch(batchId: string, merchantIds: string[]) {
   return startWorkflow(
