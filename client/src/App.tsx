@@ -458,6 +458,74 @@ const PSPManagementPage = lz(() => import("./pages/PSPManagement"));
 const DisputeLifecyclePage = lz(() => import("./pages/DisputeLifecycle"));
 const CBNReportsDashboard = lz(() => import("./pages/CBNReportsDashboard"));
 
+// ── Nexthub pages ─────────────────────────────────────────────────────────────
+const NexthubBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
+const NexthubDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
+const NexthubDFSPTopologyMap = lz(() => import("./pages/nexthub/DFSPTopologyMap"));
+const NexthubDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
+const NexthubReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
+const NexthubSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
+const NexthubSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
+
+// ── Onboarding pages ──────────────────────────────────────────────────────────
+const DFSPOnboardingPage = lz(() => import("./pages/onboarding/DFSPOnboarding"));
+const OnboardingHubPage = lz(() => import("./pages/onboarding/OnboardingHub"));
+const PISPOnboardingPage = lz(() => import("./pages/onboarding/PISPOnboarding"));
+const POSOperatorOnboardingPage = lz(() => import("./pages/onboarding/POSOperatorOnboarding"));
+const PSPOnboardingPage = lz(() => import("./pages/onboarding/PSPOnboarding"));
+const SettlementBankOnboardingPage = lz(() => import("./pages/onboarding/SettlementBankOnboarding"));
+const SubMerchantOnboardingPage = lz(() => import("./pages/SubMerchantOnboarding"));
+
+// ── Platform pages ────────────────────────────────────────────────────────────
+const PlatformAPIRateLimitDashboard = lz(() => import("./pages/platform/APIRateLimitDashboard"));
+const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
+const PlatformBeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
+const PlatformComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecard"));
+const PlatformCostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
+const PlatformDomainHealthMonitor = lz(() => import("./pages/platform/DomainHealthMonitor"));
+const PlatformProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
+const PlatformSagaMetricsDashboard = lz(() => import("./pages/platform/SagaMetricsDashboard"));
+
+// ── Domain vertical pages ─────────────────────────────────────────────────────
+const DomainCBDC = lz(() => import("./pages/domains/CBDC"));
+const DomainEnergyVend = lz(() => import("./pages/domains/EnergyVend"));
+const DomainG2PDisbursements = lz(() => import("./pages/domains/G2PDisbursements"));
+const DomainHealthcare = lz(() => import("./pages/domains/Healthcare"));
+const DomainInsurance = lz(() => import("./pages/domains/Insurance"));
+const DomainRemittance = lz(() => import("./pages/domains/Remittance"));
+const DomainSupplyChainFinance = lz(() => import("./pages/domains/SupplyChainFinance"));
+
+// ── Regulator / CBDC / Compliance / Fraud / FX / Analytics / Billing ─────────
+const RegulatorDashboard = lz(() => import("./pages/regulator/RegulatorDashboard"));
+const CBDCWalletManagement = lz(() => import("./pages/cbdc/CBDCWalletManagement"));
+const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
+const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
+const STRFilingQueue = lz(() => import("./pages/STRFilingQueue"));
+const FraudRuleEngineV2 = lz(() => import("./pages/fraud/FraudRuleEngine"));
+const FXRateManagement = lz(() => import("./pages/fx/FXRateManagement"));
+const RevenueAnalytics = lz(() => import("./pages/analytics/RevenueAnalytics"));
+const SubscriptionBilling = lz(() => import("./pages/billing/SubscriptionBilling"));
+
+// ── Settings pages ────────────────────────────────────────────────────────────
+const DeveloperSettings = lz(() => import("./pages/settings/DeveloperSettings"));
+const NotificationPreferences = lz(() => import("./pages/settings/NotificationPreferences"));
+const POSTerminalManagement = lz(() => import("./pages/settings/POSTerminalManagement"));
+
+// ── Loyalty / Security / Mojaloop ─────────────────────────────────────────────
+const LoyaltyV3Wave80 = lz(() => import("./pages/wave80/LoyaltyV3"));
+const InsiderThreat = lz(() => import("./pages/InsiderThreat"));
+const MojaloopDashboard = lz(() => import("./pages/MojaloopDashboard"));
+const MojaloopTransfers = lz(() => import("./pages/MojaloopTransfers"));
+
+// ── Infra nav pages (DashboardLayout sidebar) ─────────────────────────────────
+const AlertsPage = lz(() => import("./pages/AlertsPage"));
+const GatewayAndWorkflowMonitor = lz(() => import("./pages/GatewayAndWorkflowMonitor"));
+const InfraPage = lz(() => import("./pages/InfraPage"));
+const PaymentLinkBuilder = lz(() => import("./pages/PaymentLinkBuilder"));
+
+// ── 404 ───────────────────────────────────────────────────────────────────────
+const NotFound = lz(() => import("./pages/NotFound"));
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -944,7 +1012,75 @@ function Router() {
           <Route path="/psp-management" component={PSPManagementPage} />
           <Route path="/dispute-lifecycle" component={DisputeLifecyclePage} />
           <Route path="/cbn-reports" component={CBNReportsDashboard} />
-          <Route component={Dashboard} />
+
+          {/* Nexthub routes */}
+          <Route path="/nexthub/billing" component={NexthubBillingHub} />
+          <Route path="/nexthub/dfsp" component={NexthubDFSPManagement} />
+          <Route path="/nexthub/dfsp-topology" component={NexthubDFSPTopologyMap} />
+          <Route path="/nexthub/disputes" component={NexthubDisputesHub} />
+          <Route path="/nexthub/reconciliation-exceptions" component={NexthubReconciliationExceptions} />
+          <Route path="/nexthub/security" component={NexthubSecurityDashboard} />
+          <Route path="/nexthub/settlement-windows" component={NexthubSettlementWindows} />
+
+          {/* Onboarding routes */}
+          <Route path="/onboarding/hub" component={OnboardingHubPage} />
+          <Route path="/onboarding/dfsp" component={DFSPOnboardingPage} />
+          <Route path="/onboarding/pisp" component={PISPOnboardingPage} />
+          <Route path="/onboarding/pos-operator" component={POSOperatorOnboardingPage} />
+          <Route path="/onboarding/psp" component={PSPOnboardingPage} />
+          <Route path="/onboarding/settlement-bank" component={SettlementBankOnboardingPage} />
+          <Route path="/onboarding/sub-merchant" component={SubMerchantOnboardingPage} />
+
+          {/* Platform routes */}
+          <Route path="/platform/api-rate-limits" component={PlatformAPIRateLimitDashboard} />
+          <Route path="/platform/audit-log" component={PlatformAuditLogViewer} />
+          <Route path="/platform/beneficiary-registry" component={PlatformBeneficiaryRegistry} />
+          <Route path="/platform/compliance" component={PlatformComplianceScorecard} />
+          <Route path="/platform/cost-centres" component={PlatformCostCentreManager} />
+          <Route path="/platform/health" component={PlatformDomainHealthMonitor} />
+          <Route path="/platform/protocol-validator" component={PlatformProtocolValidator} />
+          <Route path="/platform/saga-metrics" component={PlatformSagaMetricsDashboard} />
+
+          {/* Domain vertical routes */}
+          <Route path="/domains/cbdc" component={DomainCBDC} />
+          <Route path="/domains/energy" component={DomainEnergyVend} />
+          <Route path="/domains/g2p" component={DomainG2PDisbursements} />
+          <Route path="/domains/healthcare" component={DomainHealthcare} />
+          <Route path="/domains/insurance" component={DomainInsurance} />
+          <Route path="/domains/remittance" component={DomainRemittance} />
+          <Route path="/domains/scf" component={DomainSupplyChainFinance} />
+
+          {/* Regulator / CBDC / Compliance / Fraud / FX / Analytics / Billing */}
+          <Route path="/regulator" component={RegulatorDashboard} />
+          <Route path="/cbdc/wallets" component={CBDCWalletManagement} />
+          <Route path="/compliance/kyc-upload" component={KYCDocumentUpload} />
+          <Route path="/compliance/kyc-documents" component={KYCDocumentUpload} />
+          <Route path="/compliance/merchant-verification" component={MerchantVerification} />
+          <Route path="/compliance/str-queue" component={STRFilingQueue} />
+          <Route path="/fraud/rules" component={FraudRuleEngineV2} />
+          <Route path="/fx/rates" component={FXRateManagement} />
+          <Route path="/analytics/revenue" component={RevenueAnalytics} />
+          <Route path="/billing/subscriptions" component={SubscriptionBilling} />
+
+          {/* Settings routes */}
+          <Route path="/settings/developer" component={DeveloperSettings} />
+          <Route path="/settings/notifications" component={NotificationPreferences} />
+          <Route path="/settings/pos-terminals" component={POSTerminalManagement} />
+
+          {/* Loyalty / Security / Mojaloop routes */}
+          <Route path="/loyalty/v3" component={LoyaltyV3Wave80} />
+          <Route path="/security/insider-threat" component={InsiderThreat} />
+          <Route path="/insider-threat" component={InsiderThreat} />
+          <Route path="/mojaloop/transfers" component={MojaloopTransfers} />
+
+          {/* Infra nav routes (referenced by DashboardLayout sidebar) */}
+          <Route path="/alerts" component={AlertsPage} />
+          <Route path="/gateway" component={GatewayAndWorkflowMonitor} />
+          <Route path="/infra" component={InfraPage} />
+          <Route path="/payment-links/builder" component={PaymentLinkBuilder} />
+          <Route path="/admin/overview"><AdminGuard><AdminPlatformOverview /></AdminGuard></Route>
+
+          <Route component={NotFound} />
     </Switch>
       </Suspense>
     </Layout>
