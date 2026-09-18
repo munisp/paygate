@@ -67,6 +67,13 @@ vi.mock("./stripe", () => ({
 // is unreachable — as it always is in this sandbox. PBAC enforcement is not
 // the contract under test here (it is covered by pbac.test.ts); allow it so
 // the payout/wallet semantics below are what actually get exercised.
+// G7 KYC gate: payouts.create/createBulk now require an approved KYC row.
+// The KYC gate is NOT the contract under test in this file — stub it allowed.
+vi.mock("./routers/kyc", async (importOriginal) => {
+  const orig = await importOriginal<any>();
+  return { ...orig, assertApprovedKyc: vi.fn(async () => {}) };
+});
+
 vi.mock("./pbac", async (importOriginal) => {
   const orig = await importOriginal<any>();
   return {
