@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
-import { toast } from "sonner";
   CheckCircle, AlertTriangle, XCircle, RefreshCw, Loader2,
   Database, Shield, Activity, BarChart3, Network, GitBranch,
   Cpu, Search, ArrowRight, Info
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,7 +69,7 @@ export default function ServiceIntegrationAudit() {
     ? services
     : services.filter((s: any) => s.category === categoryFilter);
 
-  const categories = [...new Set(services.map((s: any) => s.category))];
+  const categories = Array.from(new Set(services.map((s: any) => s.category)));
 
   const avgScore = audit?.summary?.avgScore ?? 0;
 

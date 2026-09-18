@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -131,9 +131,11 @@ function GenerateFormDialog({
   const handleSubmit = () => {
     if (!merchantId) { toast.error("Merchant ID is required"); return; }
     if (!period) { toast.error("Period is required"); return; }
-    if (formType === "form_a") generateA.mutate({ merchantId, period });
-    else if (formType === "form_b") generateB.mutate({ merchantId, quarter: period });
-    else if (formType === "form_c") generateC.mutate({ merchantId, year: parseInt(period) });
+    // Server resolves the merchant from the authenticated session (resolveMerchantId);
+    // the merchantId field above is a UI-level guard only, not sent to the API.
+    if (formType === "form_a") generateA.mutate({ period });
+    else if (formType === "form_b") generateB.mutate({ period });
+    else if (formType === "form_c") generateC.mutate({ period });
   };
 
   const periodLabel = formType === "form_a" ? "Period (YYYY-MM)" : formType === "form_b" ? "Quarter (YYYY-Q1/Q2/Q3/Q4)" : "Year (YYYY)";
@@ -233,13 +235,13 @@ export default function CBNReportsDashboard() {
 
   const { data: reportsData, isLoading: reportsLoading } = trpc.regulatoryReports.list.useQuery({
     page: 1,
-    limit: 50,
+    pageSize: 50,
     reportType: reportFilter !== "all" ? reportFilter : undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
   });
 
   const { data: submissionsData, isLoading: submissionsLoading } = trpc.regulatoryReports.listSubmissions.useQuery({
-    limit: 100,
+    pageSize: 100,
   });
 
   const { data: deadlinesData } = trpc.regulatoryReports.upcomingDeadlines.useQuery({ daysAhead: 30 });
@@ -252,8 +254,8 @@ export default function CBNReportsDashboard() {
   });
 
   // Compute stats
-  const reports = reportsData?.reports ?? [];
-  const submissions = submissionsData?.submissions ?? [];
+  const reports = reportsData?.rows ?? [];
+  const submissions = submissionsData?.rows ?? [];
   const pending = reports.filter(r => r.status === "pending" || r.status === "generating").length;
   const submitted = reports.filter(r => r.status === "submitted" || r.status === "acknowledged").length;
   const failed = reports.filter(r => r.status === "failed").length;
@@ -552,14 +554,14 @@ export default function CBNReportsDashboard() {
 function STRFilingQueue() {
   const utils = trpc.useUtils();
 
-  const { data: pendingStrs, isLoading } = trpc.str.listPending.useQuery(
-    { limit: 50 },
+  const { data: pendingStrs, isLoading } = trpc.str.getPendingWithCountdown.useQuery(
+    { includeBreached: true },
     { refetchInterval: 60_000 }
   );
 
   const submitMutation = trpc.str.submitToNFIU.useMutation({
     onSuccess: () => {
-      utils.str.listPending.invalidate();
+      utils.str.getPendingWithCountdown.invalidate();
       toast.success("STR submitted to NFIU successfully");
     },
     onError: (err) => toast.error(`Submission failed: ${err.message}`),
@@ -587,7 +589,7 @@ function STRFilingQueue() {
     );
   }
 
-  const strs = (pendingStrs as any)?.records ?? [];
+  const strs = pendingStrs ?? [];
 
   if (strs.length === 0) {
     return (

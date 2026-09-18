@@ -212,10 +212,12 @@ export const nexthubSecurityRouter = router({
         totalUnacknowledged: sql<number>`sum(case when acknowledged = false then 1 else 0 end)::int`,
         criticalUnacknowledged: sql<number>`sum(case when acknowledged = false and severity = 'CRITICAL' then 1 else 0 end)::int`,
         highUnacknowledged: sql<number>`sum(case when acknowledged = false and severity = 'HIGH' then 1 else 0 end)::int`,
-        eventsToday: sql<number>`sum(case when created_at >= now( then 1 else 0 end) - interval '24 hours')::int`,
-        fraudBlocksToday: sql<number>`sum(case when event_type = 'FRAUD_BLOCK' and created_at >= now( then 1 else 0 end) - interval '24 hours')::int`,
-        amlFlagsToday: sql<number>`sum(case when event_type = 'AML_FLAG' and created_at >= now( then 1 else 0 end) - interval '24 hours')::int`,
-        strFiledThisMonth: sql<number>`sum(case when event_type = 'STR_FILED' and created_at >= date_trunc('month', now( then 1 else 0 end)))::int`,
+        // R4 F15: these fragments were syntactically mangled
+        // (`now( then 1 else 0 end)`) and would have thrown at query time.
+        eventsToday: sql<number>`sum(case when created_at >= now() - interval '24 hours' then 1 else 0 end)::int`,
+        fraudBlocksToday: sql<number>`sum(case when event_type = 'FRAUD_BLOCK' and created_at >= now() - interval '24 hours' then 1 else 0 end)::int`,
+        amlFlagsToday: sql<number>`sum(case when event_type = 'AML_FLAG' and created_at >= now() - interval '24 hours' then 1 else 0 end)::int`,
+        strFiledThisMonth: sql<number>`sum(case when event_type = 'STR_FILED' and created_at >= date_trunc('month', now()) then 1 else 0 end)::int`,
       }).from(securityEvents);
 
       const [amlStats] = await db.select({
@@ -229,7 +231,7 @@ export const nexthubSecurityRouter = router({
       certCutoff.setDate(certCutoff.getDate() + 30);
       const [certStats] = await db.select({
         expiringCerts: sql<number>`sum(case when certificate_expires_at < ${certCutoff} and status = 'ACTIVE' then 1 else 0 end)::int`,
-        expiredCerts: sql<number>`sum(case when certificate_expires_at < now( then 1 else 0 end) and status = 'ACTIVE')::int`,
+        expiredCerts: sql<number>`sum(case when certificate_expires_at < now() and status = 'ACTIVE' then 1 else 0 end)::int`,
       }).from(nexthubDfsps);
 
       return { ...eventStats, ...amlStats, ...certStats };

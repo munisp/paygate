@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-import { toast } from "sonner";
   TrendingUp,
   TrendingDown,
   Coins,
@@ -25,6 +24,7 @@ import { toast } from "sonner";
   ArrowRight,
   RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Link } from "wouter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -5,7 +5,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +22,7 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/paygate/pbac-engine/internal/permify"
 	"github.com/paygate/pbac-engine/internal/policy"
+	"github.com/paygate/pbac-engine/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -95,11 +99,20 @@ func (s *Server) buildRouter() *chi.Mux {
 	// Rate limiting — 1000 req/min per IP (internal service, generous limit)
 	r.Use(httprate.LimitByIP(1000, time.Minute))
 
-	// Internal API key guard
+	// Internal API key guard — the PBAC oracle must NEVER be open.
 	internalKey := getEnv("INTERNAL_API_KEY", "")
-	if internalKey != "" {
-		r.Use(s.internalKeyMiddleware(internalKey))
+	if internalKey == "" {
+		env := strings.ToLower(os.Getenv("ENV"))
+		if env == "production" || env == "prod" {
+			s.logger.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production — refusing to run an open PBAC oracle")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		internalKey = fmt.Sprintf("dev-%x", b)
+		s.logger.Warn("INTERNAL_API_KEY unset — generated per-boot dev key; PBAC endpoints remain authenticated")
 	}
+	r.Use(s.internalKeyMiddleware(internalKey))
 
 	// Routes
 	r.Get("/healthz", s.handleHealth)
@@ -142,10 +155,10 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		// Degraded but still ready — local matrix fallback is active
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":         "degraded",
-			"permify":        "unreachable",
-			"fallback":       "local_matrix",
-			"service":        "pbac-engine",
+			"status":   "degraded",
+			"permify":  "unreachable",
+			"fallback": "local_matrix",
+			"service":  "pbac-engine",
 		})
 		return
 	}
@@ -299,7 +312,8 @@ func (s *Server) internalKeyMiddleware(key string) func(http.Handler) http.Handl
 				return
 			}
 			auth := r.Header.Get("Authorization")
-			if auth != "Bearer "+key {
+			candidate := strings.TrimPrefix(auth, "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(candidate), []byte(key)) != 1 {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
@@ -319,12 +333,16 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-pbac-engine")
+	defer otelShutdown(context.Background())
+
 	s := newServer(logger)
 
 	port := getEnv("PBAC_ENGINE_PORT", "8090")
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      s.router,
+		Handler:      telemetry.Middleware(s.router),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,

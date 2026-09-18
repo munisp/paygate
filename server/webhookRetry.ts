@@ -15,8 +15,10 @@ import { isSuppressedWorkerError } from './workerErrorFilter';
  *   Attempt 6: 12 hours
  *   Attempt 7: 24 hours (final — moves to dead-letter after this)
  *
- * After 7 failed attempts, the delivery is marked "dead_letter" and the
- * merchant is notified via the in-app notification system.
+ * After 7 failed attempts, the delivery stays 'failed' with
+ * attemptCount >= 7 and no next_retry_at — that IS the dead-letter state
+ * (webhook_delivery_status enum has no 'dead_letter'/'cancelled' values;
+ * spec #12 — dead-lettered rows are filtered by attemptCount at read time).
  *
  * Usage: call startWebhookRetryWorker() once in server/_core/index.ts
  */
@@ -101,6 +103,18 @@ async function deliverWebhook(
   }
 }
 
+// ─── updated_at stamping (H20) ────────────────────────────────────────────────
+// webhook_deliveries.updated_at is added by migration 0104 and is NOT in the
+// drizzle schema table object (schema.ts is append-only) — stamp it via raw SQL
+// so the failure alerter can use updated_at as its dead-letter freshness cursor.
+async function stampUpdatedAt(db: any, deliveryId: string): Promise<void> {
+  try {
+    await db.execute(sql`UPDATE webhook_deliveries SET updated_at = NOW() WHERE id = ${deliveryId}`);
+  } catch {
+    // Column may not exist yet (migration pending) — non-fatal.
+  }
+}
+
 // ─── Retry worker ─────────────────────────────────────────────────────────────
 async function processRetries() {
   const db = await getDb();
@@ -134,11 +148,20 @@ async function processRetries() {
       .limit(1);
 
     if (!endpointRows.length || !endpointRows[0].isActive) {
-      // Endpoint deleted or disabled — mark as cancelled
+      // R4 F14 (spec #12): 'cancelled' is NOT in the webhook_delivery_status
+      // enum (pending|success|failed|retrying) — writing it would throw or
+      // corrupt. Terminally park the delivery as 'failed' with
+      // attemptCount = MAX_ATTEMPTS so it is never selected for retry again.
       await db
         .update(webhookDeliveries)
-        .set({ status: "cancelled" } as any)
+        .set({
+          status: "failed",
+          attemptCount: MAX_ATTEMPTS,
+          nextRetryAt: null,
+        } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
+      await stampUpdatedAt(db, delivery.id);
+      logger.warn(`[webhookRetry] Delivery ${delivery.id} parked (endpoint deleted or disabled) — no further retries`);
       continue;
     }
 
@@ -156,20 +179,26 @@ async function processRetries() {
           deliveredAt: new Date(),
         } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
+      await stampUpdatedAt(db, delivery.id);
 
       console.info(`[webhookRetry] Delivery ${delivery.id} succeeded on attempt ${newAttemptCount}`);
     } else if (newAttemptCount >= MAX_ATTEMPTS) {
-      // Dead-letter
+      // Dead-letter (spec #12): 'dead_letter' is NOT in the
+      // webhook_delivery_status enum. The dead-letter state is represented as
+      // status='failed' with attemptCount >= MAX_ATTEMPTS and no next retry —
+      // readers filter on attemptCount.
       await db
         .update(webhookDeliveries)
         .set({
-          status: "dead_letter",
+          status: "failed",
           attemptCount: newAttemptCount,
           responseStatus: statusCode ?? null,
+          nextRetryAt: null,
         } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
+      await stampUpdatedAt(db, delivery.id);
 
-      logger.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered after ${newAttemptCount} attempts`);
+      logger.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered (status=failed, attemptCount=${newAttemptCount} >= ${MAX_ATTEMPTS})`);
     } else {
       // Schedule next retry
       const retryAt = nextRetryAt(newAttemptCount);
@@ -182,6 +211,7 @@ async function processRetries() {
           nextRetryAt: retryAt,
         } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
+      await stampUpdatedAt(db, delivery.id);
 
       console.info(
         `[webhookRetry] Delivery ${delivery.id} retry ${newAttemptCount}/${MAX_ATTEMPTS} scheduled at ${retryAt.toISOString()}`
@@ -218,4 +248,83 @@ export function stopWebhookRetryWorker() {
  */
 export function scheduleRetry(attemptCount: number): Date {
   return nextRetryAt(attemptCount);
+}
+
+// ─── Dead-letter queue (H20) ──────────────────────────────────────────────────
+// Dead-letter state = status 'failed' AND attemptCount >= MAX_ATTEMPTS AND no
+// next_retry_at (the webhook_delivery_status enum has no 'dead_letter' value).
+
+export interface DeadLetterDelivery {
+  id: string;
+  merchantId: string;
+  webhookId: string;
+  eventType: string;
+  responseStatus: number | null;
+  attemptCount: number;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+/**
+ * List dead-lettered webhook deliveries (attemptCount >= 7, no retry pending).
+ * wire into routers.ts — expose as an admin/merchant list procedure on the
+ * existing webhookDeliveries router (that router lives in routers.ts, which is
+ * outside this module's ownership).
+ */
+export async function listDeadLetters(merchantId?: string, limit = 100): Promise<DeadLetterDelivery[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT id, merchant_id, webhook_id, event_type, response_status, attempt_count,
+           created_at, updated_at
+    FROM webhook_deliveries
+    WHERE status = 'failed'
+      AND attempt_count >= ${MAX_ATTEMPTS}
+      AND next_retry_at IS NULL
+      ${merchantId ? sql`AND merchant_id = ${merchantId}` : sql``}
+    ORDER BY COALESCE(updated_at, created_at) DESC
+    LIMIT ${limit}
+  `);
+  const rows: any[] = (result as any)?.rows ?? (Array.isArray(result) ? result : []);
+  return rows.map((r) => ({
+    id: r.id,
+    merchantId: r.merchant_id,
+    webhookId: r.webhook_id,
+    eventType: r.event_type,
+    responseStatus: r.response_status == null ? null : Number(r.response_status),
+    attemptCount: Number(r.attempt_count ?? 0),
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at == null ? null : (r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)),
+  }));
+}
+
+/**
+ * Redrive a dead-lettered delivery: reset attemptCount and schedule it for
+ * immediate pickup by the retry worker (nextRetryAt = now, status 'failed').
+ * Returns true when the row was a dead-letter and has been re-queued.
+ * wire into routers.ts — expose as a mutation on the existing
+ * webhookDeliveries router (that router lives in routers.ts, which is outside
+ * this module's ownership).
+ */
+export async function redriveDeadLetter(id: string, merchantId?: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.execute(sql`
+    UPDATE webhook_deliveries
+    SET attempt_count = 1,
+        next_retry_at = NOW(),
+        updated_at = NOW()
+    WHERE id = ${id}
+      AND status = 'failed'
+      AND attempt_count >= ${MAX_ATTEMPTS}
+      AND next_retry_at IS NULL
+      ${merchantId ? sql`AND merchant_id = ${merchantId}` : sql``}
+    RETURNING id
+  `);
+  const rows: any[] = (result as any)?.rows ?? (Array.isArray(result) ? result : []);
+  if (rows.length > 0) {
+    logger.info(`[webhookRetry] Dead-letter ${id} redriven — re-queued for immediate retry`);
+    return true;
+  }
+  return false;
 }

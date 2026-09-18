@@ -14,19 +14,21 @@ import { describe, it, expect } from "vitest";
 
 // ─── Reconciliation Alert Badge ───────────────────────────────────────────────
 describe("Reconciliation Alert Badge — getStats procedure", () => {
+  // Cold-import of the full appRouter exceeds 15s on slow (FUSE) filesystems —
+  // the timeout is bumped, the assertion is unchanged.
   it("reconciliation.getStats procedure exists in appRouter", async () => {
     const { appRouter } = await import("./routers");
     const procedures = (appRouter as any)._def?.procedures ?? {};
     const keys = Object.keys(procedures);
     expect(keys.some(k => k.includes("reconciliation") && k.includes("getStats"))).toBe(true);
-  });
+  }, 60_000);
 
   it("reconciliation.listAlerts procedure exists in appRouter", async () => {
     const { appRouter } = await import("./routers");
     const procedures = (appRouter as any)._def?.procedures ?? {};
     const keys = Object.keys(procedures);
     expect(keys.some(k => k.includes("reconciliation") && k.includes("listAlerts"))).toBe(true);
-  });
+  }, 60_000);
 
   it("reconciliation.createAlert procedure exists in appRouter", async () => {
     const { appRouter } = await import("./routers");

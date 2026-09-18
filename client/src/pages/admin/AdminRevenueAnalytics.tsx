@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-import { toast } from "sonner";
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TrendingUp, DollarSign, Users, BarChart3, Download } from "lucide-react";
 
@@ -21,10 +21,39 @@ const PLAN_COLORS: Record<string, string> = {
 export default function AdminRevenueAnalytics() {
   const [months, setMonths] = useState(6);
 
-  const { data: revenueByTenant, isLoading, isError } = trpc.wave29.adminAnalytics.revenueByTenant.useQuery({ months }, { staleTime: 30_000 });
-  const { data: platformSummary } = trpc.wave29.adminAnalytics.platformSummary.useQuery({ months }, { staleTime: 30_000 });
-  const { data: planDistribution } = trpc.wave29.adminAnalytics.planDistribution.useQuery();
-  const { data: topTenants } = trpc.wave29.adminAnalytics.topTenants.useQuery({ limit: 10 }, { staleTime: 30_000 });
+  // Real server sources:
+  //  - wave29.tenantBilling.getRevenueAnalytics → per-period platform summary rows
+  //  - wave30.tenantStripeBilling.listCustomers → per-tenant billing rows
+  const { data: revenueAnalytics, isLoading, isError } = trpc.wave29.tenantBilling.getRevenueAnalytics.useQuery({ months }, { staleTime: 30_000 });
+  const { data: tenantCustomers } = trpc.wave30.tenantStripeBilling.listCustomers.useQuery(undefined, { staleTime: 30_000 });
+
+  const platformSummary = revenueAnalytics ?? [];
+  const revenueByTenant = (tenantCustomers ?? []).map((c: any) => ({
+    tenant_id: c.tenant_id,
+    tenant_name: c.billing_email ?? c.tenant_id,
+    plan: c.plan ?? "starter",
+    total_amount: c.total_paid ?? 0,
+    status: Number(c.total_invoices ?? 0) > 0 ? "paid" : "open",
+  }));
+  const planDistribution = Object.values(
+    (tenantCustomers ?? []).reduce((acc: Record<string, any>, c: any) => {
+      const p = c.plan ?? "starter";
+      acc[p] ??= { plan: p, tenant_count: 0, total_revenue: 0 };
+      acc[p].tenant_count += 1;
+      acc[p].total_revenue += Number(c.total_paid ?? 0);
+      return acc;
+    }, {})
+  );
+  const topTenants = [...(tenantCustomers ?? [])]
+    .sort((a: any, b: any) => Number(b.total_paid ?? 0) - Number(a.total_paid ?? 0))
+    .slice(0, 10)
+    .map((c: any) => ({
+      tenant_id: c.tenant_id,
+      tenant_name: c.billing_email ?? c.tenant_id,
+      plan: c.plan ?? "starter",
+      total_revenue: c.total_paid ?? 0,
+      invoice_count: c.total_invoices ?? 0,
+    }));
 
   const totalRevenue = (platformSummary ?? []).reduce(
     (sum: number, r: any) => sum + Number(r.total_revenue ?? 0), 0
@@ -139,23 +168,17 @@ export default function AdminRevenueAnalytics() {
                   <TableRow>
                     <TableHead>Tenant</TableHead>
                     <TableHead>Plan</TableHead>
-                    <TableHead>Period</TableHead>
-                    <TableHead>Base</TableHead>
-                    <TableHead>Overage</TableHead>
-                    <TableHead>Total</TableHead>
+                    <TableHead>Total Collected</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(revenueByTenant ?? []).slice(0, 20).map((r: any, i: number) => (
-                    <TableRow key={i}>
+                    <TableRow key={r.tenant_id ?? i}>
                       <TableCell className="font-medium">{r.tenant_name}</TableCell>
                       <TableCell>
                         <Badge className={PLAN_COLORS[r.plan] ?? ""}>{r.plan}</Badge>
                       </TableCell>
-                      <TableCell>{r.period_year}-{String(r.period_month).padStart(2, "0")}</TableCell>
-                      <TableCell>${Number(r.base_amount ?? 0).toFixed(2)}</TableCell>
-                      <TableCell>${Number(r.overage_amount ?? 0).toFixed(2)}</TableCell>
                       <TableCell className="font-semibold">${Number(r.total_amount ?? 0).toFixed(2)}</TableCell>
                       <TableCell>
                         <Badge variant={r.status === "paid" ? "default" : "outline"}>{r.status}</Badge>
@@ -164,7 +187,7 @@ export default function AdminRevenueAnalytics() {
                   ))}
                   {(revenueByTenant ?? []).length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                      <TableCell colSpan={4} className="text-center text-gray-400 py-8">
                         No revenue data for selected period.
                       </TableCell>
                     </TableRow>

@@ -18,6 +18,7 @@ import { getDb } from "./db";
 import { webhooks, webhookDeliveries } from "../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { deliverWebhookViaMiddleware } from "./middlewareBridge";
+import { scheduleRetry } from "./webhookRetry";
 
 export interface SlaBreachPayload {
   event: "settlement.sla_breach";
@@ -125,7 +126,9 @@ export async function dispatchSlaBreachWebhook(
       logger.error("[webhookDispatch] Failed to log delivery:", dbErr);
     }
 
-    // Also dispatch via middleware bridge for Kafka/Redis/Lakehouse fan-out
+    // H19: the direct POST above is THE delivery path. Middleware bridge is
+    // ONLY for Kafka/Redis/Lakehouse fan-out — targetUrl stripped so it can
+    // never double-POST to the merchant endpoint.
     try {
       await deliverWebhookViaMiddleware({
         deliveryId,
@@ -133,7 +136,7 @@ export async function dispatchSlaBreachWebhook(
         merchantId: payload.merchantId,
         eventType: payload.event,
         payload: payload as unknown as Record<string, unknown>,
-        targetUrl: endpoint.url,
+        targetUrl: "",
         secret: endpoint.secret,
       });
     } catch {
@@ -237,6 +240,8 @@ export async function dispatchWebhook(
         latencyMs,
         status: success ? "success" : "failed",
         attemptCount: 1,
+        // C15: failed first delivery enters the retry schedule (attempt 2 = +1m).
+        nextRetryAt: success ? null : scheduleRetry(1),
         deliveredAt: success ? new Date() : null,
       });
     } catch (dbErr) {
@@ -250,7 +255,7 @@ export async function dispatchWebhook(
         merchantId: payload.merchantId,
         eventType: payload.event,
         payload: payload as unknown as Record<string, unknown>,
-        targetUrl: endpoint.url,
+        targetUrl: "", // H19: audit fan-out only — no second HTTP delivery
         secret: endpoint.secret,
       });
     } catch {

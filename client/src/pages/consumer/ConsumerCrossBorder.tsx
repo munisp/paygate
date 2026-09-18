@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowRight, Globe, RefreshCw, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const CORRIDORS = [
@@ -64,12 +65,15 @@ export default function ConsumerCrossBorder() {
     },
     { enabled: false , staleTime: 30_000 })
 
+  const initiateKey = useIdempotencyKey();
   const initiate = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
+      initiateKey.reset();
       setStep("done");
       toast.success("Transfer initiated successfully!");
     },
     onError: (err) => {
+      initiateKey.reset();
       toast.error(err.message || "Transfer failed");
     },
   });
@@ -95,6 +99,10 @@ export default function ConsumerCrossBorder() {
   };
 
   const handleConfirm = () => {
+    if (!/^\d{1,13}(\.\d{1,2})?$/.test(amount) || parseFloat(amount) <= 0) {
+      toast.error("Amount must be a positive decimal with up to 2 decimal places");
+      return;
+    }
     initiate.mutate({
       receiverId: recipientPhone,
       receiverIdType: recipientIdType,
@@ -103,6 +111,7 @@ export default function ConsumerCrossBorder() {
       amount,
       corridor: corridor.corridor,
       rail,
+      idempotencyKey: initiateKey.getKey(),
     });
   };
 

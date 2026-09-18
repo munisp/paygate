@@ -4,7 +4,12 @@
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { pbacProcedure, router } from "../_core/trpc";
+
+// PBAC: billing config reads require billing:view; writes require billing:manage
+// (admin + finance_manager per the local role matrix in server/pbac.ts).
+const viewBilling = pbacProcedure("view_billing");
+const manageBilling = pbacProcedure("manage_billing");
 import { getDb } from "../db";
 import { randomUUID } from "crypto";
 import { notifyOwner } from "../_core/notification";
@@ -90,7 +95,7 @@ const BillingConfigUpdateSchema = BillingConfigCreateSchema.partial().extend({
 export const billingRouter = router({
 
   // Get the active billing config for a tenant
-  getActive: protectedProcedure
+  getActive: viewBilling
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ ctx, input }) => {
       const { billingConfigs } = await import("../../drizzle/schema");
@@ -106,7 +111,7 @@ export const billingRouter = router({
     }),
 
   // List all billing config versions for a tenant (audit history)
-  listVersions: protectedProcedure
+  listVersions: viewBilling
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ ctx, input }) => {
       const { billingConfigs } = await import("../../drizzle/schema");
@@ -120,7 +125,7 @@ export const billingRouter = router({
     }),
 
   // Create a new billing config (draft)
-  create: protectedProcedure
+  create: manageBilling
     .input(BillingConfigCreateSchema)
     .mutation(async ({ ctx, input }) => {
       assertBillingAdmin(ctx.user.role);
@@ -171,7 +176,7 @@ export const billingRouter = router({
     }),
 
   // Update a draft billing config
-  update: protectedProcedure
+  update: manageBilling
     .input(BillingConfigUpdateSchema)
     .mutation(async ({ ctx, input }) => {
       assertBillingAdmin(ctx.user.role);
@@ -220,7 +225,7 @@ export const billingRouter = router({
     }),
 
   // Activate a draft billing config (deactivates the current active one)
-  activate: protectedProcedure
+  activate: manageBilling
     .input(z.object({
       id: z.string(),
       reason: z.string().min(1),
@@ -302,7 +307,7 @@ export const billingRouter = router({
     }),
 
   // Get billing audit log for a tenant
-  getAuditLog: protectedProcedure
+  getAuditLog: viewBilling
     .input(z.object({
       tenantId: z.string(),
       limit: z.number().int().min(1).max(100).default(50),
@@ -322,7 +327,7 @@ export const billingRouter = router({
     }),
 
   // Record an overhead cost entry
-  recordOverheadCost: protectedProcedure
+  recordOverheadCost: manageBilling
     .input(z.object({
       tenantId: z.string(),
       category: z.enum(["infrastructure", "labor", "travel", "marketing", "compliance", "support", "other"]),
@@ -351,7 +356,7 @@ export const billingRouter = router({
     }),
 
   // Get overhead costs for a tenant and period
-  getOverheadCosts: protectedProcedure
+  getOverheadCosts: viewBilling
     .input(z.object({
       tenantId: z.string(),
       periodStart: z.date(),
@@ -373,7 +378,7 @@ export const billingRouter = router({
     }),
 
   // Get billing metrics summary for a tenant and period
-  getMetricsSummary: protectedProcedure
+  getMetricsSummary: viewBilling
     .input(z.object({
       tenantId: z.string(),
       periodStart: z.date(),
@@ -433,7 +438,7 @@ export const billingRouter = router({
     }),
 
   // Get overhead breakdown by category
-  getOverheadByCategory: protectedProcedure
+  getOverheadByCategory: viewBilling
     .input(z.object({
       tenantId: z.string(),
       periodStart: z.date(),
@@ -458,7 +463,7 @@ export const billingRouter = router({
     }),
 
   // List recent billing events for a tenant
-  listBillingEvents: protectedProcedure
+  listBillingEvents: viewBilling
     .input(z.object({
       tenantId: z.string(),
       limit: z.number().int().min(1).max(200).default(50),
@@ -530,7 +535,7 @@ const BILLING_TIER_TEMPLATES = {
 export const billingExtRouter = router({
   // Provisions a billing config from a named tier template during tenant onboarding.
   // Triggers the Temporal ProvisionBillingWorkflow via the middleware bridge.
-  provisionBillingTier: protectedProcedure
+  provisionBillingTier: manageBilling
     .input(z.object({
       tenantId: z.string(),
       tier: z.enum(["starter", "growth", "enterprise", "custom"]),
@@ -604,7 +609,7 @@ export const billingExtRouter = router({
     }),
 
   // Returns aggregated revenue, EBITDA, and split data for the billing analytics page.
-  getAnalytics: protectedProcedure
+  getAnalytics: viewBilling
     .input(z.object({
       tenantId: z.string(),
       from: z.date().optional(),
@@ -671,7 +676,7 @@ export const billingExtRouter = router({
     }),
 
   // Returns daily/weekly/monthly revenue time series for billing analytics charts.
-  getRevenueTimeSeries: protectedProcedure
+  getRevenueTimeSeries: viewBilling
     .input(z.object({
       tenantId: z.string(),
       from: z.date().optional(),

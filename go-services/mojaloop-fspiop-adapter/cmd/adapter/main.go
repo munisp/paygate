@@ -6,14 +6,18 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,6 +26,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/paygate/mojaloop-fspiop-adapter/internal/telemetry"
 )
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
@@ -42,10 +48,10 @@ type Config struct {
 }
 
 func loadConfig() Config {
-	return Config{
+	cfg := Config{
 		Port:              getEnv("PORT", "8097"),
 		MojaloopURL:       getEnv("MOJALOOP_URL", "https://sandbox.mojaloop.io/v1"),
-		MojaloopAPIKey:    getEnv("MOJALOOP_API_KEY", "mojaloop-sandbox-key"),
+		MojaloopAPIKey:    os.Getenv("MOJALOOP_API_KEY"), // no default — hardcoded sandbox credentials removed (spec #16/#19)
 		CIPSGatewayURL:    getEnv("CIPS_GATEWAY_URL", "http://cips-gateway:8098"),
 		UPIGatewayURL:     getEnv("UPI_GATEWAY_URL", "http://upi-gateway:8099"),
 		PIXGatewayURL:     getEnv("PIX_GATEWAY_URL", "http://pix-gateway:8100"),
@@ -54,8 +60,32 @@ func loadConfig() Config {
 		FSPIOPSourceFSP:   getEnv("FSPIOP_SOURCE_FSP", "paygate"),
 		FSPIOPDestFSP:     getEnv("FSPIOP_DEST_FSP", "mojaloop-hub"),
 		JWSPrivateKeyPath: getEnv("JWS_PRIVATE_KEY_PATH", "/etc/paygate/jws-private.pem"),
-		InternalAPIKey:    getEnv("INTERNAL_API_KEY", "internal-api-key-default"),
+		InternalAPIKey:    os.Getenv("INTERNAL_API_KEY"),
 	}
+	env := strings.ToLower(os.Getenv("ENV"))
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	prod := env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod"
+	if cfg.MojaloopAPIKey == "" {
+		if prod {
+			slog.Error("FATAL: MOJALOOP_API_KEY must be set when ENV=production — refusing to start with fabricated credentials")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.MojaloopAPIKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("MOJALOOP_API_KEY unset — generated per-boot dev key; Mojaloop hub calls will fail upstream auth (dev only)")
+	}
+	if cfg.InternalAPIKey == "" {
+		if prod {
+			slog.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.InternalAPIKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("INTERNAL_API_KEY unset — generated per-boot dev key; refusing well-known defaults")
+	}
+	return cfg
 }
 
 func getEnv(key, fallback string) string {
@@ -88,23 +118,23 @@ type FSPIOPQuoteRequest struct {
 	AmountType           string      `json:"amountType"` // SEND or RECEIVE
 	Amount               FSPIOPMoney `json:"amount"`
 	TransactionType      struct {
-		Scenario    string `json:"scenario"` // TRANSFER, DEPOSIT, WITHDRAWAL, PAYMENT, REFUND
-		SubScenario string `json:"subScenario,omitempty"`
-		Initiator   string `json:"initiator"` // PAYER or PAYEE
+		Scenario      string `json:"scenario"` // TRANSFER, DEPOSIT, WITHDRAWAL, PAYMENT, REFUND
+		SubScenario   string `json:"subScenario,omitempty"`
+		Initiator     string `json:"initiator"`     // PAYER or PAYEE
 		InitiatorType string `json:"initiatorType"` // CONSUMER, AGENT, BUSINESS, DEVICE
 	} `json:"transactionType"`
 	Note string `json:"note,omitempty"`
 }
 
 type FSPIOPTransferRequest struct {
-	TransferID        string      `json:"transferId"`
-	PayerFSP          string      `json:"payerFsp"`
-	PayeeFSP          string      `json:"payeeFsp"`
-	Amount            FSPIOPMoney `json:"amount"`
-	ILPPacket         string      `json:"ilpPacket"`
-	Condition         string      `json:"condition"`
-	Expiration        string      `json:"expiration"`
-	ExtensionList     *ExtList    `json:"extensionList,omitempty"`
+	TransferID    string      `json:"transferId"`
+	PayerFSP      string      `json:"payerFsp"`
+	PayeeFSP      string      `json:"payeeFsp"`
+	Amount        FSPIOPMoney `json:"amount"`
+	ILPPacket     string      `json:"ilpPacket"`
+	Condition     string      `json:"condition"`
+	Expiration    string      `json:"expiration"`
+	ExtensionList *ExtList    `json:"extensionList,omitempty"`
 }
 
 type ExtList struct {
@@ -129,17 +159,17 @@ type CrossBorderTransferRequest struct {
 }
 
 type CrossBorderTransferResponse struct {
-	Success          bool   `json:"success"`
-	TransferID       string `json:"transfer_id"`
+	Success            bool   `json:"success"`
+	TransferID         string `json:"transfer_id"`
 	MojaloopTransferID string `json:"mojaloop_transfer_id,omitempty"`
-	CIPSTransferID   string `json:"cips_transfer_id,omitempty"`
-	UPITransferID    string `json:"upi_transfer_id,omitempty"`
-	PIXTransferID    string `json:"pix_transfer_id,omitempty"`
-	Status           string `json:"status"`
-	ExchangeRate     string `json:"exchange_rate,omitempty"`
-	Fee              string `json:"fee,omitempty"`
-	EstimatedArrival string `json:"estimated_arrival,omitempty"`
-	Message          string `json:"message,omitempty"`
+	CIPSTransferID     string `json:"cips_transfer_id,omitempty"`
+	UPITransferID      string `json:"upi_transfer_id,omitempty"`
+	PIXTransferID      string `json:"pix_transfer_id,omitempty"`
+	Status             string `json:"status"`
+	ExchangeRate       string `json:"exchange_rate,omitempty"`
+	Fee                string `json:"fee,omitempty"`
+	EstimatedArrival   string `json:"estimated_arrival,omitempty"`
+	Message            string `json:"message,omitempty"`
 }
 
 // ─── Rail Router ───────────────────────────────────────────────────────────────
@@ -276,17 +306,13 @@ func (r *RailRouter) routeMojaloop(req CrossBorderTransferRequest) (*CrossBorder
 	httpReq.Header.Set("X-Forwarded-For", "paygate-fspiop-adapter")
 
 	resp, err := r.client.Do(httpReq)
-	status := "submitted"
 	if err != nil {
-		slog.Warn("mojaloop hub unreachable, recording as pending", "error", err)
-		status = "pending"
-	} else {
-		defer resp.Body.Close()
-		if resp.StatusCode == 202 {
-			status = "submitted"
-		} else {
-			status = "pending"
-		}
+		return nil, fmt.Errorf("mojaloop hub unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	status := "submitted"
+	if resp.StatusCode != 202 && resp.StatusCode != 200 {
+		return nil, fmt.Errorf("mojaloop hub returned HTTP %d", resp.StatusCode)
 	}
 
 	result := &CrossBorderTransferResponse{
@@ -320,20 +346,20 @@ func (r *RailRouter) routeCIPS(req CrossBorderTransferRequest) (*CrossBorderTran
 	}
 
 	payload := map[string]interface{}{
-		"transfer_id":     cipsTransferID,
-		"paygate_ref":     req.TransferID,
-		"sender_name":     req.SenderName,
-		"receiver_id":     req.ReceiverID,
-		"receiver_id_type": req.ReceiverIDType,
-		"cnaps_code":      cnapsCode,
-		"amount":          req.Amount,
-		"source_currency": req.SourceCurrency,
-		"target_currency": req.TargetCurrency,
-		"corridor":        req.Corridor,
-		"message_type":    "pacs.008.001.08",
+		"transfer_id":       cipsTransferID,
+		"paygate_ref":       req.TransferID,
+		"sender_name":       req.SenderName,
+		"receiver_id":       req.ReceiverID,
+		"receiver_id_type":  req.ReceiverIDType,
+		"cnaps_code":        cnapsCode,
+		"amount":            req.Amount,
+		"source_currency":   req.SourceCurrency,
+		"target_currency":   req.TargetCurrency,
+		"corridor":          req.Corridor,
+		"message_type":      "pacs.008.001.08",
 		"settlement_method": "CLRG", // Clearing
-		"charge_bearer":   "SHAR",   // Shared charges
-		"created_at":      time.Now().UTC().Format(time.RFC3339),
+		"charge_bearer":     "SHAR", // Shared charges
+		"created_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Forward to CIPS gateway
@@ -346,21 +372,24 @@ func (r *RailRouter) routeCIPS(req CrossBorderTransferRequest) (*CrossBorderTran
 	httpReq.Header.Set("X-CIPS-Source", "PAYGATE")
 	httpReq.Header.Set("X-Internal-Key", r.cfg.InternalAPIKey)
 
-	status := "submitted"
-	_, err = r.client.Do(httpReq)
+	gw, err := r.callRailGateway(httpReq, "cips")
 	if err != nil {
-		slog.Warn("CIPS gateway unreachable, recording as pending", "error", err)
-		status = "pending"
+		return nil, err
+	}
+	status := mapStr(gw, "status")
+	if status == "" {
+		status = "submitted"
 	}
 
 	result := &CrossBorderTransferResponse{
-		Success:          true,
-		TransferID:       req.TransferID,
-		CIPSTransferID:   cipsTransferID,
-		Status:           status,
-		ExchangeRate:     "7.2450",
-		Fee:              "0.30",
-		EstimatedArrival: time.Now().Add(4 * time.Hour).UTC().Format(time.RFC3339),
+		Success:        true,
+		TransferID:     req.TransferID,
+		CIPSTransferID: cipsTransferID,
+		Status:         status,
+		// FX rate / fee / arrival come from the gateway response only.
+		ExchangeRate:     mapStr(gw, "exchange_rate"),
+		Fee:              mapStr(gw, "fee"),
+		EstimatedArrival: mapStr(gw, "settlement_time"),
 		Message:          fmt.Sprintf("CIPS transfer %s submitted via CNAPS %s", cipsTransferID, cnapsCode),
 	}
 
@@ -384,18 +413,18 @@ func (r *RailRouter) routeUPI(req CrossBorderTransferRequest) (*CrossBorderTrans
 	}
 
 	payload := map[string]interface{}{
-		"transfer_id":     upiTransferID,
-		"paygate_ref":     req.TransferID,
-		"sender_name":     req.SenderName,
-		"receiver_vpa":    vpa,
-		"amount":          req.Amount,
-		"source_currency": req.SourceCurrency,
-		"target_currency": "INR",
-		"corridor":        req.Corridor,
+		"transfer_id":      upiTransferID,
+		"paygate_ref":      req.TransferID,
+		"sender_name":      req.SenderName,
+		"receiver_vpa":     vpa,
+		"amount":           req.Amount,
+		"source_currency":  req.SourceCurrency,
+		"target_currency":  "INR",
+		"corridor":         req.Corridor,
 		"transaction_type": "COLLECT", // UPI collect flow
-		"purpose_code":    "P0001",    // Family maintenance (RBI purpose code)
-		"remarks":         fmt.Sprintf("PayGate cross-border transfer %s", req.TransferID),
-		"created_at":      time.Now().UTC().Format(time.RFC3339),
+		"purpose_code":     "P0001",   // Family maintenance (RBI purpose code)
+		"remarks":          fmt.Sprintf("PayGate cross-border transfer %s", req.TransferID),
+		"created_at":       time.Now().UTC().Format(time.RFC3339),
 	}
 
 	body, _ := json.Marshal(payload)
@@ -407,22 +436,23 @@ func (r *RailRouter) routeUPI(req CrossBorderTransferRequest) (*CrossBorderTrans
 	httpReq.Header.Set("X-UPI-Source", "PAYGATE")
 	httpReq.Header.Set("X-Internal-Key", r.cfg.InternalAPIKey)
 
-	status := "submitted"
-	_, err = r.client.Do(httpReq)
+	gw, err := r.callRailGateway(httpReq, "upi")
 	if err != nil {
-		slog.Warn("UPI gateway unreachable, recording as pending", "error", err)
+		return nil, err
+	}
+	status := mapStr(gw, "status")
+	if status == "" {
 		status = "pending"
 	}
 
 	result := &CrossBorderTransferResponse{
-		Success:          true,
-		TransferID:       req.TransferID,
-		UPITransferID:    upiTransferID,
-		Status:           status,
-		ExchangeRate:     "83.2500",
-		Fee:              "0.25",
-		EstimatedArrival: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
-		Message:          fmt.Sprintf("UPI collect request %s sent to VPA %s", upiTransferID, vpa),
+		Success:       true,
+		TransferID:    req.TransferID,
+		UPITransferID: upiTransferID,
+		Status:        status,
+		ExchangeRate:  mapStr(gw, "exchange_rate"),
+		Fee:           mapStr(gw, "fee"),
+		Message:       fmt.Sprintf("UPI collect request %s sent to VPA %s", upiTransferID, vpa),
 	}
 
 	r.mu.Lock()
@@ -464,22 +494,23 @@ func (r *RailRouter) routePIX(req CrossBorderTransferRequest) (*CrossBorderTrans
 	httpReq.Header.Set("X-PIX-Source", "PAYGATE")
 	httpReq.Header.Set("X-Internal-Key", r.cfg.InternalAPIKey)
 
-	status := "submitted"
-	_, err = r.client.Do(httpReq)
+	gw, err := r.callRailGateway(httpReq, "pix")
 	if err != nil {
-		slog.Warn("PIX gateway unreachable, recording as pending", "error", err)
-		status = "pending"
+		return nil, err
+	}
+	status := mapStr(gw, "status")
+	if status == "" {
+		status = "submitted"
 	}
 
 	result := &CrossBorderTransferResponse{
-		Success:          true,
-		TransferID:       req.TransferID,
-		PIXTransferID:    pixTransferID,
-		Status:           status,
-		ExchangeRate:     "5.0250",
-		Fee:              "0.20",
-		EstimatedArrival: time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339),
-		Message:          fmt.Sprintf("PIX payment %s initiated via key type %s", pixTransferID, pixKeyType),
+		Success:       true,
+		TransferID:    req.TransferID,
+		PIXTransferID: pixTransferID,
+		Status:        status,
+		ExchangeRate:  mapStr(gw, "exchange_rate"),
+		Fee:           mapStr(gw, "fee"),
+		Message:       fmt.Sprintf("PIX payment %s initiated via key type %s", pixTransferID, pixKeyType),
 	}
 
 	r.mu.Lock()
@@ -489,34 +520,50 @@ func (r *RailRouter) routePIX(req CrossBorderTransferRequest) (*CrossBorderTrans
 	return result, nil
 }
 
+// callRailGateway executes a request against a rail gateway and decodes its
+// JSON response. Any transport error or >=400 status is a hard error — the
+// caller MUST NOT fabricate success.
+func (r *RailRouter) callRailGateway(httpReq *http.Request, rail string) (map[string]interface{}, error) {
+	resp, err := r.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s gateway unreachable: %w", rail, err)
+	}
+	defer resp.Body.Close()
+	var body map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if resp.StatusCode >= 400 {
+		return body, fmt.Errorf("%s gateway returned HTTP %d", rail, resp.StatusCode)
+	}
+	return body, nil
+}
+
+func mapStr(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
+}
+
+// errNotImplemented marks rails with no upstream integration (mapped to 501).
+func errNotImplemented(rail string) error {
+	return fmt.Errorf("NOT_IMPLEMENTED: %s rail has no upstream integration; refusing to fabricate a submission", rail)
+}
+
 // ─── BRICS Pay Rail ────────────────────────────────────────────────────────────
 
 func (r *RailRouter) routeBRICSPay(req CrossBorderTransferRequest) (*CrossBorderTransferResponse, error) {
-	bricsID := fmt.Sprintf("BRICS-%d-%s", time.Now().UnixMilli(), generateShortID())
-	return &CrossBorderTransferResponse{
-		Success:          true,
-		TransferID:       req.TransferID,
-		Status:           "submitted",
-		ExchangeRate:     "1.0",
-		Fee:              "0.40",
-		EstimatedArrival: time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339),
-		Message:          fmt.Sprintf("BRICS Pay transfer %s submitted", bricsID),
-	}, nil
+	// No BRICS Pay upstream integration exists — fail loud, never fabricate.
+	slog.Error("BRICS Pay transfer requested but rail is not implemented", "transfer_id", req.TransferID)
+	return nil, errNotImplemented("brics_pay")
 }
 
 // ─── SWIFT Rail ────────────────────────────────────────────────────────────────
 
 func (r *RailRouter) routeSWIFT(req CrossBorderTransferRequest) (*CrossBorderTransferResponse, error) {
-	swiftRef := fmt.Sprintf("SWIFT-%d-%s", time.Now().UnixMilli(), generateShortID())
-	return &CrossBorderTransferResponse{
-		Success:          true,
-		TransferID:       req.TransferID,
-		Status:           "submitted",
-		ExchangeRate:     "1.0",
-		Fee:              "15.00",
-		EstimatedArrival: time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		Message:          fmt.Sprintf("SWIFT MT103 %s submitted via correspondent bank", swiftRef),
-	}, nil
+	// No SWIFT correspondent-bank integration exists — fail loud, never fabricate.
+	slog.Error("SWIFT transfer requested but rail is not implemented", "transfer_id", req.TransferID)
+	return nil, errNotImplemented("swift")
 }
 
 // ─── HTTP Handlers ─────────────────────────────────────────────────────────────
@@ -558,9 +605,14 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-Internal-Key")
 		if key == "" {
-			key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				key = strings.TrimPrefix(auth, "Bearer ")
+			}
 		}
-		if key != s.cfg.InternalAPIKey && key != s.cfg.MojaloopAPIKey {
+		// Only the internal service key authenticates inbound calls — the
+		// outbound Mojaloop hub credential is NOT a valid inbound credential.
+		// Constant-time comparison to resist timing attacks.
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.InternalAPIKey)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -592,7 +644,11 @@ func (s *Server) handleTransfer(w http.ResponseWriter, r *http.Request) {
 	result, err := s.router.RouteTransfer(req)
 	if err != nil {
 		slog.Error("transfer routing failed", "error", err, "transfer_id", req.TransferID)
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		if strings.HasPrefix(err.Error(), "NOT_IMPLEMENTED") {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotImplemented)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 
@@ -613,23 +669,38 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		rail = req.Rail
 	}
 
-	// Return quote with exchange rate and fee
-	quote := map[string]interface{}{
-		"quote_id":         generateUUID(),
-		"rail":             rail,
-		"source_currency":  req.SourceCurrency,
-		"target_currency":  req.TargetCurrency,
-		"source_amount":    req.Amount,
-		"exchange_rate":    getRailExchangeRate(rail, req.SourceCurrency, req.TargetCurrency),
-		"fee":              getRailFee(rail, req.Amount),
-		"fee_currency":     req.SourceCurrency,
-		"estimated_arrival": getEstimatedArrival(rail),
-		"expires_at":       time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
-		"corridor":         req.Corridor,
+	// Live quotes come from the rail gateway only — never static rate tables.
+	var gwURL, gwPath string
+	switch rail {
+	case "cips":
+		gwURL, gwPath = s.cfg.CIPSGatewayURL, "/v1/quote"
+	case "mojaloop":
+		gwURL, gwPath = s.cfg.MojaloopURL, "/quotes"
+	default:
+		slog.Error("quote requested for rail without a live quote source", "rail", rail)
+		http.Error(w, fmt.Sprintf(`{"error":"no_live_quote_source","rail":"%s","message":"no live FX source is wired for this rail; refusing to fabricate a rate"}`, rail), http.StatusServiceUnavailable)
+		return
 	}
-
+	payload, _ := json.Marshal(req)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, gwURL+gwPath, strings.NewReader(string(payload)))
+	if err != nil {
+		http.Error(w, `{"error":"quote_request_failed"}`, http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Internal-Key", s.cfg.InternalAPIKey)
+	resp, err := s.router.client.Do(httpReq)
+	if err != nil {
+		slog.Error("quote upstream unreachable", "rail", rail, "error", err)
+		http.Error(w, `{"error":"quote_upstream_unreachable"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	var body map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(quote)
+	w.WriteHeader(resp.StatusCode)
+	json.NewEncoder(w).Encode(body)
 }
 
 func (s *Server) handleGetTransfer(w http.ResponseWriter, r *http.Request) {
@@ -648,13 +719,36 @@ func (s *Server) handleGetTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRailHealth(w http.ResponseWriter, r *http.Request) {
+	probe := func(rail, baseURL string) map[string]interface{} {
+		entry := map[string]interface{}{"rail": rail}
+		start := time.Now()
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+"/health", nil)
+		if err != nil {
+			entry["status"] = "unconfigured"
+			return entry
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		entry["latency_ms"] = time.Since(start).Milliseconds()
+		if err != nil {
+			entry["status"] = "unreachable"
+			return entry
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 500 {
+			entry["status"] = "operational"
+		} else {
+			entry["status"] = "unhealthy"
+		}
+		return entry
+	}
 	rails := []map[string]interface{}{
-		{"rail": "mojaloop", "status": "operational", "latency_ms": 45, "uptime_pct": 99.95, "region": "Global"},
-		{"rail": "cips", "status": "operational", "latency_ms": 120, "uptime_pct": 99.90, "region": "China"},
-		{"rail": "upi", "status": "operational", "latency_ms": 30, "uptime_pct": 99.99, "region": "India"},
-		{"rail": "pix", "status": "operational", "latency_ms": 15, "uptime_pct": 99.98, "region": "Brazil"},
-		{"rail": "brics_pay", "status": "operational", "latency_ms": 200, "uptime_pct": 99.80, "region": "BRICS"},
-		{"rail": "swift", "status": "operational", "latency_ms": 500, "uptime_pct": 99.70, "region": "Global"},
+		probe("mojaloop", s.cfg.MojaloopURL),
+		probe("cips", s.cfg.CIPSGatewayURL),
+		probe("upi", s.cfg.UPIGatewayURL),
+		probe("pix", s.cfg.PIXGatewayURL),
+		{"rail": "brics_pay", "status": "not_implemented"},
+		{"rail": "swift", "status": "not_implemented"},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -664,9 +758,38 @@ func (s *Server) handleRailHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// verifyCallbackHMAC enforces HMAC-SHA256 over the raw body keyed by the
+// given shared secret (header: X-Signature, hex encoded). Returns false and
+// writes the error response when verification cannot pass.
+func verifyCallbackHMAC(w http.ResponseWriter, r *http.Request, secret, label string) bool {
+	if secret == "" {
+		slog.Error(label + " callback rejected: shared secret not configured")
+		http.Error(w, `{"error":"callback_not_configured"}`, http.StatusServiceUnavailable)
+		return false
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return false
+	}
+	sig := r.Header.Get("X-Signature")
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if sig == "" || !hmac.Equal([]byte(strings.ToLower(sig)), []byte(expected)) {
+		slog.Warn(label + " callback rejected: invalid or missing signature")
+		http.Error(w, `{"error":"invalid_signature"}`, http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleFSPIOPCallback(w http.ResponseWriter, r *http.Request) {
+	if !verifyCallbackHMAC(w, r, os.Getenv("MOJALOOP_CALLBACK_SECRET"), "FSPIOP") {
+		return
+	}
 	id := r.PathValue("id")
-	slog.Info("FSPIOP transfer callback received", "transfer_id", id)
+	slog.Info("FSPIOP transfer callback accepted (signature verified)", "transfer_id", id)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -677,17 +800,26 @@ func (s *Server) handleFSPIOPError(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCIPSCallback(w http.ResponseWriter, r *http.Request) {
-	slog.Info("CIPS callback received")
+	if !verifyCallbackHMAC(w, r, os.Getenv("CIPS_SECRET_KEY"), "CIPS") {
+		return
+	}
+	slog.Info("CIPS callback accepted (signature verified)")
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleUPICallback(w http.ResponseWriter, r *http.Request) {
-	slog.Info("UPI callback received")
+	if !verifyCallbackHMAC(w, r, os.Getenv("UPI_SECRET_KEY"), "UPI") {
+		return
+	}
+	slog.Info("UPI callback accepted (signature verified)")
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handlePIXWebhook(w http.ResponseWriter, r *http.Request) {
-	slog.Info("PIX webhook received")
+	if !verifyCallbackHMAC(w, r, os.Getenv("PIX_SECRET_KEY"), "PIX") {
+		return
+	}
+	slog.Info("PIX webhook accepted (signature verified)")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -763,41 +895,8 @@ func generateILPPacketAndCondition(amount, currency string) (string, string) {
 	return packet, condition
 }
 
-func getRailExchangeRate(rail, source, target string) string {
-	rates := map[string]string{
-		"USD_CNY": "7.2450", "USD_INR": "83.2500", "USD_BRL": "5.0250",
-		"USD_NGN": "1580.00", "EUR_USD": "1.0850", "GBP_USD": "1.2650",
-		"USD_RUB": "88.50", "USD_ZAR": "18.75", "USD_AED": "3.6725",
-	}
-	key := source + "_" + target
-	if rate, ok := rates[key]; ok {
-		return rate
-	}
-	return "1.0000"
-}
-
-func getRailFee(rail, amount string) string {
-	fees := map[string]string{
-		"mojaloop": "0.50", "cips": "0.30", "upi": "0.25",
-		"pix": "0.20", "brics_pay": "0.40", "swift": "15.00",
-	}
-	if fee, ok := fees[rail]; ok {
-		return fee
-	}
-	return "0.50"
-}
-
-func getEstimatedArrival(rail string) string {
-	durations := map[string]time.Duration{
-		"mojaloop": 2 * time.Minute, "cips": 4 * time.Hour, "upi": 30 * time.Second,
-		"pix": 10 * time.Second, "brics_pay": 1 * time.Hour, "swift": 24 * time.Hour,
-	}
-	d, ok := durations[rail]
-	if !ok {
-		d = 5 * time.Minute
-	}
-	return time.Now().Add(d).UTC().Format(time.RFC3339)
-}
+// Static FX rate / fee tables were removed: quotes must come from live rail
+// gateways (handleQuote) and are never fabricated.
 
 // generateJWSSignature generates a JWS signature for FSPIOP messages
 func generateJWSSignature(privateKeyPEM []byte, payload []byte) (string, error) {
@@ -829,12 +928,16 @@ func generateJWSSignature(privateKeyPEM []byte, payload []byte) (string, error) 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-mojaloop-fspiop-adapter")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 	srv := NewServer(cfg)
 
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      srv.mux,
+		Handler:      telemetry.Middleware(srv.mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

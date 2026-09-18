@@ -8,7 +8,7 @@
  * the PostgreSQL operational projection and orchestrates the settlement workflow.
  */
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { pbacProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   settlementWindows,
@@ -24,7 +24,7 @@ import { TRPCError } from "@trpc/server";
 export const nexthubSettlementRouter = router({
 
   /** List all settlement windows with pagination */
-  listWindows: protectedProcedure
+  listWindows: pbacProcedure("trigger_settlement")
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
@@ -61,7 +61,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Get a single settlement window with its net positions */
-  getWindow: protectedProcedure
+  getWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -80,11 +80,11 @@ export const nexthubSettlementRouter = router({
         .where(eq(settlementNetPositions.windowId, input.windowId))
         .orderBy(desc(settlementNetPositions.netPositionKobo));
 
-      return window;
+      return { ...window, positions };
     }),
 
   /** Open a new settlement window */
-  openWindow: protectedProcedure
+  openWindow: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowType: z.enum(["RTGS", "DNS_INTRADAY", "DNS_EOD"]),
       currency: z.string().default("NGN"),
@@ -119,7 +119,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Close a settlement window and compute net positions */
-  closeWindow: protectedProcedure
+  closeWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -134,13 +134,16 @@ export const nexthubSettlementRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Window is ${window.status}, not OPEN` });
       }
 
-      // Aggregate net positions per DFSP from nexthub_transfers in this window
+      // Aggregate net positions per DFSP from nexthub_transfers in this window.
+      // NOTE: the previous query used `case when payer_fsp_id = payer_fsp_id`
+      // (a tautology, always true) — each (payer, payee) group contributes its
+      // full amount sum to the payer's debits and the payee's credits, so a
+      // single plain SUM is the truthful expression.
       const positions = await db
         .select({
           payerFspId: nexthubTransfers.payerFspId,
           payeeFspId: nexthubTransfers.payeeFspId,
-          totalDebits: sql<number>`sum(case when payer_fsp_id = payer_fsp_id then amount_kobo else 0 end)::bigint`,
-          totalCredits: sql<number>`sum(case when payee_fsp_id = payee_fsp_id then amount_kobo else 0 end)::bigint`,
+          totalAmount: sql<number>`sum(amount_kobo)::bigint`,
           count: sql<number>`count(*)::int`,
         })
         .from(nexthubTransfers)
@@ -153,13 +156,14 @@ export const nexthubSettlementRouter = router({
       // Build per-DFSP net position map
       const netMap = new Map<string, { debits: number; credits: number; count: number }>();
       for (const p of positions) {
+        const amount = p.totalAmount ?? 0;
         const debit = netMap.get(p.payerFspId) ?? { debits: 0, credits: 0, count: 0 };
-        debit.debits += p.totalDebits ?? 0;
+        debit.debits += amount;
         debit.count += p.count ?? 0;
         netMap.set(p.payerFspId, debit);
 
         const credit = netMap.get(p.payeeFspId) ?? { debits: 0, credits: 0, count: 0 };
-        credit.credits += p.totalCredits ?? 0;
+        credit.credits += amount;
         netMap.set(p.payeeFspId, credit);
       }
 
@@ -184,28 +188,39 @@ export const nexthubSettlementRouter = router({
         transferCount: pos.count,
       }));
 
-      if (netPositionRows.length > 0) {
-        await db.insert(settlementNetPositions).values(netPositionRows);
-      }
-
       const totalAmount = netPositionRows.reduce((sum, p) => sum + Math.abs(p.netPositionKobo), 0);
 
-      const [updated] = await db.update(settlementWindows)
-        .set({
-          status: "CLOSED",
-          closedAt: new Date(),
-          totalTransfers: netPositionRows.reduce((sum, p) => sum + p.transferCount, 0),
-          totalAmountKobo: totalAmount,
-          updatedAt: new Date(),
-        })
-        .where(eq(settlementWindows.id, input.windowId))
-        .returning();
+      // Positions insert + status flip are ATOMIC, and the flip is guarded on
+      // status='OPEN' — two concurrent closeWindow calls can't both insert net
+      // positions (which would double-count settlement amounts).
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(settlementWindows)
+          .set({
+            status: "CLOSED",
+            closedAt: new Date(),
+            totalTransfers: netPositionRows.reduce((sum, p) => sum + p.transferCount, 0),
+            totalAmountKobo: totalAmount,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(settlementWindows.id, input.windowId),
+            eq(settlementWindows.status, "OPEN"),
+          ))
+          .returning();
+
+        if (!row) throw new TRPCError({ code: "CONFLICT", message: "Window was already closed by another request" });
+
+        if (netPositionRows.length > 0) {
+          await tx.insert(settlementNetPositions).values(netPositionRows);
+        }
+        return row;
+      });
 
       return updated;
     }),
 
   /** Trigger settlement for a closed window (posts to TigerBeetle + CBN rail) */
-  settleWindow: protectedProcedure
+  settleWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -220,25 +235,33 @@ export const nexthubSettlementRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Window must be CLOSED to settle (current: ${window.status})` });
       }
 
-      // Mark as SETTLING — TigerBeetle batch posting happens asynchronously
-      // via the Rust nexthub-settlement service consuming the Fluvio topic
+      // Mark as SETTLING — guarded so two concurrent settle calls can't both
+      // trigger the TigerBeetle batch for the same window (double settlement).
       const [updated] = await db.update(settlementWindows)
         .set({ status: "SETTLING", updatedAt: new Date() })
-        .where(eq(settlementWindows.id, input.windowId))
+        .where(and(
+          eq(settlementWindows.id, input.windowId),
+          eq(settlementWindows.status, "CLOSED"),
+        ))
         .returning();
 
-      // In production: publish nexthub.settlement.window.settle event to Fluvio
-      // The Rust nexthub-settlement service will:
-      // 1. lookup_accounts for all DFSP positions
-      // 2. create_transfers for all net positions (linked chain)
-      // 3. publish nexthub.settlement.window.settled when complete
-      // 4. tRPC webhook updates status to SETTLED
+      if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Window settlement was already triggered by another request" });
 
-      return { window: updated, message: "Settlement initiated — TigerBeetle batch posting in progress" };
+      // R4 F15: HONEST STATUS — there is NO Fluvio publish and NO Rust
+      // nexthub-settlement worker integrated in this deployment, so no
+      // TigerBeetle batch posting has been triggered. The window is parked in
+      // SETTLING (guard prevents duplicate triggers); it transitions to
+      // SETTLED only when a real settlement worker calls the settled webhook.
+      // Previously this returned "batch posting in progress", which was a lie.
+      return {
+        window: updated,
+        message:
+          "Window marked SETTLING. No settlement worker is integrated in this deployment — TigerBeetle batch posting has NOT been triggered. The window settles when the nexthub-settlement service is integrated and reports completion via the settled webhook.",
+      };
     }),
 
   /** Get settlement statistics for the dashboard */
-  getStats: protectedProcedure
+  getStats: pbacProcedure("trigger_settlement")
     .query(async () => {
       const db = await getDb();
 
@@ -254,7 +277,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** createWindow — alias for openWindow with extended input */
-  createWindow: protectedProcedure
+  createWindow: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowType: z.enum(["RTGS", "ACH", "INSTANT", "BATCH", "DNS_INTRADAY", "DNS_EOD", "DEFERRED_NET", "GROSS"]),
       currency: z.string().default("NGN"),
@@ -273,7 +296,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** getNetPositions — list net positions for a settlement window */
-  getNetPositions: protectedProcedure
+  getNetPositions: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();

@@ -116,29 +116,41 @@ func IssueVirtualCard(w http.ResponseWriter, r *http.Request) {
 	maskedPAN := fmt.Sprintf("4000-****-****-%s", shortID[:4])
 
 	// Store card state in Redis
-	_ = rdb.SetJSON(ctx, fmt.Sprintf("card:state:%s", req.CardID), map[string]any{
+	cardState := map[string]any{
 		"card_id":        req.CardID,
 		"merchant_id":    req.MerchantID,
 		"currency":       req.Currency,
 		"spending_limit": req.SpendingLimit,
+		"single_use":     req.SingleUse,
+		"label":          req.Label,
+		"issuer_id":      req.IssuerID,
 		"status":         "active",
 		"masked_pan":     maskedPAN,
 		"issued_at":      time.Now().UTC(),
-	}, 5*365*24*time.Hour)
+	}
+	if req.VendorID != nil {
+		cardState["vendor_id"] = *req.VendorID
+	}
+	_ = rdb.SetJSON(ctx, fmt.Sprintf("card:state:%s", req.CardID), cardState, 5*365*24*time.Hour)
 
 	// Publish Kafka card.issued
 	go func() {
+		event := map[string]any{
+			"event_id":       uuid.NewString(),
+			"card_id":        req.CardID,
+			"merchant_id":    req.MerchantID,
+			"spending_limit": req.SpendingLimit,
+			"currency":       req.Currency,
+			"single_use":     req.SingleUse,
+			"reservation_id": reservationID,
+			"issuer_id":      req.IssuerID,
+			"occurred_at":    time.Now().UTC(),
+		}
+		if req.VendorID != nil {
+			event["vendor_id"] = *req.VendorID
+		}
 		_ = kafka.GetProducer().Publish(context.Background(), "paygate.card.issued",
-			req.MerchantID, map[string]any{
-				"event_id":       uuid.NewString(),
-				"card_id":        req.CardID,
-				"merchant_id":    req.MerchantID,
-				"spending_limit": req.SpendingLimit,
-				"currency":       req.Currency,
-				"reservation_id": reservationID,
-				"issuer_id":      req.IssuerID,
-				"occurred_at":    time.Now().UTC(),
-			})
+			req.MerchantID, event)
 	}()
 
 	slog.Info("[virtualcards] issued",
@@ -325,6 +337,42 @@ func TerminateVirtualCard(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "status": "terminated"})
+}
+
+// GetVirtualCardCredentials handles GET /v1/virtual-cards/{id}/credentials
+//
+// Full PAN/CVV are never generated or stored by this bridge — the issue path
+// only derives a deterministic masked PAN, and no external card-issuer client
+// or reveal endpoint is integrated anywhere in the platform. We therefore
+// refuse to fabricate credentials and return 501 Not Implemented with a clear
+// error, so the strict portal caller surfaces a bridge-level failure instead
+// of silently displaying a fake PAN/CVV. Unknown cards return 404 so the
+// caller can distinguish "no such card" from "reveal unsupported".
+func GetVirtualCardCredentials(w http.ResponseWriter, r *http.Request) {
+	cardID := extractPathSegment(r.URL.Path, 3)
+	if cardID == "" {
+		writeError(w, http.StatusBadRequest, "card_id required in path")
+		return
+	}
+
+	ctx := r.Context()
+	rdb := redis.Get()
+
+	var cardState map[string]any
+	found, _ := rdb.GetJSON(ctx, fmt.Sprintf("card:state:%s", cardID), &cardState)
+	if !found {
+		writeError(w, http.StatusNotFound, "card not found")
+		return
+	}
+
+	slog.Warn("[virtualcards] credential reveal requested but unsupported by issuer integration",
+		"card_id", cardID,
+		"status", cardState["status"],
+	)
+	writeError(w, http.StatusNotImplemented,
+		"credential reveal is not supported: no card-issuer client with a PAN/CVV "+
+			"reveal endpoint is integrated with this bridge, and full card "+
+			"credentials are never generated or stored locally — refusing to fabricate them")
 }
 
 // extractPathSegment returns the nth segment (0-indexed) from a URL path.

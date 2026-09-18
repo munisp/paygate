@@ -7,9 +7,35 @@
  * Dispute SLA tracking, wave68 registration, comprehensive CRUD
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Payout approvals, treasury/fx-hedge rules and batch delinquency runs are
+// platform-level operations: the caller's session role is NOT trusted — the
+// role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await db.execute(sql`SELECT role FROM users WHERE open_id = ${openId} LIMIT 1`);
+  const role = (rows.rows[0] as any)?.role;
+  if (!role || role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+// Identity strings that may appear in payout_approval_workflows.requested_by,
+// used to enforce maker ≠ checker against the authenticated approver.
+function approverIdentities(ctx: any): string[] {
+  return [ctx?.user?.email, ctx?.user?.openId, ctx?.user?.name, String(ctx?.user?.id ?? "")]
+    .filter((v): v is string => Boolean(v));
+}
 
 // ─── Tenant Billing Auto-Renewal Cron ────────────────────────────────────────
 const tenantBillingCronRouter = router({
@@ -19,7 +45,7 @@ const tenantBillingCronRouter = router({
     const rows = await db.execute(sql`
       SELECT bcr.*, pt.name as tenant_name
       FROM billing_cron_runs bcr
-      LEFT JOIN partner_tenants pt ON pt.id = bcr.tenant_id
+      LEFT JOIN partner_tenants pt ON pt.id = bcr.tenant_id::text
       ORDER BY bcr.created_at DESC
       LIMIT 50
     `);
@@ -361,27 +387,46 @@ const payoutApprovalRouter = router({
     }),
 
   approve: protectedProcedure
-    .input(z.object({ id: z.number(), approverId: z.number(), notes: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ id: z.number(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout approval is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Status guard + maker ≠ checker: approver must not be the initiator
+      // (requested_by) when the initiator is known.
+      const wf = await db.execute(sql`
+        SELECT requested_by FROM payout_approval_workflows
+        WHERE id = ${input.id} AND status IN ('pending', 'pending_approval')
+      `);
+      if (!wf.rows.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Payout not found or not pending approval" });
+      }
+      const requestedBy = (wf.rows[0] as any).requested_by;
+      if (requestedBy && approverIdentities(ctx).includes(String(requestedBy))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Maker-checker violation: approver cannot be the payout initiator" });
+      }
+      // Approver identity comes from the authenticated session — never from input.
       await db.execute(sql`
         UPDATE payout_approval_workflows
-        SET status = 'approved', approver_id = ${input.approverId}, notes = ${input.notes ?? null}, approved_at = NOW()
-        WHERE id = ${input.id}
+        SET status = 'approved', approver_id = ${ctx.user.id}, notes = ${input.notes ?? null}, approved_at = NOW()
+        WHERE id = ${input.id} AND status IN ('pending', 'pending_approval')
       `);
       return { success: true };
     }),
 
   reject: protectedProcedure
-    .input(z.object({ id: z.number(), approverId: z.number(), reason: z.string().max(5000) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ id: z.number(), reason: z.string().max(5000) }))
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Payout rejection is a platform-admin maker-checker operation.
+      await requirePlatformAdmin(ctx);
+      // Rejector identity comes from the authenticated session — never from input.
       await db.execute(sql`
         UPDATE payout_approval_workflows
-        SET status = 'rejected', approver_id = ${input.approverId}, notes = ${input.reason}, rejected_at = NOW()
-        WHERE id = ${input.id}
+        SET status = 'rejected', approver_id = ${ctx.user.id}, notes = ${input.reason}, rejected_at = NOW()
+        WHERE id = ${input.id} AND status IN ('pending', 'pending_approval')
       `);
       return { success: true };
     }),
@@ -436,9 +481,11 @@ const fxAutoHedgeRouter = router({
       hedgePercentage: z.number().min(0).max(100),
       maxPositionSize: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Platform treasury auto-hedge rules are a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       await db.execute(sql`
         INSERT INTO fx_auto_hedge_rules (currency_pair, trigger_threshold, hedge_percentage, max_position_size)
         VALUES (${input.currencyPair}, ${input.triggerThreshold}, ${input.hedgePercentage}, ${input.maxPositionSize ?? null})
@@ -448,18 +495,22 @@ const fxAutoHedgeRouter = router({
 
   toggleRule: protectedProcedure
     .input(z.object({ id: z.number(), isActive: z.boolean() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Toggling platform treasury auto-hedge rules is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       await db.execute(sql`UPDATE fx_auto_hedge_rules SET is_active = ${input.isActive} WHERE id = ${input.id}`);
       return { success: true };
     }),
 
   triggerHedge: protectedProcedure
     .input(z.object({ ruleId: z.number(), exposureAmount: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Opening platform treasury hedge positions is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const rule = (await db.execute(sql`SELECT * FROM fx_auto_hedge_rules WHERE id = ${input.ruleId}`)).rows[0] as any;
       if (!rule) throw new Error('Rule not found');
 
@@ -535,16 +586,21 @@ const bnplDelinquencyRouter = router({
     return stats.rows[0];
   }),
 
-  runDelinquencyCheck: protectedProcedure.mutation(async () => {
+  runDelinquencyCheck: protectedProcedure.mutation(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    // Update days_overdue for all active records
+    // Batch penalty accrual across ALL borrowers is a platform-admin operation.
+    await requirePlatformAdmin(ctx);
+    // Update days_overdue for all active records.
+    // Idempotent daily semantics: only records not yet updated today are
+    // touched, so repeat calls on the same day cannot inflate penalties.
     await db.execute(sql`
       UPDATE bnpl_delinquency_records
       SET days_overdue = days_overdue + 1,
-          penalty_amount = overdue_amount * 0.01 * days_overdue,
+          penalty_amount = overdue_amount * 0.01 * (days_overdue + 1),
           updated_at = NOW()
       WHERE status = 'active'
+        AND (updated_at IS NULL OR updated_at::date < CURRENT_DATE)
     `);
     return { success: true, message: 'Delinquency check completed' };
   }),

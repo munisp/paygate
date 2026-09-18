@@ -238,3 +238,63 @@ describe("FX ticker pair cross-rates", () => {
     expect(rate).toBeNull();
   });
 });
+
+// ─── Rail quotes & health: fail-loud, never fabricated ───────────────────────
+// The CIPS/UPI/PIX quote & validation procedures previously fell back to
+// hardcoded FX rates (0.0048/0.0047/0.0033) and fabricated receiver
+// identities, and getRailHealth served Math.random latencies. These tests pin
+// the fail-loud contract.
+
+import * as fs from "fs";
+import * as path from "path";
+
+const ROUTERS_SRC = fs.readFileSync(path.join(__dirname, "routers.ts"), "utf-8");
+
+function section(startMarker: string, endMarker: string): string {
+  const start = ROUTERS_SRC.indexOf(startMarker);
+  const end = ROUTERS_SRC.indexOf(endMarker, start);
+  if (start < 0 || end < 0) throw new Error(`section not found: ${startMarker}`);
+  return ROUTERS_SRC.slice(start, end);
+}
+
+describe("rail quote/validation procedures fail loud (no fabricated rates or identities)", () => {
+  const railSection = section("getRailHealth: protectedProcedure", "const NIGERIAN_BANKS");
+
+  it("contains no hardcoded rail FX rates", () => {
+    expect(railSection).not.toContain("0.0048");
+    expect(railSection).not.toContain("0.0047");
+    expect(railSection).not.toContain("0.0033");
+  });
+
+  it("contains no fabricated receiver identities", () => {
+    expect(railSection).not.toContain("PIX Receiver");
+    expect(railSection).not.toContain("fall through to demo");
+  });
+
+  it("contains no Math.random-derived data", () => {
+    expect(railSection).not.toContain("Math.random");
+  });
+
+  it("rail quotes and validations throw SERVICE_UNAVAILABLE when upstream is unavailable", () => {
+    // Fail-loud helpers (defined next to bridgeFetch) must be the only paths
+    expect(railSection).toContain("railBridgeCall(");
+    expect(railSection).toContain("railGatewayQuote(");
+    const helpers = section("async function railBridgeCall", "getRailHealth: protectedProcedure");
+    expect(helpers).toContain('code: "SERVICE_UNAVAILABLE"');
+    // UPI VPA + PIX key validation go through the real bridge proxies
+    expect(railSection).toContain("/v1/upi/vpa/resolve");
+    expect(railSection).toContain("/v1/pix/key/lookup");
+  });
+
+  it("getRailHealth probes real bridge rail-health endpoints", () => {
+    expect(railSection).toContain("/v1/mojaloop/health");
+    expect(railSection).toContain("/v1/cips/health");
+    expect(railSection).toContain("/v1/upi/health");
+    expect(railSection).toContain("/v1/pix/health");
+  });
+
+  it("rails without a live probe report status unknown, not simulated values", () => {
+    expect(railSection).toContain('status: "unknown"');
+    expect(railSection).toContain("uptime: null");
+  });
+});

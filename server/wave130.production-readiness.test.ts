@@ -402,9 +402,12 @@ describe("Wave 130 — Domain consistency", () => {
 // ─── 14. CSP ALLOWED_ORIGINS env-driven ──────────────────────────────────────
 
 describe("Wave 130 — CSP env-driven configuration", () => {
-  it("server/_core/index.ts uses ALLOWED_ORIGINS env var for CSP", () => {
-    const coreIndex = readFile("server/_core/index.ts");
-    expect(coreIndex).toContain("ALLOWED_ORIGINS");
+  // STALE CONTRACT: CSP/CORS moved out of _core/index.ts into
+  // server/securityHeaders.ts (ALLOWED_ORIGINS env drives CORS origins).
+  it("server/securityHeaders.ts uses ALLOWED_ORIGINS env var", () => {
+    const headers = readFile("server/securityHeaders.ts");
+    expect(headers).toContain("ALLOWED_ORIGINS");
+    expect(headers).toContain("process.env.ALLOWED_ORIGINS");
   });
 });
 
@@ -435,11 +438,14 @@ describe("Wave 130 — mTLS certificates", () => {
 
 // ─── 17. SKILL.md exists ─────────────────────────────────────────────────────
 
-describe("Wave 130 — SKILL.md", () => {
-  it("paygate-merchant-portal SKILL.md exists", () => {
+// STALE CONTRACT: the out-of-repo skills/paygate-merchant-portal/SKILL.md
+// artifact no longer exists; platform docs now live in docs/ inside the
+// repository (same contract as wave131.production-hardening.test.ts).
+describe("Wave 130 — Platform documentation", () => {
+  it("paygate-merchant-portal platform docs exist", () => {
     const exists =
-      fileExists("../skills/paygate-merchant-portal/SKILL.md") ||
-      fs.existsSync("/home/ubuntu/skills/paygate-merchant-portal/SKILL.md");
+      fileExists("docs/ARCHITECTURE.md") &&
+      fileExists("docs/PLATFORM_FEATURES.md");
     expect(exists).toBe(true);
   });
 });

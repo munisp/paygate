@@ -21,7 +21,7 @@ use datafusion::prelude::*;
 use datafusion::error::Result as DFResult;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl};
-use arrow_array::RecordBatch;
+use arrow_array::{Array, RecordBatch};
 
 /// Configuration for the DataFusion analytics context
 #[derive(Debug, Clone)]
@@ -38,8 +38,10 @@ impl LakehouseConfig {
         Self {
             s3_endpoint: env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://minio:9000".to_string()),
             s3_bucket: env::var("S3_BUCKET").unwrap_or_else(|_| "paygate-lakehouse".to_string()),
-            aws_access_key_id: env::var("AWS_ACCESS_KEY_ID").unwrap_or_else(|_| "minioadmin".to_string()),
-            aws_secret_access_key: env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+            // No hardcoded default credentials (spec #16): empty when unset and
+            // build_session_context refuses to register S3 without explicit creds.
+            aws_access_key_id: env::var("AWS_ACCESS_KEY_ID").unwrap_or_default(),
+            aws_secret_access_key: env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
             aws_region: env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
         }
     }
@@ -66,6 +68,16 @@ pub struct LakehouseCreditFeatures {
 /// Build a DataFusion SessionContext with S3/MinIO object store registered
 pub async fn build_session_context(config: &LakehouseConfig) -> DFResult<SessionContext> {
     let ctx = SessionContext::new();
+
+    // Fail closed on credentials: never fall back to well-known defaults.
+    // Without explicit credentials the context is returned WITHOUT an S3 object
+    // store — callers already treat "S3 unavailable" as a graceful degradation.
+    if config.aws_access_key_id.is_empty() || config.aws_secret_access_key.is_empty() {
+        log::warn!(
+            "AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY unset — S3 object store not registered (no default credentials)"
+        );
+        return Ok(ctx);
+    }
 
     // Register S3/MinIO object store
     let s3_url = url::Url::parse(&format!("s3://{}", config.s3_bucket))
@@ -101,7 +113,7 @@ pub async fn register_transactions_table(
         .with_target_partitions(4);
 
     let resolved_schema = listing_options
-        .infer_schema(ctx.state(), &listing_url)
+        .infer_schema(&ctx.state(), &listing_url)
         .await
         .unwrap_or_else(|_| {
             // Fallback schema if S3 is unavailable
@@ -143,8 +155,11 @@ pub async fn extract_credit_features(
         .await
         .map_err(|e| format!("DataFusion context error: {}", e))?;
 
-    // Try to register S3 table; fall back to empty result if S3 unavailable
-    let s3_available = register_transactions_table(&ctx, config).await.is_ok();
+    // Try to register S3 table; fall back to empty result if S3 unavailable.
+    // Missing credentials count as unavailable (no default-credential fallback).
+    let s3_available = !config.aws_access_key_id.is_empty()
+        && !config.aws_secret_access_key.is_empty()
+        && register_transactions_table(&ctx, config).await.is_ok();
 
     if !s3_available {
         log::warn!("S3 lakehouse unavailable for merchant {} — using zero features", merchant_id);
@@ -305,8 +320,6 @@ pub async fn run_analytics_query(
 // ─── Arrow value extraction helpers ──────────────────────────────────────────
 
 fn extract_core_metrics(batches: &[RecordBatch]) -> (u64, u64, u64, f64, f64, f64, Option<chrono::DateTime<chrono::Utc>>, f64) {
-    use arrow_array::*;
-
     if batches.is_empty() || batches[0].num_rows() == 0 {
         return (0, 0, 0, 0.0, 0.0, 0.0, None, 0.0);
     }

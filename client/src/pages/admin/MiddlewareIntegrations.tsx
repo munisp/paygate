@@ -8,6 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Activity, CheckCircle, XCircle, RefreshCw, Zap, Globe, Phone, Shield, CreditCard } from "lucide-react";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
+
+// Maps the VTPass test-panel service ids to real consumerBills categories/biller codes.
+const VTPASS_SERVICE_MAP: Record<string, { category: string; billerCode: string }> = {
+  mtn: { category: "airtime", billerCode: "mtn-airtime" },
+  airtel: { category: "airtime", billerCode: "airtel-airtime" },
+  glo: { category: "airtime", billerCode: "glo-airtime" },
+  "9mobile": { category: "airtime", billerCode: "9mobile-airtime" },
+  dstv: { category: "cable_tv", billerCode: "dstv" },
+  ikedc: { category: "electricity", billerCode: "ikedc" },
+};
 
 const INTEGRATIONS = [
   { id: "nibss", name: "NIBSS NIP", description: "Nigeria Interbank Settlement System — instant transfers", icon: <CreditCard className="w-5 h-5" />, color: "bg-green-50 border-green-200" },
@@ -22,29 +33,30 @@ export default function MiddlewareIntegrations() {
   const [activeTab, setActiveTab] = useState("nibss");
   const [nibssAccount, setNibssAccount] = useState({ accountNumber: "", bankCode: "" });
   const [vtpassService, setVtpassService] = useState({ serviceId: "mtn", phone: "", amount: "100" });
-  const [termiiMsg, setTermiiMsg] = useState({ phone: "", message: "" });
   const [youverifyBvn, setYouverifyBvn] = useState({ bvn: "", firstName: "", lastName: "" });
 
-  const { data: healthStatus, isLoading: healthLoading, refetch: refetchHealth } = trpc.wave30.middlewareIntegrations.getHealthStatus.useQuery();
-  const { data: nibssLogs, isLoading: nibssLogsLoading } = trpc.wave30.middlewareIntegrations.getNibssLogs.useQuery({ limit: 20 }, { staleTime: 30_000 });
-  const { data: vtpassLogs, isLoading: vtpassLogsLoading } = trpc.wave30.middlewareIntegrations.getVtpassLogs.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  // Per-integration health derived from the real 24h middleware integration log stats.
+  const { data: healthStats, isLoading: healthLoading, refetch: refetchHealth } = trpc.wave30.middlewareLogs.getStats.useQuery();
+  const healthStatus = (healthStats ?? []).map((s: any) => ({
+    service: s.service,
+    status: Number(s.failed_calls) > 0 ? "degraded" : "up",
+    latency_ms: Math.round(Number(s.avg_duration_ms ?? 0)),
+  }));
+  const { data: nibssLogs, isLoading: nibssLogsLoading } = trpc.wave30.middlewareLogs.list.useQuery({ service: "nibss", limit: 20 }, { staleTime: 30_000 });
+  const { data: vtpassLogs, isLoading: vtpassLogsLoading } = trpc.wave30.middlewareLogs.list.useQuery({ service: "vtpass", limit: 20 }, { staleTime: 30_000 });
 
-  const nibssEnquiry = trpc.wave30.middlewareIntegrations.nibssNameEnquiry.useMutation({
+  const nibssEnquiry = trpc.nipBanks.nameEnquiry.useMutation({
     onSuccess: (data) => toast.success(`Account: ${data.accountName ?? data.account_name ?? "Resolved"}`),
     onError: (err) => toast.error(err.message),
   });
 
-  const vtpassPurchase = trpc.wave30.middlewareIntegrations.vtpassAirtime.useMutation({
-    onSuccess: () => toast.success("VTPass airtime purchase initiated"),
-    onError: (err) => toast.error(err.message),
+  const billsPayKey = useIdempotencyKey();
+  const vtpassPurchase = trpc.consumerBills.pay.useMutation({
+    onSuccess: () => { billsPayKey.reset(); toast.success("VTPass airtime purchase initiated"); },
+    onError: (err) => { billsPayKey.reset(); toast.error(err.message); },
   });
 
-  const termiiSend = trpc.wave30.middlewareIntegrations.termiiSendSms.useMutation({
-    onSuccess: () => toast.success("SMS sent via Termii"),
-    onError: (err) => toast.error(err.message),
-  });
-
-  const youverifyCheck = trpc.wave30.middlewareIntegrations.youverifyBvn.useMutation({
+  const youverifyCheck = trpc.nibss.verifyBvn.useMutation({
     onSuccess: (data) => toast.success(`BVN verified: ${data.status}`),
     onError: (err) => toast.error(err.message),
   });
@@ -120,7 +132,7 @@ export default function MiddlewareIntegrations() {
                 <Input placeholder="Bank Code (3 digits)" value={nibssAccount.bankCode}
                   onChange={(e) => setNibssAccount({ ...nibssAccount, bankCode: e.target.value })} />
                 <Button className="bg-green-600 hover:bg-green-700 text-white whitespace-nowrap"
-                  onClick={() => nibssEnquiry.mutate(nibssAccount)}>
+                  onClick={() => nibssEnquiry.mutate({ accountNumber: nibssAccount.accountNumber, bankNipCode: nibssAccount.bankCode })}>
                   Name Enquiry
                 </Button>
               </div>
@@ -134,16 +146,16 @@ export default function MiddlewareIntegrations() {
               ) : nibssLogs && nibssLogs.length > 0 ? (
                 <Table>
                   <TableHeader><TableRow>
-                    <TableHead>Account</TableHead><TableHead>Bank</TableHead>
+                    <TableHead>Operation</TableHead><TableHead>Duration</TableHead>
                     <TableHead>Status</TableHead><TableHead>Response</TableHead><TableHead>Time</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
                     {nibssLogs.map((log: any) => (
                       <TableRow key={log.id}>
-                        <TableCell className="font-mono text-xs">{log.account_number}</TableCell>
-                        <TableCell className="text-xs">{log.bank_code}</TableCell>
-                        <TableCell><Badge className={`text-xs ${log.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{log.status}</Badge></TableCell>
-                        <TableCell className="text-xs max-w-xs truncate">{log.account_name ?? log.error_message ?? "—"}</TableCell>
+                        <TableCell className="font-mono text-xs">{log.operation}</TableCell>
+                        <TableCell className="text-xs">{log.duration_ms != null ? `${log.duration_ms}ms` : "—"}</TableCell>
+                        <TableCell><Badge className={`text-xs ${log.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{log.success ? "success" : "failed"}</Badge></TableCell>
+                        <TableCell className="text-xs max-w-xs truncate">{log.error_message ?? (log.response_payload ? String(log.response_payload).slice(0, 80) : "—")}</TableCell>
                         <TableCell className="text-xs text-gray-400">{new Date(log.created_at).toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
@@ -170,7 +182,16 @@ export default function MiddlewareIntegrations() {
                 <Input placeholder="Amount (NGN)" value={vtpassService.amount}
                   onChange={(e) => setVtpassService({ ...vtpassService, amount: e.target.value })} />
                 <Button className="bg-purple-600 hover:bg-purple-700 text-white"
-                  onClick={() => vtpassPurchase.mutate({ serviceId: vtpassService.serviceId, phone: vtpassService.phone, amount: parseFloat(vtpassService.amount) })}>
+                  onClick={() => {
+                    const svc = VTPASS_SERVICE_MAP[vtpassService.serviceId] ?? VTPASS_SERVICE_MAP.mtn;
+                    vtpassPurchase.mutate({
+                      category: svc.category,
+                      billerCode: svc.billerCode,
+                      customerReference: vtpassService.phone,
+                      amountKobo: Math.round(parseFloat(vtpassService.amount) * 100),
+                      idempotencyKey: billsPayKey.getKey(),
+                    });
+                  }}>
                   Purchase
                 </Button>
               </div>
@@ -183,16 +204,16 @@ export default function MiddlewareIntegrations() {
               ) : vtpassLogs && vtpassLogs.length > 0 ? (
                 <Table>
                   <TableHeader><TableRow>
-                    <TableHead>Service</TableHead><TableHead>Phone</TableHead>
-                    <TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Time</TableHead>
+                    <TableHead>Operation</TableHead><TableHead>Duration</TableHead>
+                    <TableHead>Status</TableHead><TableHead>Response</TableHead><TableHead>Time</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
                     {vtpassLogs.map((log: any) => (
                       <TableRow key={log.id}>
-                        <TableCell className="text-xs">{log.service_id}</TableCell>
-                        <TableCell className="text-xs">{log.phone}</TableCell>
-                        <TableCell className="text-xs">₦{parseFloat(log.amount ?? 0).toLocaleString()}</TableCell>
-                        <TableCell><Badge className={`text-xs ${log.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{log.status}</Badge></TableCell>
+                        <TableCell className="text-xs">{log.operation}</TableCell>
+                        <TableCell className="text-xs">{log.duration_ms != null ? `${log.duration_ms}ms` : "—"}</TableCell>
+                        <TableCell><Badge className={`text-xs ${log.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{log.success ? "success" : "failed"}</Badge></TableCell>
+                        <TableCell className="text-xs max-w-xs truncate">{log.error_message ?? (log.response_payload ? String(log.response_payload).slice(0, 80) : "—")}</TableCell>
                         <TableCell className="text-xs text-gray-400">{new Date(log.created_at).toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
@@ -203,18 +224,14 @@ export default function MiddlewareIntegrations() {
           )}
 
           {activeTab === "termii" && (
-            <div className="space-y-4">
-              <div className="flex gap-3">
-                <Input placeholder="Phone (+234...)" value={termiiMsg.phone}
-                  onChange={(e) => setTermiiMsg({ ...termiiMsg, phone: e.target.value })} />
-                <Input placeholder="Message" value={termiiMsg.message}
-                  onChange={(e) => setTermiiMsg({ ...termiiMsg, message: e.target.value })} />
-                <Button className="bg-orange-600 hover:bg-orange-700 text-white"
-                  onClick={() => termiiSend.mutate({ phone: termiiMsg.phone, message: termiiMsg.message })}>
-                  Send SMS
-                </Button>
-              </div>
-              <p className="text-xs text-gray-400">Test phone: +2348012345678</p>
+            <div className="p-6 text-center text-gray-400">
+              <Phone className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium text-gray-600">Termii SMS Gateway</p>
+              <p className="text-sm mt-1">
+                Termii is used internally for OTP/notification delivery — there is no direct
+                ad-hoc SMS test endpoint. Delivery activity appears in the middleware
+                integration logs above when SMS traffic flows.
+              </p>
             </div>
           )}
 

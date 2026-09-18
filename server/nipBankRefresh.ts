@@ -78,9 +78,9 @@ let _timer: ReturnType<typeof setInterval> | null = null;
 export function startNipBankRefreshWorker(): void {
   if (_timer) return; // already running
   // Run immediately on startup, then on interval
-  runRefresh().catch(() => {}); // fire-and-forget
+  runRefresh().catch((e) => logger.error("[nipBankRefresh] tick failed:", e instanceof Error ? e.message : e)); // fire-and-forget
   _timer = setInterval(() => {
-    runRefresh().catch(() => {});
+    runRefresh().catch((e) => logger.error("[nipBankRefresh] tick failed:", e instanceof Error ? e.message : e));
   }, REFRESH_INTERVAL_MS);
   logger.info(`[nipBankRefresh] Worker started — interval: ${REFRESH_INTERVAL_MS / 3_600_000}h`);
 }

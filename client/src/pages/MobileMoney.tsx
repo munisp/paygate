@@ -254,10 +254,9 @@ function MomoHistory({ merchantId }: { merchantId: string }) {
   const [type, setType] = useState<"collection" | "disbursement" | undefined>(undefined);
   const [provider, setProvider] = useState<string | undefined>(undefined);
 
-  const historyQ = trpc.mobileMoney.listTransactions.useQuery({
-    merchantId,
+  const historyQ = trpc.mobileMoney.list.useQuery({
     type,
-    provider,
+    providerCode: provider,
     pageSize: 30,
   });
 

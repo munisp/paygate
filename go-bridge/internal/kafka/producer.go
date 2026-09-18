@@ -11,18 +11,23 @@
 //   - paygate.usdc.deposit.received
 //
 // The producer is initialised lazily on first use. If KAFKA_BOOTSTRAP_SERVERS
-// is not set, all Publish calls are no-ops (graceful degradation).
+// is not set, or the brokers are unreachable, Publish returns an error —
+// events are NEVER silently dropped.
 package kafka
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/IBM/sarama"
 )
 
 // ─── Topic constants ──────────────────────────────────────────────────────────
@@ -43,15 +48,15 @@ const (
 
 // TransactionEvent is published to paygate.transaction.completed/failed.
 type TransactionEvent struct {
-	EventID     string    `json:"event_id"`
-	EventType   string    `json:"event_type"` // "transaction.completed" | "transaction.failed"
-	TxID        string    `json:"tx_id"`
-	MerchantID  string    `json:"merchant_id"`
-	Amount      int64     `json:"amount_kobo"`
-	Currency    string    `json:"currency"`
-	Channel     string    `json:"channel"`
-	Status      string    `json:"status"`
-	OccurredAt  time.Time `json:"occurred_at"`
+	EventID    string    `json:"event_id"`
+	EventType  string    `json:"event_type"` // "transaction.completed" | "transaction.failed"
+	TxID       string    `json:"tx_id"`
+	MerchantID string    `json:"merchant_id"`
+	Amount     int64     `json:"amount_kobo"`
+	Currency   string    `json:"currency"`
+	Channel    string    `json:"channel"`
+	Status     string    `json:"status"`
+	OccurredAt time.Time `json:"occurred_at"`
 }
 
 // PayoutEvent is published to paygate.payout.initiated.
@@ -122,15 +127,16 @@ type AuditEvent struct {
 
 // ─── Producer ─────────────────────────────────────────────────────────────────
 
-// Producer is a Kafka message producer.
-// In production it uses the franz-go library; in dev/test mode (no brokers
-// configured) it logs events instead of publishing them.
+// Producer is a Kafka message producer backed by a real sarama SyncProducer
+// whenever brokers are configured. When Kafka is not configured (or the
+// initial connection failed), Publish returns initErr instead of silently
+// dropping events.
 type Producer struct {
 	brokers []string
 	enabled bool
+	initErr error
 	mu      sync.Mutex
-	// client is the underlying franz-go client (nil in no-op mode)
-	// Using interface to avoid hard dependency when Kafka is not configured
+	// client is the underlying sarama-backed client (nil in disabled mode)
 	client kafkaClient
 }
 
@@ -160,32 +166,39 @@ var (
 	producerOnce   sync.Once
 )
 
+// ErrKafkaNotConfigured is returned by Publish when no Kafka producer is wired.
+var ErrKafkaNotConfigured = errors.New("kafka: producer not configured (KAFKA_BOOTSTRAP_SERVERS unset or connection failed)")
+
 // GetProducer returns the global Kafka producer, initialising it on first call.
-// If KAFKA_BOOTSTRAP_SERVERS is not set, returns a no-op producer.
+// If KAFKA_BOOTSTRAP_SERVERS is not set or the brokers cannot be reached, the
+// returned producer is disabled and every Publish call fails loudly.
 func GetProducer() *Producer {
 	producerOnce.Do(func() {
 		brokerStr := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
 		if brokerStr == "" {
-			slog.Info("[kafka] KAFKA_BOOTSTRAP_SERVERS not set — Kafka publishing disabled")
-			globalProducer = &Producer{enabled: false}
+			slog.Warn("[kafka] KAFKA_BOOTSTRAP_SERVERS not set — all Publish calls will FAIL (no silent drop)")
+			globalProducer = &Producer{enabled: false, initErr: ErrKafkaNotConfigured}
 			return
 		}
 		brokers := strings.Split(brokerStr, ",")
 		for i, b := range brokers {
 			brokers[i] = strings.TrimSpace(b)
 		}
-		// In production, replace this with a real franz-go client:
-		// client, err := kgo.NewClient(
-		//   kgo.SeedBrokers(brokers...),
-		//   kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
-		// )
-		// For now we use a log-only client to avoid the franz-go dependency
-		// until the Go module is updated.
-		slog.Info("[kafka] producer initialised", "brokers", brokers)
+		client, err := newSaramaClient(brokers)
+		if err != nil {
+			slog.Error("[kafka] failed to connect to brokers — all Publish calls will FAIL", "brokers", brokers, "err", err)
+			globalProducer = &Producer{
+				brokers: brokers,
+				enabled: false,
+				initErr: fmt.Errorf("kafka: connect %v: %w", brokers, err),
+			}
+			return
+		}
+		slog.Info("[kafka] producer initialised (sarama sync producer)", "brokers", brokers)
 		globalProducer = &Producer{
 			brokers: brokers,
 			enabled: true,
-			client:  &logOnlyClient{brokers: brokers},
+			client:  client,
 		}
 	})
 	return globalProducer
@@ -193,9 +206,16 @@ func GetProducer() *Producer {
 
 // Publish serialises the event to JSON and publishes it to the given topic.
 // key is used as the Kafka partition key (e.g. merchant_id for ordering).
+// Returns an error when the producer is disabled or the broker rejects the
+// record — events are never silently dropped.
 func (p *Producer) Publish(ctx context.Context, topic, key string, event any) error {
-	if !p.enabled {
-		return nil
+	if !p.enabled || p.client == nil {
+		err := p.initErr
+		if err == nil {
+			err = ErrKafkaNotConfigured
+		}
+		slog.Error("[kafka] publish rejected — producer disabled", "topic", topic, "err", err)
+		return err
 	}
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -263,25 +283,57 @@ func (p *Producer) Close() {
 	}
 }
 
-// ─── Log-only client (used when franz-go is not yet wired) ───────────────────
+// ─── sarama-backed client ────────────────────────────────────────────────────
 
-type logOnlyClient struct {
-	brokers []string
+// newSaramaClient builds a sarama.SyncProducer from broker addresses.
+// Optional env: KAFKA_SASL_USERNAME / KAFKA_SASL_PASSWORD (PLAIN),
+// KAFKA_TLS_ENABLED=true.
+func newSaramaClient(brokers []string) (kafkaClient, error) {
+	cfg := sarama.NewConfig()
+	cfg.Producer.Return.Successes = true
+	cfg.Producer.RequiredAcks = sarama.WaitForAll
+	cfg.Producer.Retry.Max = 3
+	cfg.Net.DialTimeout = 10 * time.Second
+	cfg.Metadata.Timeout = 10 * time.Second
+
+	if user := os.Getenv("KAFKA_SASL_USERNAME"); user != "" {
+		cfg.Net.SASL.Enable = true
+		cfg.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+		cfg.Net.SASL.User = user
+		cfg.Net.SASL.Password = os.Getenv("KAFKA_SASL_PASSWORD")
+	}
+	if os.Getenv("KAFKA_TLS_ENABLED") == "true" {
+		cfg.Net.TLS.Enable = true
+		cfg.Net.TLS.Config = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	sp, err := sarama.NewSyncProducer(brokers, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &saramaClient{sp: sp}, nil
 }
 
-func (c *logOnlyClient) ProduceSync(_ context.Context, records ...*Record) ProduceResults {
+type saramaClient struct {
+	sp sarama.SyncProducer
+}
+
+func (c *saramaClient) ProduceSync(_ context.Context, records ...*Record) ProduceResults {
 	results := make(ProduceResults, len(records))
 	for i, r := range records {
-		slog.Info("[kafka:log-only] would produce",
-			"topic", r.Topic,
-			"key", string(r.Key),
-			"bytes", len(r.Value),
-		)
-		results[i] = ProduceResult{}
+		msg := &sarama.ProducerMessage{
+			Topic: r.Topic,
+			Key:   sarama.ByteEncoder(r.Key),
+			Value: sarama.ByteEncoder(r.Value),
+		}
+		_, _, err := c.sp.SendMessage(msg)
+		results[i] = ProduceResult{Err: err}
 	}
 	return results
 }
 
-func (c *logOnlyClient) Close() {
-	slog.Info("[kafka:log-only] producer closed")
+func (c *saramaClient) Close() {
+	if err := c.sp.Close(); err != nil {
+		slog.Error("[kafka] producer close error", "err", err)
+	}
 }

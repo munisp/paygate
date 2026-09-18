@@ -31,8 +31,8 @@ const REDEMPTION_OPTIONS = [
 export default function ConsumerLoyaltyDashboard() {
   const [redeeming, setRedeeming] = useState<string | null>(null);
 
-  const { data: cashbackData, refetch, isLoading } = trpc.newFeatures.consumerLoyalty.getCashbackBalance.useQuery();
-  const redeemMutation = trpc.newFeatures.consumerLoyalty.redeemCashback.useMutation({
+  const { data: cashbackData, refetch, isLoading } = trpc.newFeatures.cashbackRewards.getBalance.useQuery();
+  const redeemMutation = trpc.newFeatures.cashbackRewards.redeemCashback.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Redeemed! ${d.message ?? "Points redeemed successfully"}`);
       setRedeeming(null);
@@ -62,8 +62,9 @@ export default function ConsumerLoyaltyDashboard() {
     }
     setRedeeming(option.id);
     redeemMutation.mutate({
-      pointsToRedeem: option.pointsRequired,
-      redemptionType: option.id,
+      // Server redeems in kobo (min ₦100); catalog points convert at 50 kobo/point.
+      amountKobo: Math.max(10000, option.pointsRequired * 50),
+      destinationType: option.id === "airtime" ? "airtime" : "wallet",
     });
   };
 
@@ -126,7 +127,7 @@ export default function ConsumerLoyaltyDashboard() {
             <Button
               className="bg-green-600 hover:bg-green-700"
               onClick={() =>
-                redeemMutation.mutate({ pointsToRedeem: 0, redemptionType: "cashback_to_wallet" })
+                redeemMutation.mutate({ amountKobo: Math.max(10000, cashbackKobo), destinationType: "wallet" })
               }
               disabled={redeemMutation.isPending}
             >

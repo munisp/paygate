@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Shield, AlertTriangle, Ban, Activity, RefreshCw, Filter, Globe, Zap, Lock } from "lucide-react";
+import { Shield, AlertTriangle, Ban, RefreshCw, Filter, Globe, Zap, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -34,36 +34,15 @@ const severityColors: Record<string, string> = {
   "info": "bg-gray-500 text-white",
 };
 
-// Mock WAF events for demonstration (in production, these come from open-appsec JSON log stream)
-const generateMockEvents = () => {
-  const attackTypes = ["sql_injection", "xss", "path_traversal", "bot", "rate_limit", "card_testing", "mass_enumeration"];
-  const severities = ["critical", "high", "medium", "low"];
-  const countries = ["NG", "US", "CN", "RU", "BR", "IN", "DE", "GB", "FR", "ZA"];
-  const endpoints = ["/api/trpc/auth.login", "/api/trpc/transactions.create", "/api/trpc/customers.list", "/api/stripe/webhook", "/api/health"];
-
-  return Array.from({ length: 50 }, (_, i) => ({
-    id: `evt-${Date.now()}-${i}`,
-    timestamp: new Date(Date.now() - Math.random() * 3600000).toISOString(),
-    attackType: attackTypes[Math.floor(Math.random() * attackTypes.length)],
-    severity: severities[Math.floor(Math.random() * severities.length)],
-    sourceIp: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-    country: countries[Math.floor(Math.random() * countries.length)],
-    endpoint: endpoints[Math.floor(Math.random() * endpoints.length)],
-    blocked: Math.random() > 0.2,
-    userAgent: "Mozilla/5.0 (compatible; Malicious/1.0)",
-    ruleId: `OWASP-${Math.floor(Math.random() * 9000 + 1000)}`,
-  }));
-};
-
 export default function WAFAlertDashboard() {
-  // Real WAF alerts from DB via wafAlerts router
-  const { data: wafAlertsData, isLoading, isError, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
+  // Real WAF alerts from DB via wafAlerts router — no fabricated events.
+  const { data: wafAlertsData, isLoading, isError, error: alertsErrorObj, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const { data: wafStats } = trpc.wafAlerts.stats.useQuery();
   const { data: topAttackersData } = trpc.wafAlerts.getTopAttackers.useQuery({ limit: 10 }, { staleTime: 30_000 });
-  
-  // Map real DB rows to display format, fallback to mock for empty state
-  const dbEvents = (wafAlertsData?.rows ?? []).map((row: any) => ({
-    id: row.id ?? `db-${Math.random()}`,
+
+  // Map real DB rows to display format
+  const dbEvents = (wafAlertsData?.rows ?? []).map((row: any, idx: number) => ({
+    id: row.id ?? `db-${idx}`,
     timestamp: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
     attackType: row.action?.replace('waf.', '') ?? 'unknown',
     severity: row.severity ?? 'medium',
@@ -74,13 +53,8 @@ export default function WAFAlertDashboard() {
     userAgent: row.userAgent ?? 'unknown',
     ruleId: row.ruleId ?? 'OWASP-0000',
   }));
-  
-  const [events, setEvents] = useState(dbEvents.length > 0 ? dbEvents : generateMockEvents());
-  // Sync events state when real DB data loads (avoids stale mock data after query resolves)
-  useEffect(() => {
-    if (dbEvents.length > 0) setEvents(dbEvents);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wafAlertsData]);
+
+  const events = dbEvents;
   const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [filterSeverity, setFilterSeverity] = useState("all");
@@ -136,7 +110,6 @@ export default function WAFAlertDashboard() {
 
   const refreshEvents = () => {
     refetchAlerts();
-    if (dbEvents.length === 0) setEvents(generateMockEvents());
     toast.success("WAF events refreshed");
   };
 
@@ -206,17 +179,10 @@ export default function WAFAlertDashboard() {
           <Button variant="outline" size="sm" aria-label="Refresh" onClick={refreshEvents}><RefreshCw/>
             Refresh
           </Button>
-          {isStreaming ? (
-            <Button variant="destructive" size="sm" onClick={stopLiveStream}>
-              <Activity className="h-4 w-4 mr-2 animate-pulse" />
-              Stop Live
-            </Button>
-          ) : (
-            <Button size="sm" onClick={startLiveStream} className="bg-green-600 hover:bg-green-700">
-              <Activity className="h-4 w-4 mr-2" />
-              Start Live Stream
-            </Button>
-          )}
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${isStreaming ? "bg-green-50 text-green-700 border border-green-200" : "bg-muted text-muted-foreground"}`}>
+            <span className={`h-2 w-2 rounded-full ${isStreaming ? "bg-green-500 animate-pulse" : "bg-muted-foreground"}`} />
+            {isStreaming ? "Live" : "Connecting…"}
+          </div>
         </div>
       </div>
 
@@ -422,6 +388,23 @@ export default function WAFAlertDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isError && (
+            <div className="flex items-start gap-3 p-4 mb-4 rounded-lg bg-red-50 border border-red-200">
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-700">Could not load WAF alerts</p>
+                <p className="text-xs text-red-600 mt-0.5">{alertsErrorObj?.message}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetchAlerts()}>Retry</Button>
+            </div>
+          )}
+          {!isError && filteredEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Shield className="w-10 h-10 mb-3 opacity-40" />
+              <p className="text-sm font-medium">No WAF events recorded</p>
+              <p className="text-xs mt-1">Blocked and monitored requests from open-appsec + APISIX will appear here.</p>
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -492,6 +475,7 @@ export default function WAFAlertDashboard() {
               </TableBody>
             </Table>
           </div>
+          )}
           {filteredEvents.length > 30 && (
             <p className="text-sm text-muted-foreground text-center mt-3">
               Showing 30 of {filteredEvents.length} events. Use filters to narrow results.

@@ -103,8 +103,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Default Values", () => 
     const id = `branding-default-primary-${RUN_ID}-1`;
     const slug = `branding-default-primary-${RUN_ID}-1`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Default Primary Color Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Default Primary Color Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT primary_color FROM tenants WHERE id = $1`,
@@ -118,8 +118,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Default Values", () => 
     const id = `branding-default-accent-${RUN_ID}-2`;
     const slug = `branding-default-accent-${RUN_ID}-2`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Default Accent Color Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Default Accent Color Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT accent_color FROM tenants WHERE id = $1`,
@@ -133,8 +133,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Default Values", () => 
     const id = `branding-default-font-${RUN_ID}-3`;
     const slug = `branding-default-font-${RUN_ID}-3`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Default Font Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Default Font Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT font_family FROM tenants WHERE id = $1`,
@@ -148,8 +148,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Default Values", () => 
     const id = `branding-default-logo-${RUN_ID}-4`;
     const slug = `branding-default-logo-${RUN_ID}-4`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Default Logo Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Default Logo Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT logo_url FROM tenants WHERE id = $1`,
@@ -163,8 +163,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Default Values", () => 
     const id = `branding-default-domain-${RUN_ID}-5`;
     const slug = `branding-default-domain-${RUN_ID}-5`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Default Domain Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Default Domain Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT custom_domain FROM tenants WHERE id = $1`,
@@ -181,8 +181,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — INSERT and SELECT", () 
     const id = `branding-full-${RUN_ID}-6`;
     const slug = `branding-full-${RUN_ID}-6`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, accent_color, font_family, logo_url, custom_domain)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, accent_color, font_family, logo_url, custom_domain, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         id,
         "Full Branding Tenant",
@@ -194,6 +194,7 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — INSERT and SELECT", () 
         "Poppins",
         "https://cdn.example.com/logo.png",
         "pay.example.com",
+        `${slug}@example.com`,
       ]
     );
     const result = await pool.query(
@@ -215,9 +216,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — INSERT and SELECT", () 
     const id = `branding-partial-${RUN_ID}-7`;
     const slug = `branding-partial-${RUN_ID}-7`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, "Partial Branding Tenant", slug, "growth", "active", "#10B981"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, "Partial Branding Tenant", slug, "growth", "active", "#10B981", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT primary_color, accent_color, font_family FROM tenants WHERE id = $1`,
@@ -238,8 +239,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — UPDATE", () => {
     const id = `branding-update-primary-${RUN_ID}-8`;
     const slug = `branding-update-primary-${RUN_ID}-8`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Update Primary Tenant", slug, "starter", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Update Primary Tenant", slug, "starter", "active", `${slug}@example.com`]
     );
     await pool.query(
       `UPDATE tenants SET primary_color = '#DC2626' WHERE id = $1`,
@@ -257,8 +258,8 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — UPDATE", () => {
     const id = `branding-update-all-${RUN_ID}-9`;
     const slug = `branding-update-all-${RUN_ID}-9`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, "Update All Branding Tenant", slug, "growth", "active"]
+      `INSERT INTO tenants (id, name, slug, plan, status, email) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, "Update All Branding Tenant", slug, "growth", "active", `${slug}@example.com`]
     );
     await pool.query(
       `UPDATE tenants
@@ -287,9 +288,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — UPDATE", () => {
     const id = `branding-clear-logo-${RUN_ID}-10`;
     const slug = `branding-clear-logo-${RUN_ID}-10`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, logo_url)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, "Clear Logo Tenant", slug, "starter", "active", "https://cdn.example.com/old-logo.png"]
+      `INSERT INTO tenants (id, name, slug, plan, status, logo_url, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, "Clear Logo Tenant", slug, "starter", "active", "https://cdn.example.com/old-logo.png", `${slug}@example.com`]
     );
     await pool.query(
       `UPDATE tenants SET logo_url = NULL WHERE id = $1`,
@@ -310,14 +311,14 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Per-Tenant Isolation", 
     const idA = `isolation-tenant-a-${RUN_ID}-11`;
     const idB = `isolation-tenant-b-${RUN_ID}-12`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idA, "Tenant A", idA, "starter", "active", "#EF4444"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idA, "Tenant A", idA, "starter", "active", "#EF4444", `${idA}@example.com`]
     );
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idB, "Tenant B", idB, "growth", "active", "#3B82F6"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idB, "Tenant B", idB, "growth", "active", "#3B82F6", `${idB}@example.com`]
     );
     const resultA = await pool.query(
       `SELECT primary_color FROM tenants WHERE id = $1`,
@@ -339,14 +340,14 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Per-Tenant Isolation", 
     const idA = `font-tenant-a-${RUN_ID}-13`;
     const idB = `font-tenant-b-${RUN_ID}-14`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, font_family)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idA, "Font Tenant A", idA, "starter", "active", "Lato"]
+      `INSERT INTO tenants (id, name, slug, plan, status, font_family, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idA, "Font Tenant A", idA, "starter", "active", "Lato", `${idA}@example.com`]
     );
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, font_family)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idB, "Font Tenant B", idB, "growth", "active", "Montserrat"]
+      `INSERT INTO tenants (id, name, slug, plan, status, font_family, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idB, "Font Tenant B", idB, "growth", "active", "Montserrat", `${idB}@example.com`]
     );
     const resultA = await pool.query(
       `SELECT font_family FROM tenants WHERE id = $1`,
@@ -367,14 +368,14 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Per-Tenant Isolation", 
     const idA = `logo-tenant-a-${RUN_ID}-15`;
     const idB = `logo-tenant-b-${RUN_ID}-16`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, logo_url)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idA, "Logo Tenant A", idA, "starter", "active", "https://cdn.a.com/logo.png"]
+      `INSERT INTO tenants (id, name, slug, plan, status, logo_url, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idA, "Logo Tenant A", idA, "starter", "active", "https://cdn.a.com/logo.png", `${idA}@example.com`]
     );
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, logo_url)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idB, "Logo Tenant B", idB, "growth", "active", "https://cdn.b.com/logo.svg"]
+      `INSERT INTO tenants (id, name, slug, plan, status, logo_url, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idB, "Logo Tenant B", idB, "growth", "active", "https://cdn.b.com/logo.svg", `${idB}@example.com`]
     );
     const resultA = await pool.query(
       `SELECT logo_url FROM tenants WHERE id = $1`,
@@ -396,14 +397,14 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Per-Tenant Isolation", 
     const idA = `cross-tenant-a-${RUN_ID}-17`;
     const idB = `cross-tenant-b-${RUN_ID}-18`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idA, "Cross Tenant A", idA, "starter", "active", "#6366f1"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idA, "Cross Tenant A", idA, "starter", "active", "#6366f1", `${idA}@example.com`]
     );
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [idB, "Cross Tenant B", idB, "starter", "active", "#6366f1"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [idB, "Cross Tenant B", idB, "starter", "active", "#6366f1", `${idB}@example.com`]
     );
     // Update only tenant A
     await pool.query(
@@ -429,9 +430,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Per-Tenant Isolation", 
     const id = `query-branding-${RUN_ID}-19`;
     const slug = `query-branding-${RUN_ID}-19`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, accent_color, font_family)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [id, "Query Branding Tenant", slug, "enterprise", "active", "#1D4ED8", "#3B82F6", "Open Sans"]
+      `INSERT INTO tenants (id, name, slug, plan, status, primary_color, accent_color, font_family, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, "Query Branding Tenant", slug, "enterprise", "active", "#1D4ED8", "#3B82F6", "Open Sans", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT name, primary_color, accent_color, font_family
@@ -454,9 +455,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Custom Domain", () => {
     const id = `custom-domain-set-${RUN_ID}-20`;
     const slug = `custom-domain-set-${RUN_ID}-20`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, "Custom Domain Tenant", slug, "enterprise", "active", "pay.customdomain.io"]
+      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, "Custom Domain Tenant", slug, "enterprise", "active", "pay.customdomain.io", `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT custom_domain FROM tenants WHERE id = $1`,
@@ -472,9 +473,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Custom Domain", () => {
     const slug = `custom-domain-lookup-${RUN_ID}-21`;
     const domain = `lookup-${RUN_ID}.paygate.io`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, "Domain Lookup Tenant", slug, "enterprise", "active", domain]
+      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, "Domain Lookup Tenant", slug, "enterprise", "active", domain, `${slug}@example.com`]
     );
     const result = await pool.query(
       `SELECT id, name, slug FROM tenants WHERE custom_domain = $1`,
@@ -490,9 +491,9 @@ describe.skipIf(!PG_AVAILABLE)("White-Label Branding — Custom Domain", () => {
     const id = `custom-domain-update-${RUN_ID}-22`;
     const slug = `custom-domain-update-${RUN_ID}-22`;
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, "Domain Update Tenant", slug, "enterprise", "active", "old.domain.com"]
+      `INSERT INTO tenants (id, name, slug, plan, status, custom_domain, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, "Domain Update Tenant", slug, "enterprise", "active", "old.domain.com", `${slug}@example.com`]
     );
     await pool.query(
       `UPDATE tenants SET custom_domain = 'new.domain.com' WHERE id = $1`,

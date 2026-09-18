@@ -21,7 +21,7 @@ async function resolveUser(openId: string) {
 }
 
 async function requireMerchant(userId: number | string) {
-  const merchant = await getMerchantByOwnerId(String(userId));
+  const merchant = await getMerchantByOwnerId(typeof userId === "string" ? Number(userId) : userId);
   if (!merchant) throw new TRPCError({ code: 'NOT_FOUND', message: 'Merchant not found' });
   return merchant;
 }
@@ -88,8 +88,8 @@ export const pdfExportRouter = router({
   /** Export transactions as PDF */
   transactions: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
@@ -146,8 +146,8 @@ export const pdfExportRouter = router({
   /** Export settlements as PDF */
   settlements: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
@@ -332,12 +332,32 @@ export const cashbackRewardsRouter = router({
   earnOnTransaction: protectedProcedure
     .input(z.object({
       transactionId: z.string(),
-      transactionAmountKobo: z.number().int().positive(),
+      // DEPRECATED and ignored: the amount is ALWAYS taken from the real
+      // transaction record, never from caller input.
+      transactionAmountKobo: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await requireDb();
+
+      // Validate against the REAL transaction: it must exist, be completed, and
+      // belong to the caller's merchant. All conditions are enforced in the query.
+      const [txRow] = await db
+        .select()
+        .from(schema.transactions)
+        .where(and(
+          eq(schema.transactions.id, input.transactionId),
+          eq(schema.transactions.merchantId, merchant.id),
+          eq(schema.transactions.status, 'completed'),
+        ))
+        .limit(1);
+      if (!txRow) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Transaction not found, not completed, or does not belong to this merchant',
+        });
+      }
 
       // Get or create balance record
       let [balance] = await db
@@ -356,21 +376,38 @@ export const cashbackRewardsRouter = router({
 
       if (!balance.enabled || balance.enabled === 0) return { earned: 0, newBalance: balance.cashbackBalanceKobo ?? 0 };
 
+      // Dedup: exactly one earn per transactionId.
+      const [existingEarn] = await db
+        .select()
+        .from(schema.cashbackTransactions)
+        .where(and(
+          eq(schema.cashbackTransactions.merchantId, merchant.id),
+          eq(schema.cashbackTransactions.type, 'earn'),
+          eq(schema.cashbackTransactions.relatedTransactionId, input.transactionId),
+        ))
+        .limit(1);
+      if (existingEarn) {
+        return { earned: 0, newBalance: balance.cashbackBalanceKobo ?? 0, deduplicated: true };
+      }
+
+      // Amount comes from the transaction record, not from the caller.
+      const txAmountKobo = txRow.amount;
+
       // Check minimum transaction threshold
       const minTx = balance.minTransactionKobo ?? 10000;
-      if (input.transactionAmountKobo < minTx) {
+      if (txAmountKobo < minTx) {
         return { earned: 0, newBalance: balance.cashbackBalanceKobo ?? 0 };
       }
 
       // Calculate cashback
       const rate = parseFloat(balance.cashbackRate ?? '0.02');
       const maxCashback = balance.maxCashbackKobo ?? 50000;
-      const rawEarned = Math.floor(input.transactionAmountKobo * rate);
+      const rawEarned = Math.floor(txAmountKobo * rate);
       const earnedKobo = Math.min(rawEarned, maxCashback);
 
       if (earnedKobo <= 0) return { earned: 0, newBalance: balance.cashbackBalanceKobo ?? 0 };
 
-      // Update balance
+      // Relative (not absolute) balance update + ledger insert in one transaction.
       const newBalance = (balance.cashbackBalanceKobo ?? 0) + earnedKobo;
       const newTotalEarned = (balance.totalEarnedKobo ?? 0) + earnedKobo;
 
@@ -383,8 +420,8 @@ export const cashbackRewardsRouter = router({
       await db.transaction(async (tx) => {
         await tx.update(schema.cashbackBalances)
           .set({
-            cashbackBalanceKobo: newBalance,
-            totalEarnedKobo: newTotalEarned,
+            cashbackBalanceKobo: sql`${schema.cashbackBalances.cashbackBalanceKobo} + ${earnedKobo}`,
+            totalEarnedKobo: sql`COALESCE(${schema.cashbackBalances.totalEarnedKobo}, 0) + ${earnedKobo}`,
             tier: newTier,
             updatedAt: new Date(),
           })
@@ -423,25 +460,28 @@ export const cashbackRewardsRouter = router({
       if (!balance) throw new TRPCError({ code: 'NOT_FOUND', message: 'No cashback balance found' });
       if (!balance.enabled || balance.enabled === 0) throw new TRPCError({ code: 'FORBIDDEN', message: 'Cashback is disabled for this merchant' });
 
-      const available = balance.cashbackBalanceKobo ?? 0;
-      if (input.amountKobo > available) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: `Insufficient cashback balance. Available: ₦${(available / 100).toFixed(2)}`,
-        });
-      }
-
-      const newBalance = available - input.amountKobo;
-      const newTotalRedeemed = (balance.totalRedeemedKobo ?? 0) + input.amountKobo;
-
-      await db.transaction(async (tx) => {
-        await tx.update(schema.cashbackBalances)
+      // Guarded relative decrement + ledger insert in ONE transaction: the
+      // balance check is part of the UPDATE's WHERE clause, so a concurrent
+      // redeem cannot double-spend (no stale read, no absolute write).
+      const result = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(schema.cashbackBalances)
           .set({
-            cashbackBalanceKobo: newBalance,
-            totalRedeemedKobo: newTotalRedeemed,
+            cashbackBalanceKobo: sql`${schema.cashbackBalances.cashbackBalanceKobo} - ${input.amountKobo}`,
+            totalRedeemedKobo: sql`COALESCE(${schema.cashbackBalances.totalRedeemedKobo}, 0) + ${input.amountKobo}`,
             updatedAt: new Date(),
           })
-          .where(eq(schema.cashbackBalances.merchantId, merchant.id));
+          .where(and(
+            eq(schema.cashbackBalances.merchantId, merchant.id),
+            sql`COALESCE(${schema.cashbackBalances.cashbackBalanceKobo}, 0) >= ${input.amountKobo}`,
+          ))
+          .returning();
+
+        if (!updated) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Insufficient cashback balance. Available: ₦${((balance.cashbackBalanceKobo ?? 0) / 100).toFixed(2)}`,
+          });
+        }
 
         await tx.insert(schema.cashbackTransactions).values({
           merchantId: merchant.id,
@@ -450,12 +490,17 @@ export const cashbackRewardsRouter = router({
           description: input.description ?? 'Cashback redeemed',
           status: 'completed',
         });
+
+        return {
+          newBalance: updated.cashbackBalanceKobo ?? 0,
+          totalRedeemed: updated.totalRedeemedKobo ?? 0,
+        };
       });
 
       return {
         redeemed: input.amountKobo,
-        newBalance,
-        totalRedeemed: newTotalRedeemed,
+        newBalance: result.newBalance,
+        totalRedeemed: result.totalRedeemed,
       };
     }),
 
@@ -475,8 +520,8 @@ export const cashbackRewardsRouter = router({
   /** Get cashback analytics summary */
   getAnalytics: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);

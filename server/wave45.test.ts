@@ -136,22 +136,28 @@ describe("middlewareBridge — wallet function signatures", () => {
     expect(result).toBeNull();
   });
 
-  it("debitWalletViaMiddleware should return null when bridge is unavailable", async () => {
+  // STALE CONTRACT: money-path bridge calls (debit/credit) now FAIL LOUD via
+  // bridgeCallStrict — they throw TRPCError SERVICE_UNAVAILABLE when the
+  // bridge is unconfigured instead of silently returning null. (Read-only
+  // getters like getWalletBalanceViaMiddleware still use safe() → null.)
+  it("debitWalletViaMiddleware should throw SERVICE_UNAVAILABLE when bridge is unavailable", async () => {
     const bridge = await import("./middlewareBridge");
-    const result = await bridge.debitWalletViaMiddleware({
-      walletId: "test-wallet", userId: "user-1", amount: 100_00,
-      currency: "NGN", reference: "test-debit-001",
-    });
-    expect(result).toBeNull();
+    await expect(
+      bridge.debitWalletViaMiddleware({
+        walletId: "test-wallet", userId: "user-1", amount: 100_00,
+        currency: "NGN", reference: "test-debit-001",
+      })
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("creditWalletViaMiddleware should return null when bridge is unavailable", async () => {
+  it("creditWalletViaMiddleware should throw SERVICE_UNAVAILABLE when bridge is unavailable", async () => {
     const bridge = await import("./middlewareBridge");
-    const result = await bridge.creditWalletViaMiddleware({
-      walletId: "test-wallet", userId: "user-1", amount: 500_00,
-      currency: "NGN", reference: "test-credit-001",
-    });
-    expect(result).toBeNull();
+    await expect(
+      bridge.creditWalletViaMiddleware({
+        walletId: "test-wallet", userId: "user-1", amount: 500_00,
+        currency: "NGN", reference: "test-credit-001",
+      })
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 });
 

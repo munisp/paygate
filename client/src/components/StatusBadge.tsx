@@ -1,6 +1,7 @@
 // Status badge with animated pulse for healthy services
 import { cn } from "@/lib/utils";
-import type { ServiceHealth } from "@/lib/mockData";
+
+export type ServiceHealth = "healthy" | "degraded" | "critical" | "unknown";
 
 const CONFIG: Record<ServiceHealth, { label: string; dot: string; text: string; bg: string }> = {
   healthy:  { label: "Healthy",  dot: "bg-emerald-400", text: "text-emerald-400", bg: "bg-emerald-400/10" },

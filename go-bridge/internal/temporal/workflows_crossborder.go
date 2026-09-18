@@ -153,7 +153,8 @@ func CIPSTransferWorkflow(ctx workflow.Context, input CIPSTransferInput) (CIPSTr
 		}, nil
 	}
 
-	// Step 5: Post to TigerBeetle ledger
+	// Step 5: Post to TigerBeetle ledger — money leg; never report "settled"
+	// when the ledger write failed after retries.
 	if err := workflow.ExecuteActivity(ctx, PostCrossBorderLedgerEntry, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
@@ -162,7 +163,13 @@ func CIPSTransferWorkflow(ctx workflow.Context, input CIPSTransferInput) (CIPSTr
 		"rail":        "cips",
 		"status":      "settled",
 	}).Get(ctx, nil); err != nil {
-		logger.Warn("ledger post failed (non-fatal)", "error", err)
+		logger.Error("ledger post failed after retries — rail settled but ledger NOT posted", "error", err, "transfer_id", input.TransferID)
+		return CIPSTransferResult{
+			TransferID:    input.TransferID,
+			CIPSMessageID: cipsMessageID,
+			Status:        "ledger_post_failed",
+			ErrorCode:     err.Error(),
+		}, err
 	}
 
 	// Step 6: Publish Kafka + Fluvio events
@@ -173,7 +180,7 @@ func CIPSTransferWorkflow(ctx workflow.Context, input CIPSTransferInput) (CIPSTr
 		"amount":      input.Amount,
 		"currency":    input.Currency,
 	}).Get(ctx, nil); err != nil {
-		logger.Warn("event publish failed (non-fatal)", "error", err)
+		logger.Error("event publish failed after ledger post — reconciliation required", "error", err, "transfer_id", input.TransferID)
 	}
 
 	return CIPSTransferResult{
@@ -213,7 +220,8 @@ func UPITransferWorkflow(ctx workflow.Context, input UPITransferInput) (UPITrans
 		return UPITransferResult{TransferID: input.TransferID, Status: "vpa_not_found"}, err
 	}
 
-	// Step 2: Fraud scoring
+	// Step 2: Fraud scoring — fail closed: a money transfer must not proceed
+	// when fraud scoring could not be performed.
 	var fraudResult map[string]interface{}
 	if err := workflow.ExecuteActivity(ctx, ScoreCrossBorderFraud, map[string]interface{}{
 		"transfer_id": input.TransferID,
@@ -222,7 +230,8 @@ func UPITransferWorkflow(ctx workflow.Context, input UPITransferInput) (UPITrans
 		"rail":        "upi",
 		"vpa":         input.PayeeVPA,
 	}).Get(ctx, &fraudResult); err != nil {
-		logger.Warn("fraud scoring failed (non-fatal)", "error", err)
+		logger.Error("fraud scoring failed — refusing to proceed with transfer (fail closed)", "error", err, "transfer_id", input.TransferID)
+		return UPITransferResult{TransferID: input.TransferID, Status: "fraud_check_failed"}, err
 	}
 
 	// Step 3: Submit to NPCI/UPI
@@ -256,24 +265,35 @@ func UPITransferWorkflow(ctx workflow.Context, input UPITransferInput) (UPITrans
 		}, nil
 	}
 
-	// Step 5: Post to TigerBeetle ledger
-	_ = workflow.ExecuteActivity(ctx, PostCrossBorderLedgerEntry, map[string]interface{}{
+	// Step 5: Post to TigerBeetle ledger — money leg; never report "settled"
+	// when the ledger write failed after retries.
+	if err := workflow.ExecuteActivity(ctx, PostCrossBorderLedgerEntry, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
 		"amount":      input.Amount,
 		"currency":    input.Currency,
 		"rail":        "upi",
 		"status":      "settled",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("ledger post failed after retries — rail settled but ledger NOT posted", "error", err, "transfer_id", input.TransferID)
+		return UPITransferResult{
+			TransferID: input.TransferID,
+			UPIRef:     upiRef,
+			NPCIRef:    npciRef,
+			Status:     "ledger_post_failed",
+		}, err
+	}
 
 	// Step 6: Publish events
-	_ = workflow.ExecuteActivity(ctx, PublishCrossBorderSettledEvent, map[string]interface{}{
+	if err := workflow.ExecuteActivity(ctx, PublishCrossBorderSettledEvent, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
 		"rail":        "upi",
 		"amount":      input.Amount,
 		"currency":    "INR",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("event publish failed after ledger post — reconciliation required", "error", err, "transfer_id", input.TransferID)
+	}
 
 	return UPITransferResult{
 		TransferID: input.TransferID,
@@ -313,14 +333,19 @@ func PIXTransferWorkflow(ctx workflow.Context, input PIXTransferInput) (PIXTrans
 		return PIXTransferResult{TransferID: input.TransferID, Status: "pix_key_not_found"}, err
 	}
 
-	// Step 2: Fraud scoring
-	_ = workflow.ExecuteActivity(ctx, ScoreCrossBorderFraud, map[string]interface{}{
+	// Step 2: Fraud scoring — fail closed: a money transfer must not proceed
+	// when fraud scoring could not be performed.
+	var fraudResult map[string]interface{}
+	if err := workflow.ExecuteActivity(ctx, ScoreCrossBorderFraud, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
 		"amount":      input.Amount,
 		"rail":        "pix",
 		"pix_key":     input.PIXKey,
-	}).Get(ctx, nil)
+	}).Get(ctx, &fraudResult); err != nil {
+		logger.Error("fraud scoring failed — refusing to proceed with transfer (fail closed)", "error", err, "transfer_id", input.TransferID)
+		return PIXTransferResult{TransferID: input.TransferID, Status: "fraud_check_failed"}, err
+	}
 
 	// Step 3: Submit PIX payment to BACEN SPI (Sistema de Pagamentos Instantâneos)
 	var pixResult map[string]interface{}
@@ -351,24 +376,34 @@ func PIXTransferWorkflow(ctx workflow.Context, input PIXTransferInput) (PIXTrans
 		}, nil
 	}
 
-	// Step 5: Post to TigerBeetle ledger
-	_ = workflow.ExecuteActivity(ctx, PostCrossBorderLedgerEntry, map[string]interface{}{
+	// Step 5: Post to TigerBeetle ledger — money leg; never report "settled"
+	// when the ledger write failed after retries.
+	if err := workflow.ExecuteActivity(ctx, PostCrossBorderLedgerEntry, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
 		"amount":      input.Amount,
 		"currency":    "BRL",
 		"rail":        "pix",
 		"status":      "settled",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("ledger post failed after retries — rail settled but ledger NOT posted", "error", err, "transfer_id", input.TransferID)
+		return PIXTransferResult{
+			TransferID: input.TransferID,
+			EndToEndID: endToEndID,
+			Status:     "ledger_post_failed",
+		}, err
+	}
 
 	// Step 6: Publish events
-	_ = workflow.ExecuteActivity(ctx, PublishCrossBorderSettledEvent, map[string]interface{}{
+	if err := workflow.ExecuteActivity(ctx, PublishCrossBorderSettledEvent, map[string]interface{}{
 		"transfer_id": input.TransferID,
 		"merchant_id": input.MerchantID,
 		"rail":        "pix",
 		"amount":      input.Amount,
 		"currency":    "BRL",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("event publish failed after ledger post — reconciliation required", "error", err, "transfer_id", input.TransferID)
+	}
 
 	return PIXTransferResult{
 		TransferID: input.TransferID,

@@ -21,18 +21,18 @@ import (
 
 // InterchangeScheduleEntry defines a fee rule for a specific card/channel combination.
 type InterchangeScheduleEntry struct {
-	ID              string    `json:"id"`
-	Scheme          string    `json:"scheme"`          // visa, mastercard, verve
-	CardType        string    `json:"card_type"`       // credit, debit, prepaid, corporate
-	Channel         string    `json:"channel"`         // card_present, card_not_present, contactless, ecommerce
-	MCC             string    `json:"mcc"`             // merchant category code, empty = all
-	BasisPoints     int       `json:"basis_points"`    // e.g. 150 = 1.50%
-	FixedFeeKobo    int64     `json:"fixed_fee_kobo"`  // flat fee in kobo
-	MinFeeKobo      int64     `json:"min_fee_kobo"`    // minimum fee
-	MaxFeeKobo      int64     `json:"max_fee_kobo"`    // maximum fee, 0 = no cap
-	EffectiveFrom   time.Time `json:"effective_from"`
-	EffectiveTo     *time.Time `json:"effective_to,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID            string     `json:"id"`
+	Scheme        string     `json:"scheme"`         // visa, mastercard, verve
+	CardType      string     `json:"card_type"`      // credit, debit, prepaid, corporate
+	Channel       string     `json:"channel"`        // card_present, card_not_present, contactless, ecommerce
+	MCC           string     `json:"mcc"`            // merchant category code, empty = all
+	BasisPoints   int        `json:"basis_points"`   // e.g. 150 = 1.50%
+	FixedFeeKobo  int64      `json:"fixed_fee_kobo"` // flat fee in kobo
+	MinFeeKobo    int64      `json:"min_fee_kobo"`   // minimum fee
+	MaxFeeKobo    int64      `json:"max_fee_kobo"`   // maximum fee, 0 = no cap
+	EffectiveFrom time.Time  `json:"effective_from"`
+	EffectiveTo   *time.Time `json:"effective_to,omitempty"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // defaultSchedule returns the built-in CBN/scheme interchange schedule.
@@ -80,13 +80,13 @@ var defaultSchedule = []InterchangeScheduleEntry{
 // CalculateInterchange handles POST /v1/interchange/calculate
 func CalculateInterchange(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AmountKobo  int64  `json:"amount_kobo"`
-		Scheme      string `json:"scheme"`
-		CardType    string `json:"card_type"`
-		Channel     string `json:"channel"`
-		MCC         string `json:"mcc"`
-		MerchantID  string `json:"merchant_id"`
-		TxID        string `json:"transaction_id"`
+		AmountKobo int64  `json:"amount_kobo"`
+		Scheme     string `json:"scheme"`
+		CardType   string `json:"card_type"`
+		Channel    string `json:"channel"`
+		MCC        string `json:"mcc"`
+		MerchantID string `json:"merchant_id"`
+		TxID       string `json:"transaction_id"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -124,7 +124,7 @@ func CalculateInterchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish to Kafka for billing engine
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"transaction_id": req.TxID,
 		"merchant_id":    req.MerchantID,
@@ -135,19 +135,19 @@ func CalculateInterchange(w http.ResponseWriter, r *http.Request) {
 		"channel":        req.Channel,
 		"calculated_at":  time.Now().UTC(),
 	})
-	_ = kc.Publish(ctx, "interchange.calculated", string(eventData))
+	_ = kc.Publish(ctx, "interchange.calculated", "", string(eventData))
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"transaction_id":  req.TxID,
-		"amount_kobo":     req.AmountKobo,
-		"fee_kobo":        totalFee,
-		"percentage_fee":  percentageFee,
-		"fixed_fee":       rule.FixedFeeKobo,
-		"basis_points":    rule.BasisPoints,
-		"rule_id":         rule.ID,
-		"scheme":          req.Scheme,
-		"card_type":       req.CardType,
-		"channel":         req.Channel,
+		"transaction_id": req.TxID,
+		"amount_kobo":    req.AmountKobo,
+		"fee_kobo":       totalFee,
+		"percentage_fee": percentageFee,
+		"fixed_fee":      rule.FixedFeeKobo,
+		"basis_points":   rule.BasisPoints,
+		"rule_id":        rule.ID,
+		"scheme":         req.Scheme,
+		"card_type":      req.CardType,
+		"channel":        req.Channel,
 	})
 }
 

@@ -13,6 +13,7 @@
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { publishAuditEvent } from "../kafkaClient";
+import { demoOrFail } from "../_core/demoData";
 import { getDb } from "../db";
 import { z } from "zod";
 import {
@@ -20,6 +21,7 @@ import {
   agentBankingV4Agents,
   agentNetwork,
   auditEvents,
+  bnplLoans,
   bnplRepaymentSchedules,
   carbonCreditTransactionsV2,
   complianceReports,
@@ -97,6 +99,7 @@ import {
   superAgentV2Networks,
   supportMessages,
   taxFilingRecords,
+  teamMembers,
   tenantBillingInvoices,
   tenantConfig,
   tenantCorridorDailyStats,
@@ -112,10 +115,13 @@ import {
   usdcV2Transactions,
   usdcV2Wallets,
   userInsuranceClaims,
+  users,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
-import { eq, desc, and, gte, lte, like, sql, isNull } from "drizzle-orm";
+import { eq, desc, and, or, gte, lte, like, sql, isNull, inArray } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import { logger } from "../logger";
 
 const paginationInput = z.object({
   page: z.number().int().min(1).default(1),
@@ -127,6 +133,50 @@ const paginationInput = z.object({
 function paginate(page: number, limit: number) {
   return { offset: (page - 1) * limit, limit };
 }
+
+/**
+ * Audit events on money/approval paths must never vanish silently.
+ * publishEvent returns `false` when the event bus is unavailable
+ * (non-regulatory topics) and throws for durable-outbox failures — both
+ * outcomes are logged loudly here instead of being swallowed with
+ * `.catch(() => {})`.
+ */
+function publishAuditEventLoud(payload: Parameters<typeof publishAuditEvent>[0]): void {
+  publishAuditEvent(payload)
+    .then((delivered) => {
+      if (delivered === false) {
+        logger.error("AUDIT EVENT NOT DELIVERED — event bus unavailable, audit event dropped", {
+          action: payload.action,
+          targetId: payload.targetId,
+        });
+      }
+    })
+    .catch((err) => {
+      logger.error("AUDIT EVENT PUBLISH FAILED", {
+        action: payload.action,
+        targetId: payload.targetId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/** Throws FORBIDDEN unless the caller's users.role is 'admin' (DB-checked, adminRouter pattern). */
+async function requirePlatformAdmin(db: Db, openId: string): Promise<void> {
+  const [caller] = await db.select({ role: users.role }).from(users).where(eq(users.openId, openId)).limit(1);
+  if (!caller || caller.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/** Platform-admin-gated procedure (feature flags and other platform-global config). */
+const platformAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  await requirePlatformAdmin(db, ctx.user.openId);
+  return next({ ctx });
+});
 
 // ─── 1. Admin Notification Prefs ─────────────────────────────────────────────
 
@@ -202,10 +252,13 @@ const agentBankingV4Router = router({
     agentName: z.string().optional(),
     phone: z.string().optional(),
     address: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(agentBankingV4Agents).set(rest).where(eq(agentBankingV4Agents.id, id));
+    const [updated] = await db.update(agentBankingV4Agents).set(rest)
+      .where(and(eq(agentBankingV4Agents.id, id), eq(agentBankingV4Agents.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
     return { success: true };
   }),
   listNetworks: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -250,7 +303,7 @@ const auditEventsRouter = router({
     action: z.string(),
     resource: z.string(),
     resourceId: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     ipAddress: z.string().optional(),
     userAgent: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
@@ -275,7 +328,7 @@ const bnplRepaymentRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const conditions = [];
     if (input.bnplLoanId) conditions.push(eq(bnplRepaymentSchedules.bnplLoanId, input.bnplLoanId));
-    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status));
+    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status as "pending" | "failed" | "paid" | "overdue" | "waived"));
     const rows = await db.select().from(bnplRepaymentSchedules)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(bnplRepaymentSchedules.instalmentNumber)
@@ -285,11 +338,29 @@ const bnplRepaymentRouter = router({
   markPaid: protectedProcedure.input(z.object({
     id: z.string(),
     paidAt: z.number().optional(),
-  })).mutation(async ({ input }) => {
+    // Attestation of an external repayment is mandatory — an instalment must
+    // never be flipped to 'paid' with no evidence of money received.
+    paymentReference: z.string().min(8).max(128),
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(bnplRepaymentSchedules)
-      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
-      .where(eq(bnplRepaymentSchedules.id, input.id));
+    const tenantId = ctx.user.tenantId ?? "";
+    // Merchant scope: the schedule's parent BNPL loan must belong to the
+    // caller's tenant (bnpl_repayment_schedules carries no merchant column).
+    const [schedule] = await db.select().from(bnplRepaymentSchedules)
+      .where(eq(bnplRepaymentSchedules.id, input.id)).limit(1);
+    if (!schedule) throw new TRPCError({ code: "NOT_FOUND", message: "Repayment schedule not found" });
+    const [loan] = await db.select().from(bnplLoans)
+      .where(and(eq(bnplLoans.id, schedule.bnplLoanId), eq(bnplLoans.tenantId, tenantId))).limit(1);
+    if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Repayment schedule not found" });
+    // Guarded flip: only an outstanding instalment (pending/overdue/failed)
+    // can become paid — paid/waived are terminal.
+    const [updated] = await db.update(bnplRepaymentSchedules)
+      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date(), paymentReference: input.paymentReference, updatedAt: new Date() })
+      .where(and(
+        eq(bnplRepaymentSchedules.id, input.id),
+        inArray(bnplRepaymentSchedules.status, ["pending", "overdue", "failed"]),
+      )).returning();
+    if (!updated) throw new TRPCError({ code: "CONFLICT", message: `Instalment is '${schedule.status}', only pending/overdue/failed instalments can be marked paid` });
     return { success: true };
   }),
 });
@@ -319,7 +390,10 @@ const carbonCreditsV2Router = router({
     const db = (await getDb())!;
     const [row] = await db.insert(carbonCreditTransactionsV2).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      creditId: input.projectId,
+      type: input.txType,
+      quantity: Math.round(input.credits),
+      totalAmount: Math.round(input.credits * input.pricePerCredit),
       status: "pending",
     }).returning();
     return row;
@@ -344,29 +418,34 @@ const complianceReportsRouter = router({
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(complianceReports)
-      .where(eq(complianceReports.id, input.id)).limit(1);
+      .where(eq(complianceReports.reportId, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
   create: protectedProcedure.input(z.object({
     reportType: z.string(),
     period: z.string(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(complianceReports).values({
+      reportId: `cr_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      data: input.data ? JSON.stringify(input.data) : null,
+      reportType: input.reportType,
+      findings: [
+        input.period ? `Period: ${input.period}` : null,
+        input.notes ?? null,
+        input.data ? JSON.stringify(input.data) : null,
+      ].filter(Boolean).join("\n") || null,
       status: "draft",
     }).returning();
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(complianceReports).set({ status: "submitted", submittedAt: new Date() })
-      .where(eq(complianceReports.id, input.id));
+    await db.update(complianceReports).set({ status: "submitted", updatedAt: new Date() })
+      .where(eq(complianceReports.reportId, input.id));
     return { success: true };
   }),
 });
@@ -378,7 +457,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerBudgets)
-      .where(eq(consumerBudgets.userId, String(ctx.user.id)))
+      .where(eq(consumerBudgets.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { budgets: rows, total: rows.length };
   }),
@@ -390,8 +469,11 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerBudgets).values({
-      userId: String(ctx.user.id),
-      ...input,
+      userId: ctx.user.id,
+      category: input.category,
+      limitKobo: input.limitKobo,
+      period: input.period,
+      alertAt: input.alertThreshold,
       spentKobo: 0,
     }).returning();
     return row;
@@ -402,8 +484,11 @@ const consumerFinanceRouter = router({
     alertThreshold: z.number().min(0).max(100).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(consumerBudgets).set(rest).where(eq(consumerBudgets.id, id));
+    const { id, alertThreshold, ...rest } = input;
+    await db.update(consumerBudgets).set({
+      ...rest,
+      ...(alertThreshold !== undefined ? { alertAt: alertThreshold } : {}),
+    }).where(eq(consumerBudgets.id, id));
     return { success: true };
   }),
   deleteBudget: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -415,7 +500,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSavingsGoals)
-      .where(eq(consumerSavingsGoals.userId, String(ctx.user.id)))
+      .where(eq(consumerSavingsGoals.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { goals: rows, total: rows.length };
   }),
@@ -429,9 +514,13 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerSavingsGoals).values({
-      userId: String(ctx.user.id),
-      ...input,
-      currentKobo: 0,
+      userId: ctx.user.id,
+      name: input.name,
+      targetKobo: input.targetKobo,
+      autoSaveEnabled: input.autoSaveAmountKobo !== undefined,
+      autoSaveAmountKobo: input.autoSaveAmountKobo,
+      autoSaveFrequency: input.autoSaveFrequency,
+      savedKobo: 0,
       status: "active",
       targetDate: input.targetDate ? new Date(input.targetDate) : null,
     }).returning();
@@ -441,14 +530,14 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerRecurringPayments)
-      .where(eq(consumerRecurringPayments.userId, String(ctx.user.id)))
+      .where(eq(consumerRecurringPayments.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { payments: rows, total: rows.length };
   }),
   createRecurringPayment: protectedProcedure.input(z.object({
     name: z.string().min(1).max(500),
     amountKobo: z.number().int().positive(),
-    frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
+    frequency: z.enum(["daily", "weekly", "monthly"]),
     nextRunAt: z.number(),
     beneficiaryAccountNumber: z.string().optional(),
     beneficiaryBankCode: z.string().optional(),
@@ -457,17 +546,26 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerRecurringPayments).values({
-      userId: String(ctx.user.id),
-      ...input,
+      id: crypto.randomUUID(),
+      userId: ctx.user.id,
+      type: "p2p",
+      label: input.name,
+      amountKobo: input.amountKobo,
+      frequency: input.frequency,
       nextRunAt: new Date(input.nextRunAt),
-      status: "active",
+      recipientAccountNumber: input.beneficiaryAccountNumber,
+      recipientBankCode: input.beneficiaryBankCode,
+      recipientName: input.beneficiaryName,
+      isActive: true,
     }).returning();
     return row;
   }),
-  cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(consumerRecurringPayments).set({ status: "cancelled" })
-      .where(eq(consumerRecurringPayments.id, input.id));
+    const [updated] = await db.update(consumerRecurringPayments).set({ isActive: false })
+      .where(and(eq(consumerRecurringPayments.id, input.id), eq(consumerRecurringPayments.userId, ctx.user.id)))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Recurring payment not found" });
     return { success: true };
   }),
   listContacts: protectedProcedure.input(paginationInput.extend({
@@ -476,7 +574,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerContacts)
-      .where(eq(consumerContacts.userId, String(ctx.user.id)))
+      .where(eq(consumerContacts.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { contacts: rows, total: rows.length };
   }),
@@ -490,8 +588,13 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerContacts).values({
-      userId: String(ctx.user.id),
-      ...input,
+      id: crypto.randomUUID(),
+      userId: ctx.user.id,
+      nickname: input.nickname ?? input.name,
+      phone: input.phone,
+      accountNumber: input.accountNumber,
+      bankCode: input.bankCode,
+      bankName: input.bankName,
     }).returning();
     return row;
   }),
@@ -504,7 +607,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSplitSessions)
-      .where(eq(consumerSplitSessions.initiatorId, String(ctx.user.id)))
+      .where(eq(consumerSplitSessions.creatorId, ctx.user.id))
       .orderBy(desc(consumerSplitSessions.createdAt))
       .offset(offset).limit(limit);
     return { sessions: rows, total: rows.length };
@@ -514,25 +617,29 @@ const consumerFinanceRouter = router({
     totalAmountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
     participants: z.array(z.object({
-      userId: z.string(),
+      userId: z.number().int(),
       shareKobo: z.number().int().positive(),
     })),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [session] = await db.insert(consumerSplitSessions).values({
-      initiatorId: String(ctx.user.id),
+      id: crypto.randomUUID(),
+      creatorId: ctx.user.id,
       title: input.title,
       totalAmountKobo: input.totalAmountKobo,
       currency: input.currency,
-      status: "pending",
+      expiresAt: new Date(Date.now() + 24 * 3600_000),
+      status: "open",
     }).returning();
     if (input.participants.length > 0) {
       await db.insert(consumerSplitParticipants).values(
         input.participants.map(p => ({
+          id: crypto.randomUUID(),
           sessionId: session.id,
           userId: p.userId,
-          shareKobo: p.shareKobo,
-          status: "pending",
+          name: `User ${p.userId}`,
+          shareAmountKobo: p.shareKobo,
+          status: "pending" as const,
         }))
       );
     }
@@ -542,7 +649,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerKycRecords)
-      .where(eq(consumerKycRecords.userId, String(ctx.user.id)))
+      .where(eq(consumerKycRecords.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { records: rows, total: rows.length };
   }),
@@ -550,7 +657,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerCards)
-      .where(eq(consumerCards.userId, String(ctx.user.id)))
+      .where(eq(consumerCards.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { cards: rows, total: rows.length };
   }),
@@ -558,7 +665,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerLoyaltyAccounts)
-      .where(eq(consumerLoyaltyAccounts.userId, String(ctx.user.id)))
+      .where(eq(consumerLoyaltyAccounts.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -584,8 +691,7 @@ const couponRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(couponRedemptions)
-      .where(eq(couponRedemptions.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(couponRedemptions.redeemedAt))
+      .orderBy(desc(couponRedemptions.createdAt))
       .offset(offset).limit(limit);
     return { redemptions: rows, total: rows.length };
   }),
@@ -596,10 +702,11 @@ const couponRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(couponRedemptions).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      status: "applied",
-      redeemedAt: new Date(),
+      id: crypto.randomUUID(),
+      couponId: input.couponCode,
+      userId: ctx.user.id,
+      referenceId: input.transactionId,
+      amountSavedKobo: input.discountKobo,
     }).returning();
     return row;
   }),
@@ -639,7 +746,14 @@ const cryptoOfframpRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(cryptoOfframpV2Transactions).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      cryptoAsset: input.cryptoCurrency,
+      cryptoAmount: String(input.cryptoAmount),
+      fiatCurrency: input.fiatCurrency,
+      fiatAmount: input.fiatAmountKobo,
+      walletAddress: input.walletAddress,
+      accountNumber: input.bankAccountNumber,
+      bankCode: input.bankCode,
+      exchangeRate: String(input.exchangeRate),
       status: "pending",
     }).returning();
     return row;
@@ -655,8 +769,18 @@ const emiLoansRouter = router({
   })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
+    // R4: unscoped cross-merchant/cross-user read. emi_loans has no
+    // merchant/tenant column — the only ownership binding is user_id.
+    // Non-admin callers may list only their own loans; platform admins
+    // (DB re-check of users.role) may list across users.
+    const [caller] = await db.select({ role: users.role }).from(users)
+      .where(eq(users.openId, ctx.user.openId)).limit(1);
+    const isAdmin = caller?.role === "admin";
+    const conditions = [];
+    if (!isAdmin) conditions.push(eq(emiLoans.userId, ctx.user.id));
+    if (input.status) conditions.push(eq(emiLoans.status, input.status));
     const rows = await db.select().from(emiLoans)
-      .where(eq(emiLoans.merchantId, input.merchantId ?? ctx.user.tenantId ?? ""))
+      .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(emiLoans.createdAt))
       .offset(offset).limit(limit);
     return { loans: rows, total: rows.length };
@@ -668,7 +792,7 @@ const emiLoansRouter = router({
     return rows[0];
   }),
   createLoan: protectedProcedure.input(z.object({
-    customerId: z.string(),
+    customerId: z.number().int(),
     principalKobo: z.number().int().positive(),
     interestRateBps: z.number().int().min(0),
     tenureMonths: z.number().int().min(1).max(60),
@@ -681,20 +805,37 @@ const emiLoansRouter = router({
       ? Math.round(input.principalKobo * monthlyRate * Math.pow(1 + monthlyRate, input.tenureMonths) / (Math.pow(1 + monthlyRate, input.tenureMonths) - 1))
       : Math.round(input.principalKobo / input.tenureMonths);
     const [row] = await db.insert(emiLoans).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      emiAmountKobo: emi,
-      totalAmountKobo: emi * input.tenureMonths,
-      paidInstalments: 0,
+      id: crypto.randomUUID(),
+      userId: input.customerId,
+      principalKobo: input.principalKobo,
+      annualRatePct: Math.round(input.interestRateBps / 100),
+      tenureMonths: input.tenureMonths,
+      purpose: input.purpose ?? "general",
+      emiKobo: emi,
       status: "pending",
     }).returning();
     return row;
   }),
-  approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() })
-      .where(eq(emiLoans.id, input.id));
-    publishAuditEvent({ action: 'emi_loan.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    // Loan approval is a lender-side action: emi_loans has no merchant column,
+    // so the ownership anchor is platform-admin role (DB-checked). A borrower
+    // must never approve their own loan.
+    await requirePlatformAdmin(db, ctx.user.openId);
+    // Maker-checker: only a loan awaiting approval can transition to active,
+    // enforced atomically.
+    const [updated] = await db.update(emiLoans).set({ status: "active" })
+      .where(and(
+        eq(emiLoans.id, input.id),
+        or(eq(emiLoans.status, "pending"), eq(emiLoans.status, "pending_approval")),
+      ))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(emiLoans).where(eq(emiLoans.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Loan is '${existing.status}', only pending loans can be approved` });
+    }
+    publishAuditEventLoud({ action: 'emi_loan.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   listRepayments: protectedProcedure.input(paginationInput.extend({
@@ -715,12 +856,35 @@ const emiLoansRouter = router({
     instalmentNumber: z.number().int().positive(),
     paymentReference: z.string().optional(),
     channel: z.string().default("bank_transfer"),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Ownership: the loan must belong to the caller (platform admins excepted).
+    const [loan] = await db.select().from(emiLoans).where(eq(emiLoans.id, input.loanId)).limit(1);
+    if (!loan) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
+    if (loan.userId !== ctx.user.id && ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only record repayments against your own loans" });
+    }
+    const paymentReference = input.paymentReference ?? `repay_${crypto.randomUUID().slice(0, 12)}`;
+    // Idempotency/dedup: a payment reference may only be recorded once —
+    // otherwise the same bank transfer could be booked against many instalments.
+    const [existing] = await db.select({ id: emiRepayments.id }).from(emiRepayments)
+      .where(eq(emiRepayments.paymentReference, paymentReference)).limit(1);
+    if (existing) {
+      throw new TRPCError({ code: "CONFLICT", message: "A repayment with this paymentReference has already been recorded" });
+    }
+    // No payment-rail verification is wired to this endpoint, so the repayment
+    // is recorded as pending_verification — NEVER auto-"paid" without evidence
+    // from a real rail. A reconciliation/verification step (or rail webhook)
+    // must confirm it before it counts against the loan.
     const [row] = await db.insert(emiRepayments).values({
-      ...input,
-      status: "paid",
-      paidAt: new Date(),
+      id: crypto.randomUUID(),
+      loanId: input.loanId,
+      userId: loan.userId,
+      instalmentNumber: input.instalmentNumber,
+      amountKobo: input.amountKobo,
+      paymentReference,
+      status: "pending_verification",
+      paidAt: null,
     }).returning();
     return row;
   }),
@@ -735,14 +899,23 @@ const escrowRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContracts)
-      .where(eq(escrowContracts.merchantId, ctx.user.tenantId ?? ""))
+      .where(or(
+        eq(escrowContracts.buyerMerchantId, ctx.user.tenantId ?? ""),
+        eq(escrowContracts.sellerMerchantId, ctx.user.tenantId ?? ""),
+      ))
       .orderBy(desc(escrowContracts.createdAt))
       .offset(offset).limit(limit);
     return { contracts: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(escrowContracts).where(eq(escrowContracts.id, input.id)).limit(1);
+    // Party-ownership: only the buyer or seller merchant may read the contract.
+    const tenantId = ctx.user.tenantId ?? "";
+    const rows = await db.select().from(escrowContracts)
+      .where(and(
+        eq(escrowContracts.escrowId, input.id),
+        or(eq(escrowContracts.buyerMerchantId, tenantId), eq(escrowContracts.sellerMerchantId, tenantId)),
+      )).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -760,25 +933,75 @@ const escrowRouter = router({
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // The caller must be a party to the contract — buyerId/sellerId from raw
+    // input must never bind strangers into an escrow they didn't create.
+    const tenantId = ctx.user.tenantId ?? "";
+    if (input.buyerId !== tenantId && input.sellerId !== tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Caller must be the buyer or the seller of the escrow contract" });
+    }
+    // Created UNFUNDED (status "pending"): no wallet/escrow funding rail is
+    // integrated here, so the contract must not claim to hold funds until a
+    // funding event transitions it to "funded".
     const [row] = await db.insert(escrowContracts).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      milestones: input.milestones ? JSON.stringify(input.milestones) : null,
+      escrowId: `esc_${crypto.randomUUID()}`,
+      buyerMerchantId: input.buyerId,
+      sellerMerchantId: input.sellerId,
+      amountKobo: input.amountKobo,
+      currency: input.currency,
+      conditions: {
+        description: input.description,
+        milestones: input.milestones ?? [],
+      },
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
     }).returning();
     return row;
   }),
-  release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ input }) => {
+  release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
-      .where(eq(escrowContracts.id, input.id));
-    return { success: true };
+    const tenantId = ctx.user.tenantId ?? "";
+    const [contract] = await db.select().from(escrowContracts).where(eq(escrowContracts.escrowId, input.id)).limit(1);
+    if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+    // escrow_contracts has no arbiter column — only the buyer or seller of
+    // this contract may release it.
+    if (contract.buyerMerchantId !== tenantId && contract.sellerMerchantId !== tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Only the buyer or seller of this escrow can release it" });
+    }
+    // Release only when funded. There is no wallet/payout rail integrated on
+    // this path, so an unfunded escrow must NOT transition — there is no money
+    // to move and pretending otherwise fabricates a payout.
+    if (contract.status !== "funded") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Escrow is '${contract.status}', not funded — no funds were moved (no funding rail is integrated on this path)` });
+    }
+    const [released] = await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
+      .where(and(eq(escrowContracts.escrowId, input.id), eq(escrowContracts.status, "funded")))
+      .returning();
+    if (!released) throw new TRPCError({ code: "CONFLICT", message: "Escrow status changed concurrently — release aborted" });
+    return {
+      success: true,
+      escrowId: input.id,
+      status: "released",
+      // FUNDING GAP (documented, not hidden): this records the release
+      // decision only. No wallet/payout rail moves the escrowed funds here;
+      // settlement must be executed via the escrow middleware out-of-band.
+      fundsMoved: false,
+      note: "Status transition recorded only — no wallet/payout rail is integrated, funds settlement must occur via the escrow middleware",
+    };
   }),
-  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
+  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "disputed" })
-      .where(eq(escrowContracts.id, input.id));
+    const tenantId = ctx.user.tenantId ?? "";
+    // Only a party to the contract may dispute it.
+    // Status guard: only a FUNDED escrow can be disputed — released/refunded
+    // is terminal, and an unfunded escrow has nothing at stake.
+    const [updated] = await db.update(escrowContracts).set({ status: "disputed" })
+      .where(and(
+        eq(escrowContracts.escrowId, input.id),
+        eq(escrowContracts.status, "funded"),
+        or(eq(escrowContracts.buyerMerchantId, tenantId), eq(escrowContracts.sellerMerchantId, tenantId)),
+      ))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Funded escrow not found (or caller is not a party to it)" });
     return { success: true };
   }),
   listV2: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -811,14 +1034,14 @@ const featureFlagsRouter = router({
     const rows = await db.select().from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
     return rows[0] ?? null;
   }),
-  create: protectedProcedure.input(z.object({
+  create: platformAdminProcedure.input(z.object({
     key: z.string().regex(/^[a-z][a-zA-Z0-9_]*$/),
     name: z.string().min(1).max(500),
     description: z.string().optional(),
     enabled: z.boolean().default(false),
     rolloutPercentage: z.number().int().min(0).max(100).default(0),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.unknown()).optional(),
+    targetingRules: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(featureFlags).values({
@@ -827,16 +1050,16 @@ const featureFlagsRouter = router({
     }).returning();
     return row;
   }),
-  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+  toggle: platformAdminProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(featureFlags).set({ enabled: input.enabled }).where(eq(featureFlags.id, input.id));
     return { success: true };
   }),
-  update: protectedProcedure.input(z.object({
+  update: platformAdminProcedure.input(z.object({
     id: z.string(),
     rolloutPercentage: z.number().int().min(0).max(100).optional(),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.unknown()).optional(),
+    targetingRules: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, targetingRules, ...rest } = input;
@@ -846,7 +1069,7 @@ const featureFlagsRouter = router({
     }).where(eq(featureFlags.id, id));
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: platformAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.delete(featureFlags).where(eq(featureFlags.id, input.id));
     return { success: true };
@@ -901,19 +1124,29 @@ const geofenceRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(geofenceRules).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      enabled: true,
+      name: input.name,
+      centerLat: Math.round(input.lat * 1e6),
+      centerLng: Math.round(input.lng * 1e6),
+      radiusMeters: Math.round(input.radiusMeters),
+      active: true,
     }).returning();
     return row;
   }),
-  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+  toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(geofenceRules).set({ enabled: input.enabled }).where(eq(geofenceRules.id, input.id));
+    // Tenant-scoped: a rule id alone must never authorise mutating another tenant's geofence.
+    const [row] = await db.update(geofenceRules).set({ active: input.enabled })
+      .where(and(eq(geofenceRules.id, input.id), eq(geofenceRules.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.delete(geofenceRules).where(eq(geofenceRules.id, input.id));
+    const [row] = await db.delete(geofenceRules)
+      .where(and(eq(geofenceRules.id, input.id), eq(geofenceRules.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return { success: true };
   }),
 });
@@ -929,7 +1162,7 @@ const helpSearchRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(helpSearchAnalytics)
-      .orderBy(desc(helpSearchAnalytics.searchedAt))
+      .orderBy(desc(helpSearchAnalytics.createdAt))
       .offset(offset).limit(limit);
     return { analytics: rows, total: rows.length };
   }),
@@ -943,8 +1176,11 @@ const helpSearchRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.insert(helpSearchAnalytics).values({
-      ...input,
-      searchedAt: new Date(),
+      query: input.query,
+      userType: input.userType,
+      userId: input.userId,
+      resultCount: input.resultsCount,
+      clickedSection: input.clickedResultId,
     });
     return { success: true };
   }),
@@ -971,7 +1207,6 @@ const inventoryRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryTransactions)
-      .where(eq(inventoryTransactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inventoryTransactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -986,8 +1221,14 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryTransactions).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      itemId: input.productId,
+      type: input.txType,
+      quantity: input.quantity,
+      orderId: input.referenceId,
+      note: [
+        input.notes ?? null,
+        input.unitCostKobo !== undefined ? `unitCostKobo: ${input.unitCostKobo}` : null,
+      ].filter(Boolean).join("; ") || null,
     }).returning();
     return row;
   }),
@@ -1010,9 +1251,12 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryReservations).values({
+      reservationId: `rsv_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      itemId: input.productId,
+      quantity: input.quantity,
+      orderId: input.orderId,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 24 * 3600_000),
       status: "active",
     }).returning();
     return row;
@@ -1037,7 +1281,7 @@ const inviteCodesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inviteCodes)
-      .where(eq(inviteCodes.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(inviteCodes.tenantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inviteCodes.createdAt))
       .offset(offset).limit(limit);
     return { codes: rows, total: rows.length };
@@ -1049,34 +1293,53 @@ const inviteCodesRouter = router({
     maxUses: z.number().int().min(1).default(1),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    // Minting an admin-type invite code is privilege escalation unless the
+    // caller already holds an admin role: platform admin (users.role) or a
+    // tenant team admin (team_members.role, same lookup pattern as team.*).
+    if (input.role === "admin") {
+      let authorized = ctx.user.role === "admin";
+      if (!authorized) {
+        const [membership] = await db.select({ role: teamMembers.role }).from(teamMembers)
+          .where(and(eq(teamMembers.tenantId, ctx.user.tenantId ?? ""), eq(teamMembers.userId, ctx.user.id)))
+          .limit(1);
+        authorized = membership?.role === "admin";
+      }
+      if (!authorized) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only an existing platform or tenant admin may create admin-type invite codes" });
+      }
+    }
     const code = `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(inviteCodes).values({
-      merchantId: ctx.user.tenantId ?? "",
+      tenantId: ctx.user.tenantId ?? "",
       code,
-      role: input.role,
-      email: input.email ?? null,
+      type: input.role === "admin" ? "admin" : "team_member",
+      metadata: input.email ?? null,
+      createdBy: String(ctx.user.id),
       expiresAt: new Date(Date.now() + input.expiresInHours * 3600000),
-      maxUses: input.maxUses,
-      usedCount: 0,
-      status: "active",
+      usesTotal: input.maxUses,
+      usesRemaining: input.maxUses,
     }).returning();
     return row;
   }),
-  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(inviteCodes).set({ status: "revoked" }).where(eq(inviteCodes.id, input.id));
-    publishAuditEvent({ action: 'invite_code.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    // Tenant-scoped: a caller may only revoke invite codes of their own tenant.
+    const [row] = await db.update(inviteCodes).set({ isRevoked: true })
+      .where(and(eq(inviteCodes.id, input.id), eq(inviteCodes.tenantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    publishAuditEventLoud({ action: 'invite_code.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(inviteCodes)
-      .where(and(eq(inviteCodes.code, input.code), eq(inviteCodes.status, "active")))
+      .where(and(eq(inviteCodes.code, input.code), eq(inviteCodes.isRevoked, false)))
       .limit(1);
     if (!rows[0]) return { valid: false };
     const now = new Date();
     if (rows[0].expiresAt && rows[0].expiresAt < now) return { valid: false, reason: "expired" };
-    if (rows[0].usedCount >= rows[0].maxUses) return { valid: false, reason: "exhausted" };
+    if (rows[0].usesRemaining <= 0) return { valid: false, reason: "exhausted" };
     return { valid: true, invite: rows[0] };
   }),
 });
@@ -1114,9 +1377,9 @@ const invoiceFinancingRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(invoiceFinancingV2Applications).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      invoiceDueDate: new Date(input.invoiceDueDate),
-      documents: input.documents ? JSON.stringify(input.documents) : null,
+      invoiceId: input.invoiceId,
+      requestedAmount: input.requestedAmountKobo,
+      invoiceAmount: input.invoiceAmountKobo,
       status: "pending",
     }).returning();
     return row;
@@ -1125,14 +1388,30 @@ const invoiceFinancingRouter = router({
     id: z.string(),
     approvedAmountKobo: z.number().int().positive(),
     interestRateBps: z.number().int().min(0),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoiceFinancingV2Applications).set({
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only a PENDING application owned by the
+    // caller's merchant can be approved, enforced atomically.
+    const [updated] = await db.update(invoiceFinancingV2Applications).set({
       status: "approved",
-      approvedAmountKobo: input.approvedAmountKobo,
-      interestRateBps: input.interestRateBps,
-      approvedAt: new Date(),
-    }).where(eq(invoiceFinancingV2Applications.id, input.id));
+      approvedAmount: input.approvedAmountKobo,
+      interestRate: String(input.interestRateBps / 100),
+      updatedAt: new Date(),
+    }).where(and(
+      eq(invoiceFinancingV2Applications.id, input.id),
+      eq(invoiceFinancingV2Applications.merchantId, merchantId),
+      eq(invoiceFinancingV2Applications.status, "pending"),
+    )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoiceFinancingV2Applications)
+        .where(eq(invoiceFinancingV2Applications.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Application not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Application is '${existing.status}', only 'pending' applications can be approved` });
+    }
+    publishAuditEventLoud({ action: 'invoice_financing.approved', userId: String(ctx.user.id), targetId: input.id, metadata: { approvedAmountKobo: input.approvedAmountKobo }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -1153,9 +1432,10 @@ const invoicesRouter = router({
       .offset(offset).limit(limit);
     return { invoices: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+    const rows = await db.select().from(invoices)
+      .where(and(eq(invoices.invoiceId, input.id), eq(invoices.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -1176,44 +1456,89 @@ const invoicesRouter = router({
     const db = (await getDb())!;
     const subtotal = input.lineItems.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const tax = Math.round(subtotal * input.taxRateBps / 10000);
-    const invoiceId = `INV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const invoiceId = `INV-${Date.now()}-${randomBytes(2).toString("hex").toUpperCase()}`;
     const [row] = await db.insert(invoices).values({
       invoiceId,
       merchantId: ctx.user.tenantId ?? "",
       customerEmail: input.customerEmail ?? null,
       customerName: input.customerName ?? null,
       customerId: input.customerId ?? null,
-      lineItems: JSON.stringify(input.lineItems),
+      lineItems: input.lineItems,
       subtotalKobo: subtotal,
       taxKobo: tax,
       totalKobo: subtotal + tax,
       currency: input.currency,
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      dueDate: input.dueDate ? new Date(input.dueDate).toISOString().slice(0, 10) : null,
       notes: input.notes ?? null,
       status: "draft",
     }).returning();
     return row;
   }),
-  send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "sent", sentAt: new Date() })
-      .where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own DRAFT invoice can be
+    // sent — enforced atomically in the UPDATE's WHERE clause.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "sent", updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "draft"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'draft' invoices can be sent` });
+    }
     return { success: true };
   }),
-  markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ input }) => {
+  markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
-      .where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own SENT invoice can be
+    // marked paid; 'paid' is terminal and can never be re-entered.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "sent"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'sent' invoices can be marked paid` });
+    }
     return { success: true };
   }),
-  void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "void" }).where(eq(invoices.invoiceId, input.id));
+    // Ownership + transition guard: only the caller's own SENT invoice can be
+    // voided; a paid invoice is settled history and must not be voided.
+    const merchantId = ctx.user.tenantId ?? "";
+    const [updated] = await db.update(invoices).set({ status: "void", updatedAt: new Date() })
+      .where(and(
+        eq(invoices.invoiceId, input.id),
+        eq(invoices.merchantId, merchantId),
+        eq(invoices.status, "sent"),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      throw new TRPCError({ code: "CONFLICT", message: `Invoice is '${existing.status}', only 'sent' invoices can be voided` });
+    }
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.delete(invoices).where(eq(invoices.invoiceId, input.id));
+    // Ownership + guard: only the caller's own invoice, and only while it
+    // carries no financial history (draft/void) — sent/paid invoices are
+    // financial records and must not be deleted.
+    const deleted = await db.delete(invoices).where(and(
+      eq(invoices.invoiceId, input.id),
+      eq(invoices.merchantId, ctx.user.tenantId ?? ""),
+      inArray(invoices.status, ["draft", "void"]),
+    )).returning();
+    if (!deleted.length) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found (or not in a deletable state)" });
     return { success: true };
   }),
 });
@@ -1238,9 +1563,9 @@ const kdsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(kdsStations).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      categories: input.categories ? JSON.stringify(input.categories) : null,
-      status: "online",
+      name: input.name,
+      categories: input.categories ?? [],
+      active: true,
     }).returning();
     return row;
   }),
@@ -1250,8 +1575,11 @@ const kdsRouter = router({
     status: z.enum(["online", "offline", "maintenance"]).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(kdsStations).set(rest).where(eq(kdsStations.id, id));
+    const { id, status, ...rest } = input;
+    await db.update(kdsStations).set({
+      ...rest,
+      ...(status !== undefined ? { active: status === "online" } : {}),
+    }).where(eq(kdsStations.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -1282,9 +1610,9 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(loyaltyPrograms).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      tiers: input.tiers ? JSON.stringify(input.tiers) : null,
-      status: "active",
+      pointsPerKobo: Math.max(1, Math.round(input.pointsPerNaira)),
+      redeemRate: Math.max(1, Math.round(input.redeemRate * 100)),
+      active: true,
     }).returning();
     return row;
   }),
@@ -1294,7 +1622,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyAccounts)
-      .orderBy(desc(loyaltyAccounts.totalPoints))
+      .orderBy(desc(loyaltyAccounts.lifetimePoints))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -1315,14 +1643,30 @@ const loyaltyProgramsRouter = router({
     txType: z.enum(["earn", "bonus", "adjustment"]),
     referenceId: z.string().optional(),
     description: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const [row] = await db.insert(loyaltyTransactions).values({
-      ...input,
-      balanceBefore: 0,
-      balanceAfter: input.points,
-    }).returning();
-    return row;
+    // Points are redeemable value: the target account must belong to the
+    // caller's merchant, and the ledger entry + balance credit land in ONE
+    // transaction (previously anyone could mint points into ANY account).
+    const merchantId = ctx.user.tenantId ?? "";
+    return db.transaction(async (tx) => {
+      const [account] = await tx.select().from(loyaltyAccounts)
+        .where(and(eq(loyaltyAccounts.id, input.accountId), eq(loyaltyAccounts.merchantId, merchantId))).limit(1);
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Loyalty account not found" });
+      const [row] = await tx.insert(loyaltyTransactions).values({
+        accountId: input.accountId,
+        type: input.txType,
+        points: input.points,
+        orderId: input.referenceId,
+        note: input.description,
+      }).returning();
+      await tx.update(loyaltyAccounts).set({
+        pointsBalance: sql`${loyaltyAccounts.pointsBalance} + ${input.points}`,
+        lifetimePoints: sql`${loyaltyAccounts.lifetimePoints} + ${input.points}`,
+        updatedAt: new Date(),
+      }).where(eq(loyaltyAccounts.id, input.accountId));
+      return row;
+    });
   }),
   listV3Programs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -1338,7 +1682,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyV3Members)
-      .orderBy(desc(loyaltyV3Members.totalPoints))
+      .orderBy(desc(loyaltyV3Members.lifetimePoints))
       .offset(offset).limit(limit);
     return { members: rows, total: rows.length };
   }),
@@ -1360,9 +1704,10 @@ const marketplaceRouter = router({
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
   }),
-  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
+  get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(marketplaceOrders).where(eq(marketplaceOrders.id, input.id)).limit(1);
+    const rows = await db.select().from(marketplaceOrders)
+      .where(and(eq(marketplaceOrders.id, input.id), eq(marketplaceOrders.merchantId, ctx.user.tenantId ?? ""))).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -1381,11 +1726,11 @@ const marketplaceRouter = router({
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [row] = await db.insert(marketplaceOrders).values({
       merchantId: ctx.user.tenantId ?? "",
-      buyerId: input.buyerId,
-      sellerId: input.sellerId,
+      buyerEmail: input.buyerId,
+      sellerMerchantId: input.sellerId,
       items: JSON.stringify(input.items),
-      totalKobo,
-      notes: input.notes ?? null,
+      subtotal: totalKobo,
+      totalAmount: totalKobo,
       status: "pending",
     }).returning();
     return row;
@@ -1394,10 +1739,40 @@ const marketplaceRouter = router({
     id: z.string(),
     status: z.enum(["pending", "confirmed", "shipped", "delivered", "cancelled", "refunded"]),
     trackingNumber: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(marketplaceOrders).set(rest).where(eq(marketplaceOrders.id, id));
+    const merchantId = ctx.user.tenantId ?? "";
+    // 'refunded' moves money back to the buyer — platform-admin only; a
+    // merchant must never self-issue a refund marker.
+    if (input.status === "refunded") {
+      await requirePlatformAdmin(db, ctx.user.openId);
+    }
+    // Legal fulfilment transitions; delivered/cancelled/refunded are terminal
+    // (cancelled only pre-shipment; refunded only via the admin path above).
+    const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
+      pending: ["confirmed", "cancelled"],
+      confirmed: ["shipped", "cancelled", "refunded"],
+      shipped: ["delivered", "refunded"],
+      delivered: ["refunded"],
+      cancelled: ["refunded"],
+    };
+    const [order] = await db.select().from(marketplaceOrders)
+      .where(and(eq(marketplaceOrders.id, input.id), eq(marketplaceOrders.merchantId, merchantId))).limit(1);
+    if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+    if (!(ORDER_TRANSITIONS[order.status] ?? []).includes(input.status)) {
+      throw new TRPCError({ code: "CONFLICT", message: `Illegal order transition '${order.status}' → '${input.status}'` });
+    }
+    // NOTE: marketplace_orders has no tracking_number column — the tracking
+    // number is accepted for forward-compat but not persisted here.
+    const [updated] = await db.update(marketplaceOrders).set({
+      status: input.status,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(marketplaceOrders.id, input.id),
+      eq(marketplaceOrders.merchantId, merchantId),
+      eq(marketplaceOrders.status, order.status),
+    )).returning();
+    if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Order status changed concurrently — retry" });
     return { success: true };
   }),
 });
@@ -1409,7 +1784,7 @@ const merchantRiskRouter = router({
     const db = (await getDb())!;
     const rows = await db.select().from(merchantRiskScores)
       .where(eq(merchantRiskScores.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(merchantRiskScores.scoredAt))
+      .orderBy(desc(merchantRiskScores.calculatedAt))
       .limit(1);
     return rows[0] ?? null;
   }),
@@ -1418,7 +1793,7 @@ const merchantRiskRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(merchantStatusLog)
       .where(eq(merchantStatusLog.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(merchantStatusLog.changedAt))
+      .orderBy(desc(merchantStatusLog.createdAt))
       .offset(offset).limit(limit);
     return { logs: rows, total: rows.length };
   }),
@@ -1434,9 +1809,11 @@ const merchantRiskRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(merchantSolanaWallets).values({
+      id: crypto.randomUUID(),
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      status: "active",
+      walletAddress: input.publicKey,
+      label: input.label,
+      isActive: true,
     }).returning();
     return row;
   }),
@@ -1452,13 +1829,13 @@ const moneyRequestsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(moneyRequests)
-      .where(eq(moneyRequests.requesterId, ctx.user.tenantId ?? ""))
+      .where(eq(moneyRequests.requesterId, ctx.user.id))
       .orderBy(desc(moneyRequests.createdAt))
       .offset(offset).limit(limit);
     return { requests: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    payerId: z.string(),
+    payerId: z.number().int().optional(),
     amountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
     description: z.string().max(5000),
@@ -1466,23 +1843,62 @@ const moneyRequestsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(moneyRequests).values({
-      requesterId: ctx.user.tenantId ?? "",
-      ...input,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      id: crypto.randomUUID(),
+      requesterId: ctx.user.id,
+      payerUserId: input.payerId,
+      amountKobo: input.amountKobo,
+      currency: input.currency,
+      note: input.description,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 7 * 24 * 3600_000),
       status: "pending",
     }).returning();
     return row;
   }),
-  approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() })
-      .where(eq(moneyRequests.id, input.id));
-    publishAuditEvent({ action: 'money_request.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
-    return { success: true };
+    // Ownership + maker-checker: only the designated payer (or a platform
+    // admin) may approve, and only while the request is still 'pending' —
+    // enforced atomically in the UPDATE's WHERE clause.
+    const isAdmin = ctx.user.role === "admin";
+    const conditions = [eq(moneyRequests.id, input.id), eq(moneyRequests.status, "pending")];
+    if (!isAdmin) conditions.push(eq(moneyRequests.payerUserId, ctx.user.id));
+    // No payment rail is wired to this endpoint, so approval NEVER marks the
+    // request "paid" — it moves to 'pending_verification' until a real rail /
+    // reconciliation step confirms the transfer (same treatment as
+    // emi.recordRepayment). paidAt stays null.
+    const [updated] = await db.update(moneyRequests)
+      .set({ status: "pending_verification", paidAt: null } as any)
+      .where(and(...conditions))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(moneyRequests).where(eq(moneyRequests.id, input.id)).limit(1);
+      if (!existing || (!isAdmin && existing.payerUserId !== ctx.user.id)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Money request not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Money request is '${existing.status}', only 'pending' requests can be approved` });
+    }
+    publishAuditEventLoud({ action: 'money_request.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
+    return { success: true, status: "pending_verification" };
   }),
-  decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
+  decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "declined" }).where(eq(moneyRequests.id, input.id));
+    // Ownership: only the requester or the designated payer may cancel, and
+    // only while still 'pending' — a paid/expired request must not be
+    // rewritten. Enforced atomically in the UPDATE's WHERE clause.
+    const [updated] = await db.update(moneyRequests).set({ status: "cancelled" })
+      .where(and(
+        eq(moneyRequests.id, input.id),
+        eq(moneyRequests.status, "pending"),
+        or(eq(moneyRequests.requesterId, ctx.user.id), eq(moneyRequests.payerUserId, ctx.user.id)),
+      )).returning();
+    if (!updated) {
+      const [existing] = await db.select().from(moneyRequests).where(eq(moneyRequests.id, input.id)).limit(1);
+      if (!existing || (existing.requesterId !== ctx.user.id && existing.payerUserId !== ctx.user.id)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Money request not found" });
+      }
+      throw new TRPCError({ code: "CONFLICT", message: `Money request is '${existing.status}', only 'pending' requests can be cancelled` });
+    }
+    publishAuditEventLoud({ action: 'money_request.declined', userId: String(ctx.user.id), targetId: input.id, metadata: { reason: input.reason ?? null }, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -1505,8 +1921,8 @@ const multiCurrencyRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerAccounts).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      balanceKobo: 0,
+      currency: input.currency,
+      balance: 0,
       status: "active",
     }).returning();
     return row;
@@ -1526,17 +1942,55 @@ const multiCurrencyRouter = router({
   createEntry: protectedProcedure.input(z.object({
     accountId: z.string(),
     currency: z.string().length(3),
-    amountKobo: z.number().int(),
+    // Positive magnitudes only — the entryType carries the sign. A negative
+    // "debit" would be a credit inversion.
+    amountKobo: z.number().int().positive(),
     entryType: z.enum(["debit", "credit"]),
     description: z.string().optional(),
     referenceId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const [row] = await db.insert(multiCurrencyLedgerEntries).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-    }).returning();
-    return row;
+    const tenantId = ctx.user.tenantId ?? "";
+    // Same money-printer guard as wave80 multiCurrencyLedger.postEntry:
+    // self-service credits (money-in with no backing source transaction) are
+    // platform-admin only.
+    if (input.entryType === "credit") {
+      await requirePlatformAdmin(db, ctx.user.openId);
+    }
+    // The account model carries a materialised balance column, so the entry
+    // and the balance update must reconcile atomically in ONE transaction.
+    return db.transaction(async (tx) => {
+      // Ownership: the account must belong to the caller's tenant.
+      const [account] = await tx.select().from(multiCurrencyLedgerAccounts)
+        .where(and(eq(multiCurrencyLedgerAccounts.id, input.accountId), eq(multiCurrencyLedgerAccounts.merchantId, tenantId)))
+        .limit(1);
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Ledger account not found" });
+      if (account.currency !== input.currency) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Currency does not match the account currency" });
+      }
+      if (input.entryType === "debit") {
+        // Guarded atomic debit — cannot overdraw under concurrency.
+        const [updated] = await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} - ${input.amountKobo}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} - ${input.amountKobo}`, updatedAt: new Date() })
+          .where(and(eq(multiCurrencyLedgerAccounts.id, account.id), gte(multiCurrencyLedgerAccounts.balance, input.amountKobo)))
+          .returning();
+        if (!updated) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+      } else {
+        await tx.update(multiCurrencyLedgerAccounts)
+          .set({ balance: sql`${multiCurrencyLedgerAccounts.balance} + ${input.amountKobo}`, availableBalance: sql`${multiCurrencyLedgerAccounts.availableBalance} + ${input.amountKobo}`, updatedAt: new Date() })
+          .where(eq(multiCurrencyLedgerAccounts.id, account.id));
+      }
+      const [row] = await tx.insert(multiCurrencyLedgerEntries).values({
+        merchantId: tenantId,
+        accountId: input.accountId,
+        currency: input.currency,
+        amount: input.amountKobo,
+        type: input.entryType,
+        description: input.description,
+        reference: input.referenceId,
+      }).returning();
+      return row;
+    });
   }),
 });
 
@@ -1565,7 +2019,11 @@ const mutualFundsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(mutualFundTransactions).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      fundId: input.fundId,
+      type: input.txType,
+      amountKobo: input.amountKobo,
+      units: String(input.units ?? 0),
+      navAtTransaction: String(input.navPerUnit ?? 0),
       status: "pending",
     }).returning();
     return row;
@@ -1592,7 +2050,8 @@ const nfcRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(nfcDevices).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      deviceId: input.deviceId,
+      deviceName: input.label,
       status: "active",
     }).returning();
     return row;
@@ -1617,7 +2076,6 @@ const nftBadgesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nftBadges)
-      .where(eq(nftBadges.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { badges: rows, total: rows.length };
   }),
@@ -1625,15 +2083,22 @@ const nftBadgesRouter = router({
     name: z.string().min(1).max(500),
     description: z.string().optional(),
     imageUrl: z.string().url().optional(),
-    criteria: z.record(z.unknown()).optional(),
+    criteria: z.record(z.string(), z.unknown()).optional(),
     maxSupply: z.number().int().positive().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(nftBadges).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      criteria: input.criteria ? JSON.stringify(input.criteria) : null,
-      mintedCount: 0,
+      badgeId: `badge_${crypto.randomUUID()}`,
+      recipientId: ctx.user.tenantId ?? "",
+      recipientType: "merchant",
+      badgeType: "custom",
+      badgeName: input.name,
+      metadata: {
+        description: input.description ?? null,
+        imageUrl: input.imageUrl ?? null,
+        criteria: input.criteria ?? null,
+        maxSupply: input.maxSupply ?? null,
+      },
       status: "active",
     }).returning();
     return row;
@@ -1644,8 +2109,8 @@ const nftBadgesRouter = router({
     walletAddress: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(nftBadges).set({ mintedCount: sql`${nftBadges.mintedCount} + 1` })
-      .where(eq(nftBadges.id, input.badgeId));
+    await db.update(nftBadges).set({ status: "minted", mintedAt: new Date() })
+      .where(eq(nftBadges.badgeId, input.badgeId));
     return { success: true, badgeId: input.badgeId, recipientId: input.recipientId };
   }),
 });
@@ -1674,6 +2139,8 @@ const openBankingRouter = router({
   }),
   createConsent: protectedProcedure.input(z.object({
     customerId: z.string(),
+    bankCode: z.string(),
+    bankName: z.string(),
     permissions: z.array(z.string()),
     expiresAt: z.number().optional(),
     redirectUri: z.string().url(),
@@ -1682,10 +2149,10 @@ const openBankingRouter = router({
     const consentId = `CON-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(openBankingConsentsV2).values({
       merchantId: ctx.user.tenantId ?? "",
-      consentId,
-      customerId: input.customerId,
-      permissions: JSON.stringify(input.permissions),
-      redirectUri: input.redirectUri,
+      bankCode: input.bankCode,
+      bankName: input.bankName,
+      scopes: input.permissions.join(","),
+      consentToken: consentId,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
     }).returning();
@@ -1693,9 +2160,9 @@ const openBankingRouter = router({
   }),
   revokeConsent: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() })
+    await db.update(openBankingConsentsV2).set({ status: "revoked", updatedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
-    publishAuditEvent({ action: 'open_banking_consent.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEventLoud({ action: 'open_banking_consent.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
 });
@@ -1722,16 +2189,16 @@ const partnerOnboardingRouter = router({
   }),
   updateStep: protectedProcedure.input(z.object({
     id: z.string(),
-    currentStep: z.number().int().min(1).max(10),
-    stepData: z.record(z.unknown()).optional(),
+    currentStep: z.enum(["invite_code", "company_info", "branding", "fee_structure", "review", "completed"]).optional(),
+    stepData: z.record(z.string(), z.unknown()).optional(),
     completed: z.boolean().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(partnerOnboardingSessions).set({
-      currentStep: input.currentStep,
-      stepData: input.stepData ? JSON.stringify(input.stepData) : undefined,
+      ...(input.currentStep !== undefined ? { currentStep: input.currentStep } : {}),
       completedAt: input.completed ? new Date() : undefined,
-      status: input.completed ? "completed" : "in_progress",
+      isCompleted: input.completed ?? undefined,
+      updatedAt: new Date(),
     }).where(eq(partnerOnboardingSessions.id, input.id));
     return { success: true };
   }),
@@ -1770,24 +2237,64 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(payrollRuns).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      payDate: new Date(input.payDate),
+      periodStart: new Date(input.payDate),
+      periodEnd: new Date(input.payDate),
+      totalKobo: input.totalNetKobo,
+      staffCount: input.employeeCount,
       status: "draft",
     }).returning();
     return row;
   }),
-  approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() })
-      .where(eq(payrollRuns.id, input.id));
-    publishAuditEvent({ action: 'payroll_run.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only a DRAFT run owned by the caller's
+    // merchant can be approved, enforced atomically.
+    const [updated] = await db.update(payrollRuns).set({ status: "approved" })
+      .where(and(
+        eq(payrollRuns.id, input.id),
+        eq(payrollRuns.merchantId, merchantId),
+        eq(payrollRuns.status, "draft"),
+      ))
+      .returning();
+    if (!updated) {
+      const [existing] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payroll run not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Payroll run is '${existing.status}', only 'draft' runs can be approved` });
+    }
+    publishAuditEventLoud({ action: 'payroll_run.approved', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "processing", processedAt: new Date() })
-      .where(eq(payrollRuns.id, input.id));
-    return { success: true };
+    const merchantId = ctx.user.tenantId ?? "";
+    // Ownership + maker-checker: only an APPROVED run owned by the caller's
+    // merchant can move forward; the atomic claim prevents double-processing.
+    const [claimed] = await db.update(payrollRuns).set({ status: "disbursement_pending" })
+      .where(and(
+        eq(payrollRuns.id, input.id),
+        eq(payrollRuns.merchantId, merchantId),
+        eq(payrollRuns.status, "approved"),
+      ))
+      .returning();
+    if (!claimed) {
+      const [existing] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, input.id)).limit(1);
+      if (!existing || existing.merchantId !== merchantId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payroll run not found" });
+      }
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Payroll run is '${existing.status}', must be 'approved' before processing (maker-checker)` });
+    }
+    // No real payroll disbursement rail exists in this repo. Fail loud in
+    // production (SERVICE_UNAVAILABLE); only simulate behind
+    // PAYGATE_SIMULATION_MODE=true. Money is NEVER marked as moved: the run
+    // stays in 'disbursement_pending' until a real rail settles it.
+    const rail = demoOrFail(
+      { runId: claimed.id, amountKobo: claimed.totalKobo, status: "disbursement_pending", rail: "none-in-repo" },
+      "Payroll disbursement rail",
+    );
+    return { success: true, status: "disbursement_pending", rail };
   }),
   listV3Employees: protectedProcedure.input(paginationInput.extend({
     department: z.string().optional(),
@@ -1816,7 +2323,15 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(payrollV3Employees).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      employeeId: `emp_${crypto.randomUUID().slice(0, 8)}`,
+      fullName: `${input.firstName} ${input.lastName}`,
+      email: input.email,
+      department: input.department,
+      bankCode: input.bankCode,
+      accountNumber: input.accountNumber,
+      grossSalary: input.grossSalaryKobo,
+      taxPin: input.taxId,
+      pensionPin: input.pensionId,
       status: "active",
     }).returning();
     return row;
@@ -1841,31 +2356,56 @@ const portfolioRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(portfolioRebalancingOrders)
-      .where(eq(portfolioRebalancingOrders.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(portfolioRebalancingOrders.userId, ctx.user.id))
       .orderBy(desc(portfolioRebalancingOrders.createdAt))
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
     portfolioId: z.string(),
-    targetAllocations: z.record(z.number()),
+    targetAllocations: z.record(z.string(), z.number()),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(portfolioRebalancingOrders).values({
-      merchantId: ctx.user.tenantId ?? "",
-      portfolioId: input.portfolioId,
-      targetAllocations: JSON.stringify(input.targetAllocations),
-      notes: input.notes ?? null,
+      id: `reb_${crypto.randomUUID()}`,
+      userId: ctx.user.id,
+      assetType: "mutual_fund",
+      direction: "buy",
+      amountKobo: 0,
+      targetAllocationPct: Object.values(input.targetAllocations)[0] ?? 0,
+      currentAllocationPct: 0,
       status: "pending",
     }).returning();
     return row;
   }),
-  execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(portfolioRebalancingOrders).set({ status: "executed", executedAt: new Date() })
-      .where(eq(portfolioRebalancingOrders.id, input.id));
-    return { success: true };
+    // S15b / spec #13: no real portfolio execution rail exists in this repo.
+    // demoOrFail throws (fail-loud) in production BEFORE any state write;
+    // only behind PAYGATE_SIMULATION_MODE=true does the simulated flip run.
+    const rail = demoOrFail(
+      { orderId: input.id, status: "completed", rail: "none-in-repo" },
+      "Portfolio rebalancing execution rail",
+    );
+    // Ownership + status guard: only the owner's own PENDING order may flip.
+    const [claimed] = await db.update(portfolioRebalancingOrders)
+      .set({ status: "completed", executedAt: new Date() })
+      .where(and(
+        eq(portfolioRebalancingOrders.id, input.id),
+        eq(portfolioRebalancingOrders.userId, ctx.user.id),
+        eq(portfolioRebalancingOrders.status, "pending"),
+      ))
+      .returning({ id: portfolioRebalancingOrders.id });
+    if (!claimed) {
+      const [existing] = await db.select().from(portfolioRebalancingOrders)
+        .where(eq(portfolioRebalancingOrders.id, input.id)).limit(1);
+      if (!existing || existing.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Rebalancing order not found" });
+      }
+      throw new TRPCError({ code: "CONFLICT", message: `Rebalancing order is '${existing.status}', only 'pending' orders can be executed` });
+    }
+    return { success: true, rail };
   }),
 });
 
@@ -1898,17 +2438,22 @@ const ptspRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(ptspBatches).values({
+      id: `ptsp_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      settlementDate: new Date(input.settlementDate),
+      totalAmountKobo: input.totalAmountKobo,
+      transactionCount: input.transactionCount,
+      settlementDate: new Date(input.settlementDate).toISOString().slice(0, 10),
       status: "pending",
     }).returning();
     return row;
   }),
   settle: protectedProcedure.input(z.object({ id: z.string(), reference: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(ptspBatches).set({ status: "settled", settledAt: new Date() })
-      .where(eq(ptspBatches.id, input.id));
+    await db.update(ptspBatches).set({
+      status: "confirmed",
+      confirmedAt: new Date(),
+      nibssReference: input.reference,
+    }).where(eq(ptspBatches.id, input.id));
     return { success: true };
   }),
 });
@@ -1933,7 +2478,7 @@ const rateLimitEventsRouter = router({
     const db = (await getDb())!;
     const total = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents);
     const blocked = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents)
-      .where(eq(rateLimitEvents.action, "blocked"));
+      .where(eq(rateLimitEvents.blocked, true));
     return {
       total: total[0]?.count ?? 0,
       blocked: blocked[0]?.count ?? 0,
@@ -1951,51 +2496,60 @@ const realtimeNotifRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(realtimeNotificationHistory)
-      .where(eq(realtimeNotificationHistory.userId, String(ctx.user.id)))
+      .where(eq(realtimeNotificationHistory.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(realtimeNotificationHistory.createdAt))
       .offset(offset).limit(limit);
     return { notifications: rows, total: rows.length };
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
+    await db.update(realtimeNotificationHistory).set({ deliveredAt: new Date(), status: "read" })
       .where(eq(realtimeNotificationHistory.id, input.id));
     return { success: true };
   }),
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
+    await db.update(realtimeNotificationHistory).set({ deliveredAt: new Date(), status: "read" })
       .where(and(
-        eq(realtimeNotificationHistory.userId, String(ctx.user.id)),
-        isNull(realtimeNotificationHistory.readAt)
+        eq(realtimeNotificationHistory.merchantId, ctx.user.tenantId ?? ""),
+        isNull(realtimeNotificationHistory.deliveredAt)
       ));
     return { success: true };
   }),
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(realtimeNotificationPreferences)
-      .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
+      .where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? "")).limit(1);
     return rows[0] ?? null;
   }),
   updatePreferences: protectedProcedure.input(z.object({
     pushEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
     smsEnabled: z.boolean().optional(),
-    categories: z.record(z.boolean()).optional(),
+    categories: z.record(z.string(), z.boolean()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    const flags = {
+      ...(input.pushEnabled !== undefined ? { pushEnabled: input.pushEnabled ? 1 : 0 } : {}),
+      ...(input.emailEnabled !== undefined ? { emailEnabled: input.emailEnabled ? 1 : 0 } : {}),
+      ...(input.smsEnabled !== undefined ? { smsEnabled: input.smsEnabled ? 1 : 0 } : {}),
+      ...(input.categories?.payment !== undefined ? { eventPayment: input.categories.payment ? 1 : 0 } : {}),
+      ...(input.categories?.dispute !== undefined ? { eventDispute: input.categories.dispute ? 1 : 0 } : {}),
+      ...(input.categories?.payout !== undefined ? { eventPayout: input.categories.payout ? 1 : 0 } : {}),
+      ...(input.categories?.fraud !== undefined ? { eventFraud: input.categories.fraud ? 1 : 0 } : {}),
+      ...(input.categories?.kyc !== undefined ? { eventKyc: input.categories.kyc ? 1 : 0 } : {}),
+    };
     const existing = await db.select().from(realtimeNotificationPreferences)
-      .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
+      .where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? "")).limit(1);
     if (existing.length > 0) {
       await db.update(realtimeNotificationPreferences).set({
-        ...input,
-        categories: input.categories ? JSON.stringify(input.categories) : undefined,
-      }).where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id)));
+        ...flags,
+        updatedAt: new Date(),
+      }).where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? ""));
     } else {
       await db.insert(realtimeNotificationPreferences).values({
-        userId: String(ctx.user.id),
-        ...input,
-        categories: input.categories ? JSON.stringify(input.categories) : null,
+        merchantId: ctx.user.tenantId ?? "",
+        ...flags,
       });
     }
     return { success: true };
@@ -2012,12 +2566,12 @@ const recipeRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(recipeIngredients)
-      .where(eq(recipeIngredients.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { ingredients: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
     recipeId: z.string(),
+    inventoryItemId: z.string(),
     name: z.string().min(1).max(500),
     quantity: z.number().positive(),
     unit: z.string(),
@@ -2027,23 +2581,25 @@ const recipeRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(recipeIngredients).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      allergens: input.allergens ? JSON.stringify(input.allergens) : null,
+      menuItemId: input.recipeId,
+      inventoryItemId: input.inventoryItemId,
+      quantityPerServing: Math.round(input.quantity * 100),
     }).returning();
     return row;
   }),
   update: protectedProcedure.input(z.object({
-    id: z.string(),
+    id: z.number().int(),
     quantity: z.number().positive().optional(),
     costPerUnitKobo: z.number().int().positive().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(recipeIngredients).set(rest).where(eq(recipeIngredients.id, id));
+    const { id, quantity } = input;
+    await db.update(recipeIngredients).set({
+      ...(quantity !== undefined ? { quantityPerServing: Math.round(quantity * 100) } : {}),
+    }).where(eq(recipeIngredients.id, id));
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.delete(recipeIngredients).where(eq(recipeIngredients.id, input.id));
     return { success: true };
@@ -2075,18 +2631,20 @@ const reconciliationRouter = router({
     id: z.string(),
     resolution: z.string(),
     notes: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     await db.update(reconciliationAlerts).set({
       status: "resolved",
-      resolution: input.resolution,
+      notes: input.notes ? `${input.resolution}\n${input.notes}` : input.resolution,
       resolvedAt: new Date(),
+      resolvedBy: String(ctx.user.id),
+      updatedAt: new Date(),
     }).where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
   dismiss: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(reconciliationAlerts).set({ status: "dismissed" })
+    await db.update(reconciliationAlerts).set({ status: "dismissed", updatedAt: new Date() })
       .where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
@@ -2117,13 +2675,14 @@ const regulatoryReportsRouter = router({
   generate: protectedProcedure.input(z.object({
     reportType: z.enum(["cbn_returns", "fiu_str", "cac_annual", "firs_vat", "ndic_returns"]),
     period: z.string(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(regulatoryReports).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      data: input.data ? JSON.stringify(input.data) : null,
+      reportType: input.reportType,
+      period: input.period,
+      reportData: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
     }).returning();
     return row;
@@ -2198,18 +2757,18 @@ const restaurantRouter = router({
     const [order] = await db.insert(restaurantOrders).values({
       merchantId: ctx.user.tenantId ?? "",
       tableId: input.tableId ?? null,
-      items: JSON.stringify(input.items),
       totalKobo,
-      orderType: input.orderType,
       notes: input.notes ?? null,
-      status: "pending",
+      status: "open",
     }).returning();
     if (input.items.length > 0) {
       await db.insert(restaurantOrderItems).values(
         input.items.map(item => ({
           orderId: order.id,
-          merchantId: ctx.user.tenantId ?? "",
-          ...item,
+          name: item.name,
+          qty: item.quantity,
+          unitPriceKobo: item.unitPriceKobo,
+          notes: item.notes,
           status: "pending",
         }))
       );
@@ -2218,7 +2777,7 @@ const restaurantRouter = router({
   }),
   updateOrderStatus: protectedProcedure.input(z.object({
     id: z.string(),
-    status: z.enum(["pending", "confirmed", "preparing", "ready", "served", "paid", "cancelled"]),
+    status: z.enum(["open", "sent_to_kitchen", "ready", "paid", "voided"]),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(restaurantOrders).set({ status: input.status }).where(eq(restaurantOrders.id, input.id));
@@ -2255,29 +2814,38 @@ const sdkTokensRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const token = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     const [row] = await db.insert(sdkTokens).values({
+      tokenId: `tok_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      token,
-      label: input.label,
-      platform: input.platform,
-      permissions: input.permissions ? JSON.stringify(input.permissions) : null,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-      status: "active",
+      tokenHash,
+      scopes: input.permissions ?? null,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 365 * 24 * 3600_000),
+      isRevoked: 0,
     }).returning();
-    return row;
+    return { ...row, token };
   }),
-  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() })
-      .where(eq(sdkTokens.id, input.id));
-    publishAuditEvent({ action: 'sdk_token.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    // Merchant scope: a caller must never revoke another merchant's SDK token.
+    const [updated] = await db.update(sdkTokens).set({ isRevoked: 1 })
+      .where(and(eq(sdkTokens.tokenId, input.id), eq(sdkTokens.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "SDK token not found" });
+    publishAuditEventLoud({ action: 'sdk_token.revoked', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true };
   }),
-  rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const newToken = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
-    await db.update(sdkTokens).set({ token: newToken, rotatedAt: new Date() })
-      .where(eq(sdkTokens.id, input.id));
+    const newTokenHash = createHash("sha256").update(newToken).digest("hex");
+    // Merchant scope: rotation returns the new raw token, so it must be
+    // impossible to rotate a token owned by another merchant.
+    const [updated] = await db.update(sdkTokens).set({ tokenHash: newTokenHash, isRevoked: 0 })
+      .where(and(eq(sdkTokens.tokenId, input.id), eq(sdkTokens.merchantId, ctx.user.tenantId ?? "")))
+      .returning();
+    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "SDK token not found" });
+    publishAuditEventLoud({ action: 'sdk_token.rotated', userId: String(ctx.user.id), targetId: input.id, metadata: {}, timestamp: new Date().toISOString() });
     return { success: true, token: newToken };
   }),
 });
@@ -2299,13 +2867,13 @@ const settlementSlaRouter = router({
   }),
   acknowledge: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "acknowledged", acknowledgedAt: new Date() })
+    await db.update(settlementSlaEvents).set({ status: "acknowledged", updatedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),
   resolve: protectedProcedure.input(z.object({ id: z.string(), resolution: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "resolved", resolvedAt: new Date() })
+    await db.update(settlementSlaEvents).set({ status: "resolved", notes: input.resolution, updatedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),

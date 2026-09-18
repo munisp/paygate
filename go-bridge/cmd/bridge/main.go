@@ -14,6 +14,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -21,20 +23,22 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/paygate/go-bridge/internal/apisix"
-	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
-	"github.com/paygate/go-bridge/internal/keycloak"
-	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
 	"github.com/paygate/go-bridge/internal/kafka"
+	"github.com/paygate/go-bridge/internal/keycloak"
+	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/permify"
+	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/redis"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	"github.com/paygate/go-bridge/internal/telemetry"
 )
 
 func main() {
@@ -43,43 +47,54 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	// ── Startup env var validation ──────────────────────────────────────────
-// Warn (not fatal) for optional but recommended env vars so the bridge
-// starts in degraded mode rather than refusing to start entirely.
-requiredEnvVars := []struct {
-key     string
-fatal   bool
-purpose string
-}{
-{"BRIDGE_INTERNAL_KEY", false, "bearer token for portal→bridge auth (dev mode: skipped)"},
-{"DATABASE_URL", true, "MySQL/TiDB connection string"},
-}
-recommendedEnvVars := []struct {
-key     string
-purpose string
-}{
-{"PORTAL_TRPC_URL", "portal tRPC URL for reconciler alert push"},
-{"MIDDLEWARE_INTERNAL_KEY", "shared HMAC key for bridge→portal auth"},
-{"TEMPORAL_HOST_PORT", "Temporal server address for settlement workflows"},
-{"NIBSS_GATEWAY_URL", "NIBSS NIP gateway base URL"},
-}
-for _, ev := range requiredEnvVars {
-if os.Getenv(ev.key) == "" {
-if ev.fatal {
-slog.Error("required env var missing", "key", ev.key, "purpose", ev.purpose)
-os.Exit(1)
-}
-slog.Warn("optional env var not set — running in degraded mode", "key", ev.key, "purpose", ev.purpose)
-}
-}
-for _, ev := range recommendedEnvVars {
-if os.Getenv(ev.key) == "" {
-slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
-}
-}
-slog.Info("env var validation complete")
+	// ── OpenTelemetry ───────────────────────────────────────────────────────
+	// Env-gated: no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-bridge")
+	defer otelShutdown(context.Background())
 
-// ── TigerBeetle init ─────────────────────────────────────────────────────
+	// ── Startup env var validation ──────────────────────────────────────────
+	// Warn (not fatal) for optional but recommended env vars so the bridge
+	// starts in degraded mode rather than refusing to start entirely.
+	requiredEnvVars := []struct {
+		key     string
+		fatal   bool
+		purpose string
+	}{
+		{"BRIDGE_INTERNAL_KEY", false, "bearer token for portal→bridge auth (dev mode: skipped)"},
+		{"DATABASE_URL", true, "MySQL/TiDB connection string"},
+	}
+	recommendedEnvVars := []struct {
+		key     string
+		purpose string
+	}{
+		{"PORTAL_TRPC_URL", "portal tRPC URL for reconciler alert push"},
+		{"MIDDLEWARE_INTERNAL_KEY", "shared HMAC key for bridge→portal auth"},
+		{"TEMPORAL_HOST_PORT", "Temporal server address for settlement workflows"},
+		{"NIBSS_GATEWAY_URL", "NIBSS NIP gateway base URL"},
+	}
+	for _, ev := range requiredEnvVars {
+		if os.Getenv(ev.key) == "" {
+			if ev.fatal {
+				slog.Error("required env var missing", "key", ev.key, "purpose", ev.purpose)
+				os.Exit(1)
+			}
+			slog.Warn("optional env var not set — running in degraded mode", "key", ev.key, "purpose", ev.purpose)
+		}
+	}
+	for _, ev := range recommendedEnvVars {
+		if os.Getenv(ev.key) == "" {
+			slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
+		}
+	}
+	// Webhook secrets: fail closed. The PTSP settlement webhook rejects all
+	// requests (503) while no secret is configured — never verifies with an
+	// empty/default key (spec #16).
+	if os.Getenv("NIBSS_WEBHOOK_SECRET") == "" && os.Getenv("NIP_WEBHOOK_SECRET") == "" {
+		slog.Error("FATAL: NIBSS_WEBHOOK_SECRET/NIP_WEBHOOK_SECRET unset — /v1/pos/settlement/confirm will reject all webhook requests (fail closed)")
+	}
+	slog.Info("env var validation complete")
+
+	// ── TigerBeetle init ─────────────────────────────────────────────────────
 	tbAddress := tb.DefaultTigerBeetleAddress()
 	clusterID := uint64(0)
 	if v := os.Getenv("TIGERBEETLE_CLUSTER"); v != "" {
@@ -147,16 +162,80 @@ slog.Info("env var validation complete")
 		}
 	}()
 
-	// Ensure pgdb is used (suppress unused import)
-	_ = pgdb.Get
+	// PostgreSQL init (used by agent/loyalty/SDK handlers + Temporal activities).
+	// Degraded (noop) mode if unreachable — readiness probe at /health reports it.
+	if err := pgdb.Init(); err != nil {
+		slog.Error("PostgreSQL init failed — running in degraded (noop) mode", "err", err)
+		pgdb.InitNoop()
+	}
 
 	// ── HTTP router ──────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
-	// Health check
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	// Liveness probe (k8s): process is up. No dependency checks — always 200.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","service":"paygate-bridge","tigerbeetle":"%s"}`, tbAddress)
+		fmt.Fprintf(w, `{"status":"ok","service":"paygate-bridge"}`)
+	})
+
+	// Readiness probe: reports real dependency status (TigerBeetle ledger +
+	// PostgreSQL). Returns 503 when any dependency is degraded so k8s stops
+	// routing traffic to a bridge that cannot post to the ledger.
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		deps := map[string]string{}
+		degraded := false
+
+		// TigerBeetle reachability: real LookupAccounts round-trip (2s cap).
+		tbStatus := make(chan string, 1)
+		go func() {
+			client := tb.GetActive()
+			if client == nil {
+				tbStatus <- "unavailable"
+				return
+			}
+			if _, err := client.GetBalance(tb.FloatAccountID()); err != nil {
+				tbStatus <- "error: " + err.Error()
+				return
+			}
+			tbStatus <- "ok"
+		}()
+		select {
+		case s := <-tbStatus:
+			deps["tigerbeetle"] = s
+		case <-time.After(2 * time.Second):
+			deps["tigerbeetle"] = "timeout"
+		case <-r.Context().Done():
+			return
+		}
+		if deps["tigerbeetle"] != "ok" {
+			degraded = true
+		}
+
+		// PostgreSQL reachability.
+		dbCtx, dbCancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if err := pgdb.Get().Ping(dbCtx); err != nil {
+			deps["postgres"] = "error: " + err.Error()
+			degraded = true
+		} else {
+			deps["postgres"] = "ok"
+		}
+		dbCancel()
+
+		w.Header().Set("Content-Type", "application/json")
+		status := "ok"
+		code := http.StatusOK
+		if degraded {
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+		w.WriteHeader(code)
+		resp, _ := json.Marshal(map[string]interface{}{
+			"status":       status,
+			"service":      "paygate-bridge",
+			"tigerbeetle":  tbAddress,
+			"dependencies": deps,
+		})
+		w.Write(resp)
 	})
 
 	// Wallet operations
@@ -198,6 +277,7 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/freeze", authMiddleware(handlers.FreezeVirtualCard))
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/unfreeze", authMiddleware(handlers.UnfreezeVirtualCard))
 	mux.HandleFunc("POST /v1/virtual-cards/{id}/terminate", authMiddleware(handlers.TerminateVirtualCard))
+	mux.HandleFunc("GET /v1/virtual-cards/{id}/credentials", authMiddleware(handlers.GetVirtualCardCredentials))
 
 	// Payment link operations
 	mux.HandleFunc("POST /v1/payment-links/create", authMiddleware(handlers.CreatePaymentLink))
@@ -475,14 +555,14 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("GET /cashback/history", authMiddleware(handlers.GetCashbackTransactions))
 	mux.HandleFunc("POST /cashback/redeem", authMiddleware(handlers.RedeemCashback))
 	mux.HandleFunc("GET /cashback/merchant-config", authMiddleware(handlers.GetCashbackOffers))
-	mux.HandleFunc("POST /cashback/merchant-config/update", authMiddleware(handlers.RedeemCashback))
+	mux.HandleFunc("POST /cashback/merchant-config/update", authMiddleware(handlers.NotImplementedHandler("cashback merchant-config update")))
 	// Voice Payments (Soundbox)
 	mux.HandleFunc("POST /soundbox/register", authMiddleware(handlers.RegisterSoundboxDevice))
 	mux.HandleFunc("GET /soundbox/devices", authMiddleware(handlers.GetSoundboxDevices))
 	mux.HandleFunc("POST /soundbox/configure", authMiddleware(handlers.UpdateSoundboxSettings))
-	mux.HandleFunc("POST /soundbox/test-audio", authMiddleware(handlers.GetSoundboxPayments))
+	mux.HandleFunc("POST /soundbox/test-audio", authMiddleware(handlers.NotImplementedHandler("soundbox test-audio")))
 	mux.HandleFunc("GET /soundbox/stats", authMiddleware(handlers.GetSoundboxPayments))
-	mux.HandleFunc("GET /soundbox/alerts", authMiddleware(handlers.GetSoundboxDevices))
+	mux.HandleFunc("GET /soundbox/alerts", authMiddleware(handlers.NotImplementedHandler("soundbox alerts")))
 	// Wealth Management
 	mux.HandleFunc("GET /wealth/portfolio", authMiddleware(handlers.GetWealthPortfolio))
 	mux.HandleFunc("GET /wealth/recommendations", authMiddleware(handlers.GetWealthRecommendations))
@@ -567,57 +647,64 @@ slog.Info("env var validation complete")
 		port = "8080"
 	}
 
+	// ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
+	mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransferReal))
+	mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
+	mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
+	mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
 
-// ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
-mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransferReal))
-mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
-mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
-mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
+	mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPayReal))
+	mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
+	mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPAReal))
+	mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
+	mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
 
-mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPayReal))
-mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
-mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPAReal))
-mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
-mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
-
-mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPaymentReal))
-mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
-mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
-mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
+	mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPaymentReal))
+	mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
+	mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
+	mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
 	mux.HandleFunc("GET /v1/cross-border/circuit-status", handlers.GetCrossRailCircuitStatus)
 
-mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
-mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
-mux.HandleFunc("GET /v1/mojaloop/parties", authMiddleware(handlers.GetMojaloopParties))
-mux.HandleFunc("GET /v1/mojaloop/health", handlers.GetMojaloopHealth)
+	mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
+	mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
+	mux.HandleFunc("GET /v1/mojaloop/parties", authMiddleware(handlers.GetMojaloopParties))
+	mux.HandleFunc("GET /v1/mojaloop/health", handlers.GetMojaloopHealth)
 
-// ── OpenSearch ───────────────────────────────────────────────────────────────
-mux.HandleFunc("POST /v1/opensearch/query", authMiddleware(handlers.ProxyOpenSearchQuery))
-mux.HandleFunc("POST /v1/opensearch/index", authMiddleware(handlers.ProxyOpenSearchIndex))
-mux.HandleFunc("GET /v1/opensearch/health", handlers.GetOpenSearchHealth)
+	// ── OpenSearch ───────────────────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/opensearch/query", authMiddleware(handlers.ProxyOpenSearchQuery))
+	mux.HandleFunc("POST /v1/opensearch/index", authMiddleware(handlers.ProxyOpenSearchIndex))
+	mux.HandleFunc("GET /v1/opensearch/health", handlers.GetOpenSearchHealth)
 
-// ── TigerBeetle Ledger ───────────────────────────────────────────────────────
-mux.HandleFunc("GET /v1/ledger/accounts", authMiddleware(handlers.GetLedgerAccounts))
-mux.HandleFunc("POST /v1/ledger/transfer", authMiddleware(handlers.CreateLedgerTransfer))
-mux.HandleFunc("GET /v1/ledger/balance", authMiddleware(handlers.GetLedgerBalance))
-mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
-
+	// ── TigerBeetle Ledger ───────────────────────────────────────────────────────
+	mux.HandleFunc("GET /v1/ledger/accounts", authMiddleware(handlers.GetLedgerAccounts))
+	mux.HandleFunc("POST /v1/ledger/transfer", authMiddleware(handlers.CreateLedgerTransfer))
+	mux.HandleFunc("GET /v1/ledger/balance", authMiddleware(handlers.GetLedgerBalance))
+	mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 
 	// ─── Go Microservices ────────────────────────────────────────────────────────
-	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/health"))
-	mux.HandleFunc("/v1/mojaloop/transfers", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/transfers"))
-	mux.HandleFunc("/v1/mojaloop/quotes", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/quotes"))
-	mux.HandleFunc("/v1/mojaloop/parties/", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/parties"))
-	mux.HandleFunc("/v1/cips/health", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/health"))
-	mux.HandleFunc("/v1/cips/transfer", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/v1/transfer"))
-	mux.HandleFunc("/v1/cips/status/", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/v1/status"))
-	mux.HandleFunc("/v1/upi/health", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/health"))
-	mux.HandleFunc("/v1/upi/pay", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/pay"))
-	mux.HandleFunc("/v1/upi/collect", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/collect"))
-	mux.HandleFunc("/v1/upi/vpa/resolve", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/vpa/resolve"))
-	mux.HandleFunc("/v1/pix/health", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/health"))
-	mux.HandleFunc("/v1/pix/payment", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/v1/payment"))
-	mux.HandleFunc("/v1/pix/key/resolve", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/v1/key/resolve"))
+	// mojaloop-fspiop-adapter (Go) listens on 8097 and serves /v1/cross-border/*
+	// — see go-services/mojaloop-fspiop-adapter/cmd/adapter/main.go. The adapter
+	// has no /v1/parties surface; its lookup surface is the transfer-status GET.
+	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/health"))
+	mux.HandleFunc("/v1/mojaloop/transfers", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
+	mux.HandleFunc("/v1/mojaloop/quotes", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/quote"))
+	mux.HandleFunc("/v1/mojaloop/parties/", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
+	// cips-gateway (Go) listens on 8098 and serves POST /v1/transfers and
+	// GET /v1/transfers/{id} — see go-services/cips-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/cips/health", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/health"))
+	mux.HandleFunc("/v1/cips/transfer", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
+	mux.HandleFunc("/v1/cips/status/", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
+	// upi-gateway (Go) listens on 8099; VPA resolution is POST /v1/vpa/lookup —
+	// see go-services/upi-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/upi/health", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/health"))
+	mux.HandleFunc("/v1/upi/pay", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/pay"))
+	mux.HandleFunc("/v1/upi/collect", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/collect"))
+	mux.HandleFunc("/v1/upi/vpa/resolve", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/vpa/lookup"))
+	// pix-gateway (Go) listens on 8100 and serves /v1/payments + /v1/keys/lookup
+	// — see go-services/pix-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/pix/health", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/health"))
+	mux.HandleFunc("/v1/pix/payment", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/payments"))
+	mux.HandleFunc("/v1/pix/key/resolve", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/keys/lookup"))
 
 	// ─── Rust Microservices ───────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/billing/health", handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/health"))
@@ -637,9 +724,11 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/wallet-ffi/balance", handlers.ProxyToService("WALLET_FFI_URL", "http://localhost:8216", "/v1/balance"))
 	mux.HandleFunc("/v1/cross-border-fraud/health", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/health"))
 	mux.HandleFunc("/v1/cross-border-fraud/score", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/v1/score"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/health"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/v1/accounts"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/v1/transfers"))
+	// tigerbeetle-ledger (Rust) listens on 8200 and serves /v1/ledger/* — see
+	// rust-services/tigerbeetle-ledger/src/main.rs and k8s/middleware-stack.yaml.
+	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/health"))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/accounts"))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/transfers"))
 
 	// ─── Python Microservices ─────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/ai-insights/health", handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/health"))
@@ -656,8 +745,10 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/emi/schedule", handlers.ProxyToService("EMI_SERVICE_URL", "http://localhost:8225", "/v1/schedule"))
 	mux.HandleFunc("/v1/fraud-heatmap/health", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/health"))
 	mux.HandleFunc("/v1/fraud-heatmap/data", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/v1/data"))
-	mux.HandleFunc("/v1/fraud-scoring/health", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8100", "/health"))
-	mux.HandleFunc("/v1/fraud-scoring/score", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8100", "/v1/score"))
+	// fraud-scoring (Python/FastAPI) listens on 8083 — see
+	// python-services/fraud-scoring/main.py. (8100 is pix-gateway's port.)
+	mux.HandleFunc("/v1/fraud-scoring/health", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/health"))
+	mux.HandleFunc("/v1/fraud-scoring/score", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/v1/score"))
 	mux.HandleFunc("/v1/fx-rate/health", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/health"))
 	mux.HandleFunc("/v1/fx-rate/rates", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/v1/rates"))
 	mux.HandleFunc("/v1/insurance/health", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/health"))
@@ -747,12 +838,14 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           loggingMiddleware(mux),
+		// telemetry.Middleware wraps the mux OUTSIDE authMiddleware (auth is
+		// applied per-route inside the mux) so every request gets a span.
+		Handler:           telemetry.Middleware(loggingMiddleware(mux)),
 		ReadTimeout:       30 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,   // mitigate Slowloris attacks
-		WriteTimeout:      60 * time.Second,  // allow long-running Temporal starts
+		ReadHeaderTimeout: 5 * time.Second,  // mitigate Slowloris attacks
+		WriteTimeout:      60 * time.Second, // allow long-running Temporal starts
 		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,           // 1 MB
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	// Graceful shutdown
@@ -778,17 +871,43 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	slog.Info("bridge stopped")
 }
 
-// authMiddleware validates the BRIDGE_INTERNAL_KEY bearer token.
-// If BRIDGE_INTERNAL_KEY is not set, authentication is skipped (dev mode).
+// authMiddleware validates the internal service key on every request.
+// Callers may authenticate with EITHER `Authorization: Bearer <key>` OR
+// `X-Internal-Key: <key>`; both are compared with subtle.ConstantTimeCompare
+// against BRIDGE_INTERNAL_KEY (fallback: MIDDLEWARE_INTERNAL_KEY).
+//
+// Fail closed (spec #5/#16/#19): when no key is configured the bridge exits
+// in production and generates a per-boot random key in dev — the
+// BRIDGE_ALLOW_NOAUTH unauthenticated bypass has been removed.
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	key := os.Getenv("BRIDGE_INTERNAL_KEY")
 	if key == "" {
-		return next // no auth in dev mode
+		key = os.Getenv("MIDDLEWARE_INTERNAL_KEY")
 	}
+	if key == "" {
+		env := strings.ToLower(os.Getenv("ENV"))
+		appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+		if env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod" {
+			slog.Error("FATAL: BRIDGE_INTERNAL_KEY must be set when ENV=production — refusing to serve unauthenticated money-movement endpoints")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			slog.Error("FATAL: crypto/rand unavailable and BRIDGE_INTERNAL_KEY unset — refusing to start", "err", err)
+			os.Exit(1)
+		}
+		key = fmt.Sprintf("dev-%x", b)
+		slog.Warn("BRIDGE_INTERNAL_KEY unset — generated per-boot random key; all endpoints remain authenticated (dev only)")
+	}
+	expected := []byte(key)
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		expected := "Bearer " + key
-		if auth != expected {
+		candidate := r.Header.Get("X-Internal-Key")
+		if candidate == "" {
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				candidate = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
+		if subtle.ConstantTimeCompare([]byte(candidate), expected) != 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			fmt.Fprintf(w, `{"error":"unauthorized","code":401}`)

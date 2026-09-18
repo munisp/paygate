@@ -71,9 +71,9 @@ export function startNotificationPurgeWorker(): void {
   if (_timer) return;
   // First run after 2 minutes (stagger from other workers), then on interval
   setTimeout(() => {
-    runPurge().catch(() => {});
+    runPurge().catch((e) => console.error("[notificationPurge] tick failed:", e instanceof Error ? e.message : e));
     _timer = setInterval(() => {
-      runPurge().catch(() => {});
+      runPurge().catch((e) => console.error("[notificationPurge] tick failed:", e instanceof Error ? e.message : e));
     }, PURGE_INTERVAL_MS);
   }, 2 * 60_000);
   console.log(

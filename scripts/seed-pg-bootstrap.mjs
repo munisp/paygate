@@ -3,7 +3,7 @@
  * Creates the foundational data: tenants, users, merchants, customers, transactions
  * Run this BEFORE seed-full.mjs and seed-wave85-complete.mjs
  */
-import pg from '../node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
+import pg from 'pg';
 const { Client } = pg;
 
 const PG_URL = process.env.PG_DATABASE_URL || process.env.DATABASE_URL?.startsWith('postgresql') ? process.env.DATABASE_URL : 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
@@ -15,7 +15,7 @@ function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + m
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 async function run() {
-  const client = new Client({ connectionString: 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev' });
+  const client = new Client({ connectionString: PG_URL });
   await client.connect();
   console.log('✅ Connected to PostgreSQL');
 

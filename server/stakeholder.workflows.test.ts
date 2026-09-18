@@ -60,6 +60,10 @@ vi.mock("./db", async () => {
     getRevenueTimeSeries: vi.fn().mockResolvedValue([]),
     logAuditEvent: vi.fn().mockResolvedValue(undefined),
     getAuthEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
+    // Contract change: middleware.keycloak.getAuthEvents now reads via the
+    // getKeycloakEvents db helper (Keycloak event pipeline) — mock it so the
+    // procedure tests don't need a live Postgres.
+    getKeycloakEvents: vi.fn().mockResolvedValue([]),
     getFraudAlerts: vi.fn().mockResolvedValue([]),
     getDb: vi.fn().mockResolvedValue({
       select: vi.fn().mockReturnThis(),
@@ -302,8 +306,10 @@ describe("Admin Workflows", () => {
         const result = await caller.fraudRisk.seedDemoAlerts();
         expect(result).toBeDefined();
       } catch (e: any) {
-        // DB unavailable in test env is acceptable
-        expect(e.message).toMatch(/DB unavailable|Failed query|not iterable/i);
+        // STALE CONTRACT: seedDemoAlerts is now fail-closed behind
+        // ALLOW_DEMO_SEED=true (FORBIDDEN otherwise) — that guard executes
+        // before any DB access, so it is also an acceptable outcome here.
+        expect(e.message).toMatch(/DB unavailable|Failed query|not iterable|Demo alert seeding is disabled/i);
       }
     });
   });

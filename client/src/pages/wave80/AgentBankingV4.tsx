@@ -47,7 +47,7 @@ export default function AgentBankingV4() {
                 <div className="flex items-center gap-4">
                   <div className="text-right"><p className="font-medium">&#8358;{(a.floatBalance / 100).toLocaleString()}</p><p className="text-xs text-muted-foreground">Float</p></div>
                   <Badge variant={a.status === "active" ? "default" : "secondary"}>{a.status}</Badge>
-                  <Button size="sm" variant="outline" onClick={() => fundFloat.mutate({ agentId: a.id, amount: 100000 })}>Fund Float</Button>
+                  <Button size="sm" variant="outline" onClick={() => fundFloat.mutate({ agentId: a.id, amount: 100000, idempotencyKey: crypto.randomUUID() })}>Fund Float</Button>
                 </div>
               </div>
             ))}</div>

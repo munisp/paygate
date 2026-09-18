@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: vector-store
-          image: paygate/vector-store:latest
+          image: paygate/vector-store:1.0.0
           ports:
             - containerPort: 8110
           env:
@@ -104,7 +104,7 @@ spec:
     spec:
       containers:
         - name: cocoindex
-          image: paygate/cocoindex:latest
+          image: paygate/cocoindex:1.0.0
           ports:
             - containerPort: 8111
           env:
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
         - name: knowledge-graph
-          image: paygate/knowledge-graph:latest
+          image: paygate/knowledge-graph:1.0.0
           ports:
             - containerPort: 8112
           env:
@@ -231,7 +231,7 @@ spec:
     spec:
       containers:
         - name: art-reasoning
-          image: paygate/art-reasoning:latest
+          image: paygate/art-reasoning:1.0.0
           ports:
             - containerPort: 8113
           env:
@@ -294,7 +294,7 @@ spec:
     spec:
       containers:
         - name: lakehouse-ai
-          image: paygate/lakehouse-ai:latest
+          image: paygate/lakehouse-ai:1.0.0
           ports:
             - containerPort: 8114
           env:
@@ -367,7 +367,7 @@ spec:
     spec:
       containers:
         - name: lakehouse-v2
-          image: paygate/lakehouse-v2:latest
+          image: paygate/lakehouse-v2:1.0.0
           ports:
             - containerPort: 8095
           env:
@@ -421,7 +421,7 @@ spec:
     spec:
       containers:
         - name: cohort-analytics
-          image: paygate/cohort-analytics:latest
+          image: paygate/cohort-analytics:1.0.0
           ports:
             - containerPort: 8096
           env:
@@ -473,7 +473,7 @@ spec:
     spec:
       containers:
         - name: settlement-forecast
-          image: paygate/settlement-forecast:latest
+          image: paygate/settlement-forecast:1.0.0
           ports:
             - containerPort: 8097
           env:
@@ -530,7 +530,7 @@ spec:
     spec:
       containers:
         - name: tax-engine
-          image: paygate/tax-engine:latest
+          image: paygate/tax-engine:1.0.0
           ports:
             - containerPort: 8098
           env:
@@ -582,7 +582,7 @@ spec:
     spec:
       containers:
         - name: payroll
-          image: paygate/payroll:latest
+          image: paygate/payroll:1.0.0
           ports:
             - containerPort: 8099
           env:
@@ -639,7 +639,7 @@ spec:
     spec:
       containers:
         - name: pension-nps
-          image: paygate/pension-nps:latest
+          image: paygate/pension-nps:1.0.0
           ports:
             - containerPort: 8101
           env:
@@ -691,7 +691,7 @@ spec:
     spec:
       containers:
         - name: salary-accounts
-          image: paygate/salary-accounts:latest
+          image: paygate/salary-accounts:1.0.0
           ports:
             - containerPort: 8102
           env:
@@ -743,7 +743,7 @@ spec:
     spec:
       containers:
         - name: insurance-pricing
-          image: paygate/insurance-pricing:latest
+          image: paygate/insurance-pricing:1.0.0
           ports:
             - containerPort: 8103
           env:
@@ -795,7 +795,7 @@ spec:
     spec:
       containers:
         - name: cashback-rewards
-          image: paygate/cashback-rewards:latest
+          image: paygate/cashback-rewards:1.0.0
           ports:
             - containerPort: 8104
           env:
@@ -852,7 +852,7 @@ spec:
     spec:
       containers:
         - name: carbon-oracle
-          image: paygate/carbon-oracle:latest
+          image: paygate/carbon-oracle:1.0.0
           ports:
             - containerPort: 8105
           env:
@@ -904,7 +904,7 @@ spec:
     spec:
       containers:
         - name: kyc-ocr
-          image: paygate/kyc-ocr:latest
+          image: paygate/kyc-ocr:1.0.0
           ports:
             - containerPort: 8106
           env:
@@ -956,7 +956,7 @@ spec:
     spec:
       containers:
         - name: liveness-detection
-          image: paygate/liveness-detection:latest
+          image: paygate/liveness-detection:1.0.0
           ports:
             - containerPort: 8107
           env:
@@ -1003,7 +1003,7 @@ spec:
     spec:
       containers:
         - name: soundbox
-          image: paygate/soundbox:latest
+          image: paygate/soundbox:1.0.0
           ports:
             - containerPort: 8108
           env:
@@ -1055,7 +1055,7 @@ spec:
     spec:
       containers:
         - name: kiosk-health
-          image: paygate/kiosk-health:latest
+          image: paygate/kiosk-health:1.0.0
           ports:
             - containerPort: 8109
           env:
@@ -1107,7 +1107,7 @@ spec:
     spec:
       containers:
         - name: iso20022-parser
-          image: paygate/iso20022-parser:latest
+          image: paygate/iso20022-parser:1.0.0
           ports:
             - containerPort: 8116
           env:
@@ -1159,7 +1159,7 @@ spec:
     spec:
       containers:
         - name: spark-compaction
-          image: paygate/spark-compaction:latest
+          image: paygate/spark-compaction:1.0.0
           ports:
             - containerPort: 8117
           env:
@@ -1218,7 +1218,7 @@ spec:
     spec:
       containers:
         - name: usdc-lakehouse-consumer
-          image: paygate/usdc-lakehouse-consumer:latest
+          image: paygate/usdc-lakehouse-consumer:1.0.0
           ports:
             - containerPort: 8118
           env:
@@ -1272,7 +1272,7 @@ spec:
     spec:
       containers:
         - name: wealth-management
-          image: paygate/wealth-management:latest
+          image: paygate/wealth-management:1.0.0
           ports:
             - containerPort: 8119
           env:
@@ -1324,7 +1324,7 @@ spec:
     spec:
       containers:
         - name: credit-scoring-py
-          image: paygate/credit-scoring:latest
+          image: paygate/credit-scoring:1.0.0
           ports:
             - containerPort: 8115
           env:
@@ -1435,7 +1435,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: gnn-retrain
-              image: paygate/lakehouse-ai:latest
+              image: paygate/lakehouse-ai:1.0.0
               command: ["python", "-m", "gnn_trainer", "--mode=retrain", "--epochs=50"]
               env:
                 - name: MINIO_ENDPOINT
@@ -1468,7 +1468,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: compaction
-              image: paygate/spark-compaction:latest
+              image: paygate/spark-compaction:1.0.0
               command: ["python", "-m", "compaction", "--mode=daily"]
               env:
                 - name: MINIO_ENDPOINT
@@ -1506,7 +1506,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: report-emailer
-              image: paygate/app:latest
+              image: paygate/app:1.0.0
               command: ["node", "scripts/run-scheduled-reports.mjs"]
               env:
                 - name: PG_DATABASE_URL

@@ -250,10 +250,13 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HOSTNAME_STRICT_HTTPS: "false"
       KC_HTTP_ENABLED: "true"
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin_secret
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?must be set — no default admin credentials allowed}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?must be set — no default admin credentials allowed}
       KC_REALM: paygate
       KC_CLIENT_ID: paygate-portal
+      # Spec §6 — OTel tracing to consolidated collector
+      KC_TRACING_ENABLED: "true"
+      KC_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     command: ["start-dev", "--import-realm"]
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro

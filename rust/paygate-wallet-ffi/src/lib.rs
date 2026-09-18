@@ -58,8 +58,23 @@ fn tb_address() -> &'static str {
 }
 
 // ─── TigerBeetle client wrapper ───────────────────────────────────────────────
-// We use the real tigerbeetle client when the "live" feature is enabled,
-// and a mock implementation otherwise (for unit tests and CI).
+// The real TigerBeetle client ("live") is the default and only production
+// backend.  The in-process mock is a DEV-ONLY backend that must be explicitly
+// requested with `--no-default-features --features mock`; it is non-durable and
+// must never ship in a production image.  There is NO silent fallback: a build
+// must pick exactly one backend or fail to compile.
+
+#[cfg(not(any(feature = "live", feature = "mock")))]
+compile_error!(
+    "paygate-wallet-ffi: no ledger backend selected. Build with default features \
+     (live TigerBeetle) or explicitly opt into the dev-only `mock` feature."
+);
+
+#[cfg(all(feature = "live", feature = "mock"))]
+compile_error!(
+    "paygate-wallet-ffi: `live` and `mock` features are mutually exclusive. \
+     Refusing to build an ambiguous ledger backend."
+);
 
 #[cfg(feature = "live")]
 mod tb_client {
@@ -78,14 +93,27 @@ mod tb_client {
     pub use tigerbeetle_unofficial::{Account, AccountFlags, Client, Transfer, TransferFlags};
 }
 
-#[cfg(not(feature = "live"))]
+#[cfg(feature = "mock")]
 mod tb_client {
-    //! In-process mock that mirrors the TigerBeetle API surface.
-    //! Balances are stored in a thread-safe in-memory map.
+    //! DEV-ONLY in-process mock that mirrors the TigerBeetle API surface.
+    //! Balances are stored in a thread-safe in-memory map: NO durability,
+    //! NO replication, single process.  Never use in production — the
+    //! `mock` feature is gated behind an explicit opt-in and logs a loud
+    //! WARN at startup.
+    //!
+    //! Unlike the previous version, this mock enforces double-entry
+    //! insufficient-funds semantics (debits may not exceed credits) so that
+    //! overdrafts surface as errors instead of being reported as balance 0.
 
     use once_cell::sync::Lazy;
     use std::collections::HashMap;
     use std::sync::Mutex;
+
+    /// System float / settlement-pool sentinel account (operator-funded).
+    /// Mirrors the sentinel used by the FFI entry points; operator float
+    /// accounts are permitted to carry a negative running balance (they are
+    /// pre-funded outside the mock), wallet accounts are not.
+    const FLOAT_SENTINEL: u128 = u128::MAX - 1;
 
     #[derive(Clone, Debug)]
     pub struct Account {
@@ -151,6 +179,21 @@ mod tb_client {
                     credits_posted: 0,
                     debits_posted: 0,
                 });
+                // Enforce insufficient-funds: wallet accounts may not overdraft.
+                // Only the operator float sentinel is exempt (it is pre-funded
+                // outside the mock), mirroring TigerBeetle's
+                // debits_must_not_exceed_credits account flag.
+                if t.debit_account_id != FLOAT_SENTINEL {
+                    let debit_acc = store.get(&t.debit_account_id).unwrap();
+                    let available = debit_acc.credits_posted.saturating_sub(debit_acc.debits_posted);
+                    if t.amount > available {
+                        return Err(MockError(format!(
+                            "exceeds_credits: insufficient funds in account {:032x} \
+                             (available {available}, requested {})",
+                            t.debit_account_id, t.amount
+                        )));
+                    }
+                }
                 // Apply the transfer
                 if let Some(debit_acc) = store.get_mut(&t.debit_account_id) {
                     debit_acc.debits_posted += t.amount;
@@ -167,6 +210,18 @@ mod tb_client {
         once_cell::sync::Lazy::new(|| Client::new(0, &[], 32).unwrap());
 
     pub fn get_or_init(_address: &str) -> Result<&'static Client, String> {
+        // Loud, unavoidable warning: this backend is a non-durable in-memory
+        // mock.  If you see this in any deployed environment, the image was
+        // built incorrectly (must use default features / `--features live`).
+        eprintln!(
+            "WARNING [paygate-wallet-ffi]: DEV-ONLY IN-MEMORY MOCK LEDGER ACTIVE — \
+             balances are non-durable and NOT persisted to TigerBeetle. \
+             Do NOT use this build in production."
+        );
+        tracing::warn!(
+            simulation = true,
+            "DEV-ONLY in-memory mock ledger active (feature `mock`); no TigerBeetle persistence"
+        );
         Ok(&*MOCK_CLIENT)
     }
 }
@@ -678,8 +733,12 @@ fn md5_u128(data: &[u8]) -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "mock")]
     use std::ffi::CString;
 
+    // Ledger round-trip tests exercise the DEV-ONLY mock backend; run with:
+    //   cargo test --no-default-features --features mock
+    #[cfg(feature = "mock")]
     fn call_ffi(
         func: unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> c_int,
         req: &str,
@@ -693,12 +752,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn test_init() {
         let rc = paygate_wallet_init();
         assert_eq!(rc, 0);
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn test_credit_and_balance() {
         paygate_wallet_init();
 
@@ -728,6 +789,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn test_debit_reduces_balance() {
         paygate_wallet_init();
 
@@ -758,6 +820,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn test_p2p_transfer() {
         paygate_wallet_init();
 
@@ -788,6 +851,50 @@ mod tests {
         assert_eq!(parsed["status"], "transferred");
         assert_eq!(parsed["sender_new_balance"], 600_000u64);
         assert_eq!(parsed["receiver_new_balance"], 400_000u64);
+    }
+
+    #[test]
+    #[cfg(feature = "mock")]
+    fn test_debit_insufficient_funds_fails_loud() {
+        paygate_wallet_init();
+
+        let wallet_id = "00000000-0000-0000-0000-000000000005";
+
+        // Fund the wallet with 100_000
+        let credit_req = serde_json::json!({
+            "wallet_id": wallet_id,
+            "amount": 100_000u64,
+            "currency": "NGN",
+            "reference": "test-fund-005",
+        })
+        .to_string();
+        call_ffi(paygate_wallet_credit, &credit_req);
+
+        // Attempt to debit 200_000 — must fail, not overdraw-and-report-0
+        let debit_req = serde_json::json!({
+            "wallet_id": wallet_id,
+            "amount": 200_000u64,
+            "currency": "NGN",
+            "reference": "test-overdraft-005",
+        })
+        .to_string();
+        let debit_resp = call_ffi(paygate_wallet_debit, &debit_req);
+        let parsed: serde_json::Value = serde_json::from_str(&debit_resp).unwrap();
+        assert!(
+            parsed.get("error").is_some(),
+            "overdraft debit must return an error, got: {debit_resp}"
+        );
+        assert!(parsed["error"].as_str().unwrap().contains("insufficient funds"));
+
+        // Balance must be untouched (still 100_000, not 0)
+        let bal_req = serde_json::json!({
+            "wallet_id": wallet_id,
+            "currency": "NGN",
+        })
+        .to_string();
+        let bal_resp = call_ffi(paygate_wallet_balance, &bal_req);
+        let bal: serde_json::Value = serde_json::from_str(&bal_resp).unwrap();
+        assert_eq!(bal["balance"], 100_000u64);
     }
 
     #[test]

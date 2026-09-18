@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import io
 import json
 import logging
@@ -75,7 +76,10 @@ try:
     INSIGHTFACE_AVAILABLE = True
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
-    logging.warning("insightface not available — using fallback embeddings")
+    logging.warning(
+        "insightface not available — /liveness/extract will return 503 "
+        "(no fabricated fallback embeddings)"
+    )
 
 try:
     from PIL import Image as PILImage
@@ -98,7 +102,7 @@ logging.basicConfig(
 logger = logging.getLogger("liveness-detection")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "dev-internal-key")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "")
 KAFKA_TOPIC = os.getenv("KAFKA_LIVENESS_TOPIC", "liveness.events")
 PORT = int(os.getenv("PORT", "8086"))
@@ -297,7 +301,9 @@ def detect_deepfake(img: np.ndarray) -> tuple[float, bool]:
     Returns (deepfake_probability, is_deepfake) where probability in [0,1].
     """
     if not CV2_AVAILABLE:
-        return 0.0, False
+        # Fail closed: an unavailable deepfake check is "uncertain", NEVER
+        # "not a deepfake" — (0.0, False) would silently pass the screen.
+        raise RuntimeError("Deepfake detection unavailable: OpenCV not installed")
     try:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # Compute DFT magnitude spectrum
@@ -334,8 +340,11 @@ def detect_deepfake(img: np.ndarray) -> tuple[float, bool]:
         )
         is_deepfake = deepfake_prob > 0.65
         return float(deepfake_prob), is_deepfake
-    except Exception:
-        return 0.0, False
+    except RuntimeError:
+        raise
+    except Exception as e:
+        # Propagate as an error ("uncertain") — never as "not a deepfake".
+        raise RuntimeError(f"Deepfake detection failed: {e}") from e
 
 
 # ─── Face detection ───────────────────────────────────────────────────────────
@@ -442,14 +451,18 @@ def extract_landmarks_68(img: np.ndarray) -> list[dict]:
 # ─── ArcFace embedding extraction ────────────────────────────────────────────
 
 def extract_embedding(img: np.ndarray) -> list[float]:
-    """Extract ArcFace 512-dim face embedding."""
+    """Extract ArcFace 512-dim face embedding.
+
+    FAIL CLOSED: when the InsightFace/ArcFace model is unavailable this raises
+    RuntimeError. Raw pixel statistics are NOT a face embedding — returning
+    them as one poisons every downstream identity comparison.
+    """
     app = get_face_app()
     if app is None:
-        # Return a deterministic fallback embedding based on image statistics
-        gray = img.mean(axis=2) if len(img.shape) == 3 else img
-        flat = gray.flatten()[:512]
-        norm = np.linalg.norm(flat)
-        return (flat / (norm + 1e-6)).tolist()
+        raise RuntimeError(
+            "ArcFace embedding model (InsightFace) is unavailable — "
+            "refusing to fabricate an embedding from raw pixels"
+        )
 
     try:
         rgb = bgr_to_rgb(img)
@@ -461,8 +474,8 @@ def extract_embedding(img: np.ndarray) -> list[float]:
         emb = largest.normed_embedding
         return emb.tolist() if emb is not None else []
     except Exception as e:
-        logger.warning(f"Embedding extraction failed: {e}")
-        return []
+        logger.error(f"Embedding extraction failed: {e}")
+        raise RuntimeError(f"ArcFace embedding extraction failed: {e}") from e
 
 
 # ─── Active liveness (challenge-response) ────────────────────────────────────
@@ -584,11 +597,15 @@ def publish_event(event_type: str, payload: dict) -> None:
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Liveness Detection ML Service",
     version="3.0.0",
     description="ML inference for passive liveness, active challenge, face detection, landmarks, and embedding extraction",
 )
+setup_telemetry("liveness-detection", app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -599,7 +616,10 @@ app.add_middleware(
 
 
 def verify_internal_key(x_internal_key: str = Header(default="")):
-    if x_internal_key != INTERNAL_API_KEY:
+    # Fail closed: key must be configured and presented; constant-time compare.
+    if not INTERNAL_API_KEY:
+        raise HTTPException(status_code=503, detail="Service misconfigured: INTERNAL_API_KEY not set")
+    if not x_internal_key or not hmac.compare_digest(x_internal_key, INTERNAL_API_KEY):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -843,7 +863,13 @@ async def face_extract(req: LivenessRequest, x_internal_key: str = Header(defaul
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
-    embedding = extract_embedding(img)
+    try:
+        embedding = extract_embedding(img)
+    except RuntimeError as e:
+        # Model unavailable / inference failed — fail closed with 503.
+        raise HTTPException(status_code=503, detail=str(e))
+    if not embedding:
+        raise HTTPException(status_code=422, detail="No face detected — embedding not produced")
     faces = detect_faces(img)
 
     return {
@@ -851,6 +877,7 @@ async def face_extract(req: LivenessRequest, x_internal_key: str = Header(defaul
         "face_detected": len(faces) > 0,
         "embedding": embedding,
         "embedding_dim": len(embedding),
+        "model": "InsightFace-ArcFace",
         "processing_ms": int((time.time() - start) * 1000),
     }
 
@@ -901,6 +928,34 @@ async def health():
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     import uvicorn

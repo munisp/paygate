@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable, pgEnum, serial, text, integer, bigint, varchar,
-  boolean, timestamp, jsonb, real, unique, index, uniqueIndex,
+  boolean, timestamp, jsonb, real, doublePrecision, unique, index, uniqueIndex,
+  foreignKey, numeric, date,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -365,6 +367,11 @@ export const virtualCards = pgTable("virtual_cards", {
   balance: bigint("balance", { mode: "number" }).default(0).notNull(),
   spendLimit: bigint("spend_limit", { mode: "number" }),
   label: text("label"),
+  // ── Melio AP suite (S0 / migration 0089): single-use vendor-locked cards ──
+  singleUse: boolean("single_use").default(false).notNull(),
+  authorizedAmountKobo: bigint("authorized_amount_kobo", { mode: "number" }),
+  lockedMerchantVendorId: varchar("locked_merchant_vendor_id"),
+  terminatedAt: timestamp("terminated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -1681,6 +1688,9 @@ export const consumerWalletTxns = pgTable("consumer_wallet_txns", {
   index("cwt_wallet_idx").on(t.walletId),
   index("cwt_user_idx").on(t.userId),
   index("cwt_created_idx").on(t.createdAt),
+  // Matches 0085_missing_prod_tables.sql: unique (wallet_id, reference) — idempotency
+  // guard so a retried wallet op can never record the same reference twice.
+  unique("consumer_wallet_txns_wallet_reference_unique").on(t.walletId, t.reference),
 ]);
 export type ConsumerWalletTxn = typeof consumerWalletTxns.$inferSelect;
 export type InsertConsumerWalletTxn = typeof consumerWalletTxns.$inferInsert;
@@ -1938,6 +1948,8 @@ export const usdcPayouts = pgTable("usdc_payouts", {
   index("up_status_idx").on(t.status),
   index("up_signature_idx").on(t.solanaSignature),
   index("up_workflow_idx").on(t.temporalWorkflowId),
+  // Matches 0087: merchant-supplied payout reference must not execute twice (partial — optional).
+  uniqueIndex("usdc_payouts_reference_unique").on(t.reference).where(sql`"reference" IS NOT NULL`),
 ]);
 export type USDCPayout = typeof usdcPayouts.$inferSelect;
 
@@ -2082,6 +2094,9 @@ export const kybVerifications = pgTable("kyb_verifications", {
   lastKnownCountry: text("last_known_country"),
   geoVelocityFlagged: boolean("geo_velocity_flagged").default(false),
   geoVelocityNote: text("geo_velocity_note"),
+  // Temporal KYB workflow tracking
+  temporalWorkflowId: text("temporal_workflow_id"),
+  temporalRunId: text("temporal_run_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2310,6 +2325,10 @@ export const invoices = pgTable("invoices", {
   paidAt: timestamp("paid_at"),
   paymentLinkUrl: text("payment_link_url"),
   notes: text("notes"),
+  // ── Melio AR suite (S0 / migration 0089): fee-choice + partial payments ──
+  feePolicy: varchar("fee_policy", { length: 32 }).default("merchant_absorbs"),
+  surchargeBps: integer("surcharge_bps").default(290),
+  allowPartial: boolean("allow_partial").default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2325,6 +2344,7 @@ export const invoicePayments = pgTable("invoice_payments", {
   amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
   method: text("method"),
   reference: text("reference"),
+  metadata: jsonb("metadata"),
   paidAt: timestamp("paid_at").defaultNow().notNull(),
 }, (t) => [index("ip_invoice_idx").on(t.invoiceId)]);
 export type InvoicePayment = typeof invoicePayments.$inferSelect;
@@ -2412,6 +2432,9 @@ export const taxWithholdingRecords = pgTable("tax_withholding_records", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   merchantId: text("merchant_id").notNull(),
   transactionId: text("transaction_id"),
+  // ── Melio AP suite (S0 / migration 0091): link WHT lines to bills/vendors ──
+  billId: text("bill_id"),
+  vendorId: varchar("vendor_id"),
   grossAmountKobo: bigint("gross_amount_kobo", { mode: "number" }).notNull(),
   taxAmountKobo: bigint("tax_amount_kobo", { mode: "number" }).default(0),
   netAmountKobo: bigint("net_amount_kobo", { mode: "number" }).notNull(),
@@ -2424,6 +2447,8 @@ export const taxWithholdingRecords = pgTable("tax_withholding_records", {
 }, (t) => [
   index("twr_merchant_idx").on(t.merchantId),
   index("twr_period_idx").on(t.period),
+  index("twr_bill_idx").on(t.billId),
+  index("twr_vendor_idx").on(t.vendorId),
 ]);
 export type TaxWithholdingRecord = typeof taxWithholdingRecords.$inferSelect;
 
@@ -3290,7 +3315,11 @@ export const usdcV2Transactions = pgTable("usdc_v2_transactions", {
   network: text("network").notNull().default("polygon"),
   status: text("status").notNull().default("confirmed"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [index("usdc_v2_tx_merchant_idx").on(t.merchantId)]);
+}, (t) => [
+  index("usdc_v2_tx_merchant_idx").on(t.merchantId),
+  // Matches 0087: on-chain tx hashes are globally unique (partial — NULL for off-chain rows).
+  uniqueIndex("usdc_v2_transactions_tx_hash_unique").on(t.txHash).where(sql`"tx_hash" IS NOT NULL`),
+]);
 export type UsdcV2Transaction = typeof usdcV2Transactions.$inferSelect;
 
 // ─── Wave 80: Multi-Currency Ledger ──────────────────────────────────────────
@@ -3871,7 +3900,7 @@ export const inviteCodeTypeEnum = pgEnum("invite_code_type", [
   "merchant", "partner", "admin", "consumer", "team_member",
 ]);
 export const inviteCodes = pgTable("invite_codes", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
   code: text("code").notNull().unique(),
   type: inviteCodeTypeEnum("type").notNull().default("merchant"),
   usesRemaining: integer("uses_remaining").notNull().default(1),
@@ -3957,6 +3986,67 @@ export const tenantFeeOverrides = pgTable("tenant_fee_overrides", {
   index("tenant_fee_type_idx").on(t.transactionType),
 ]);
 export type TenantFeeOverride = typeof tenantFeeOverrides.$inferSelect;
+
+// ── Partner Tenants (white-label tenant registry used by wave28/29/31 routers) ──
+export const partnerTenants = pgTable("partner_tenants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  email: text("email"),
+  country: text("country").default("NG"),
+  plan: text("plan").notNull().default("starter"),
+  status: text("status").notNull().default("active"),
+  logoUrl: text("logo_url"),
+  faviconUrl: text("favicon_url"),
+  primaryColor: text("primary_color").default("#6366f1"),
+  secondaryColor: text("secondary_color").default("#a78bfa"),
+  accentColor: text("accent_color").default("#8b5cf6"),
+  fontFamily: text("font_family").default("Inter"),
+  customDomain: text("custom_domain"),
+  inviteCode: text("invite_code"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("partner_tenants_status_idx").on(t.status),
+  index("partner_tenants_slug_idx").on(t.slug),
+  index("partner_tenants_custom_domain_idx").on(t.customDomain),
+]);
+export type PartnerTenant = typeof partnerTenants.$inferSelect;
+
+// ── Tenant Users (sub-users of a partner tenant) ─────────────────────────────
+export const tenantUsers = pgTable("tenant_users", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull().references(() => partnerTenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email").notNull(),
+  name: text("name"),
+  role: text("role").notNull().default("member"),
+  isActive: boolean("is_active").notNull().default(true),
+  invitedBy: text("invited_by"),
+  invitedAt: timestamp("invited_at"),
+  joinedAt: timestamp("joined_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("tenant_users_tenant_email_unique").on(t.tenantId, t.email),
+  index("tenant_users_tenant_idx").on(t.tenantId),
+  index("tenant_users_email_idx").on(t.email),
+]);
+export type TenantUser = typeof tenantUsers.$inferSelect;
+
+// ── Tenant Audit Logs ─────────────────────────────────────────────────────────
+export const tenantAuditLogs = pgTable("tenant_audit_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull().references(() => partnerTenants.id, { onDelete: "cascade" }),
+  action: text("action").notNull(),
+  actorEmail: text("actor_email"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_audit_logs_tenant_idx").on(t.tenantId),
+]);
+export type TenantAuditLog = typeof tenantAuditLogs.$inferSelect;
 
 // ── Tenant Usage Metrics ──────────────────────────────────────────────────────
 export const tenantUsageMetrics = pgTable("tenant_usage_metrics", {
@@ -4865,9 +4955,10 @@ export const velocityLimitConfigs = pgTable("velocity_limit_configs", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   merchantId: text("merchant_id").notNull(),
   channel: text("channel").notNull().default("all"),
-  limitType: text("limit_type").notNull(), // per_minute | per_hour | per_day | per_month
+  limitType: text("limit_type").notNull(), // count | amount | per_minute | per_hour | per_day | per_month
   maxCount: integer("max_count"),
   maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  windowSeconds: integer("window_seconds").notNull().default(3600),
   singleTxMaxKobo: bigint("single_tx_max_kobo", { mode: "number" }),
   currency: text("currency").notNull().default("NGN"),
   riskTier: text("risk_tier").notNull().default("standard"),
@@ -4888,10 +4979,14 @@ export type InsertVelocityLimitConfig = typeof velocityLimitConfigs.$inferInsert
 export const velocityBreaches = pgTable("velocity_breaches", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   merchantId: text("merchant_id").notNull(),
-  transactionId: text("transaction_id").notNull(),
+  transactionId: text("transaction_id"),
   limitConfigId: text("limit_config_id").notNull(),
-  breachType: text("breach_type").notNull(),
+  breachType: text("breach_type").notNull().default("limit_exceeded"),
   channel: text("channel").notNull(),
+  amountKobo: integer("amount_kobo").notNull().default(0),
+  userId: integer("user_id").notNull().default(0),
+  details: text("details"),
+  breachedAt: timestamp("breached_at").defaultNow(),
   currentCount: integer("current_count"),
   currentAmountKobo: bigint("current_amount_kobo", { mode: "number" }),
   limitCount: integer("limit_count"),
@@ -5273,6 +5368,8 @@ export const orders = pgTable("orders", {
   index("orders_consumer_idx").on(t.consumerId),
   index("orders_payment_intent_idx").on(t.paymentIntentId),
   index("orders_order_number_idx").on(t.orderNumber),
+  // Matches 0085:210 / 0087: idempotent checkout completion (ecommerce.ts).
+  uniqueIndex("orders_checkout_session_id_unique").on(t.checkoutSessionId),
 ]);
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
@@ -5435,3 +5532,1974 @@ export const hostedPaymentSessions = pgTable("hosted_payment_sessions", {
 ]);
 export type HostedPaymentSession = typeof hostedPaymentSessions.$inferSelect;
 export type InsertHostedPaymentSession = typeof hostedPaymentSessions.$inferInsert;
+
+// ─── Wave 221+ / NextHub / NIP / Saga / Settlement / Remittance (restored from 0080 snapshot truth) ───
+
+export const amlRules = pgTable("aml_rules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ruleName: text("rule_name").notNull(),
+  ruleCategory: text("rule_category").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  parameters: text("parameters").notNull(),
+  action: text("action").notNull().default("FLAG"),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveTo: timestamp("effective_to"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("aml_rules_rule_name_unique").on(t.ruleName),
+]);
+
+export const apiRateLimitRules = pgTable("api_rate_limit_rules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  limitPerMinute: integer("limit_per_minute").notNull().default(60),
+  limitPerHour: integer("limit_per_hour").notNull().default(1000),
+  limitPerDay: integer("limit_per_day").notNull().default(10000),
+  burstLimit: integer("burst_limit").notNull().default(10),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const auditLogs = pgTable("audit_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id"),
+  userId: text("user_id"),
+  action: text("action").notNull(),
+  resource: text("resource").notNull(),
+  resourceId: text("resource_id"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  requestBody: text("request_body"),
+  responseStatus: integer("response_status"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const cbdcAccounts = pgTable("cbdc_accounts", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  rail: varchar("rail", { length: 16 }).notNull(),
+  walletId: varchar("wallet_id", { length: 128 }).notNull(),
+  ownerId: varchar("owner_id", { length: 64 }).notNull(),
+  ownerType: varchar("owner_type", { length: 32 }).notNull(),
+  balance: doublePrecision("balance").notNull().default(0),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("cbdc_acc_rail_idx").on(t.rail),
+  index("cbdc_acc_owner_idx").on(t.ownerId),
+  index("cbdc_acc_wallet_idx").on(t.walletId),
+]);
+
+export const cbdcTransfers = pgTable("cbdc_transfers", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  rail: varchar("rail", { length: 16 }).notNull(),
+  senderWallet: varchar("sender_wallet", { length: 128 }).notNull(),
+  receiverWallet: varchar("receiver_wallet", { length: 128 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  narration: varchar("narration", { length: 256 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  railRef: varchar("rail_ref", { length: 128 }),
+  tigerBeetleRef: varchar("tiger_beetle_ref", { length: 128 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (t) => [
+  index("cbdc_tx_rail_idx").on(t.rail),
+  index("cbdc_tx_status_idx").on(t.status),
+]);
+
+export const complianceCheckResults = pgTable("compliance_check_results", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  checkType: text("check_type").notNull(),
+  checkName: text("check_name").notNull(),
+  score: integer("score").notNull().default(0),
+  maxScore: integer("max_score").notNull().default(100),
+  status: text("status").notNull().default("pending"),
+  findings: text("findings"),
+  recommendations: text("recommendations"),
+  evaluatedAt: timestamp("evaluated_at").defaultNow(),
+  nextEvaluationAt: timestamp("next_evaluation_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const costCentres = pgTable("cost_centres", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  domain: text("domain"),
+  budgetAmount: doublePrecision("budget_amount"),
+  spentAmount: doublePrecision("spent_amount").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const developerApiKeys = pgTable("developer_api_keys", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull(),
+  environment: text("environment").notNull().default("test"),
+  scopes: text("scopes").notNull().default("[]"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const developerWebhookDeliveries = pgTable("developer_webhook_deliveries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  webhookId: text("webhook_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  eventType: text("event_type").notNull(),
+  eventId: text("event_id"),
+  payload: text("payload").notNull(),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  durationMs: integer("duration_ms"),
+  attempt: integer("attempt").notNull().default(1),
+  status: text("status").notNull().default("pending"),
+  nextRetryAt: timestamp("next_retry_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const developerWebhooks = pgTable("developer_webhooks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  url: text("url").notNull(),
+  description: text("description"),
+  events: text("events").notNull().default("[]"),
+  signingSecret: text("signing_secret").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  retryPolicy: text("retry_policy").notNull().default("exponential"),
+  maxRetries: integer("max_retries").notNull().default(3),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const dfspFeeTiers = pgTable("dfsp_fee_tiers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  feeType: text("fee_type").notNull(),
+  tierModel: text("tier_model").notNull().default("flat"),
+  flatRateBps: integer("flat_rate_bps"),
+  minFeeKobo: integer("min_fee_kobo"),
+  maxFeeKobo: integer("max_fee_kobo"),
+  tierBands: text("tier_bands"),
+  volumeDiscountBands: text("volume_discount_bands"),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveTo: timestamp("effective_to"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const dfspOnboardingSessions = pgTable("dfsp_onboarding_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id"),
+  institutionName: text("institution_name").notNull(),
+  institutionType: text("institution_type").notNull(),
+  cbnLicenseNumber: text("cbn_license_number"),
+  cbnLicenseDocUrl: text("cbn_license_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  technicalContactEmail: text("technical_contact_email"),
+  fspopEndpoint: text("fspop_endpoint"),
+  tlsCertUrl: text("tls_cert_url"),
+  jwksUrl: text("jwks_url"),
+  settlementAccountNumber: text("settlement_account_number"),
+  settlementBankCode: text("settlement_bank_code"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(6),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const domainHealthSnapshots = pgTable("domain_health_snapshots", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  domain: text("domain").notNull(),
+  tps: doublePrecision("tps").notNull().default(0),
+  errorRate: doublePrecision("error_rate").notNull().default(0),
+  p50LatencyMs: integer("p50_latency_ms").notNull().default(0),
+  p95LatencyMs: integer("p95_latency_ms").notNull().default(0),
+  p99LatencyMs: integer("p99_latency_ms").notNull().default(0),
+  uptime: doublePrecision("uptime").notNull().default(100),
+  activeConnections: integer("active_connections").notNull().default(0),
+  queueDepth: integer("queue_depth").notNull().default(0),
+  status: text("status").notNull().default("healthy"),
+  snapshotAt: timestamp("snapshot_at").defaultNow(),
+});
+
+export const energyVendTransactions = pgTable("energy_vend_transactions", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  meterNumber: varchar("meter_number", { length: 32 }).notNull(),
+  disco: varchar("disco", { length: 16 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  customerFsp: varchar("customer_fsp", { length: 64 }).notNull(),
+  customerAccount: varchar("customer_account", { length: 64 }).notNull(),
+  token: varchar("token", { length: 24 }),
+  units: doublePrecision("units"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  discoRef: varchar("disco_ref", { length: 128 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  errorCode: varchar("error_code", { length: 64 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  vendedAt: timestamp("vended_at"),
+}, (t) => [
+  index("evt_meter_idx").on(t.meterNumber),
+  index("evt_disco_idx").on(t.disco),
+  index("evt_status_idx").on(t.status),
+]);
+
+export const feePostings = pgTable("fee_postings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: text("transfer_id").notNull(),
+  windowId: text("window_id"),
+  dfspId: text("dfsp_id").notNull(),
+  feeType: text("fee_type").notNull(),
+  feeCategory: text("fee_category").notNull().default("DEBIT"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
+  billedAt: timestamp("billed_at"),
+  invoiceId: text("invoice_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const g2pDisbursementBatches = pgTable("g2p_disbursement_batches", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  programType: varchar("program_type", { length: 32 }).notNull(),
+  programId: varchar("program_id", { length: 64 }).notNull(),
+  payerFsp: varchar("payer_fsp", { length: 64 }).notNull(),
+  payerAccount: varchar("payer_account", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  totalAmount: doublePrecision("total_amount").notNull(),
+  beneficiaryCount: integer("beneficiary_count").notNull(),
+  disbursedCount: integer("disbursed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  status: varchar("status", { length: 32 }).notNull().default("PENDING"),
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("g2p_program_idx").on(t.programType),
+  index("g2p_status_idx").on(t.status),
+]);
+
+export const healthcareClaims = pgTable("healthcare_claims", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  policyNumber: varchar("policy_number", { length: 64 }).notNull(),
+  beneficiaryId: varchar("beneficiary_id", { length: 64 }).notNull(),
+  beneficiaryName: varchar("beneficiary_name", { length: 128 }).notNull(),
+  providerId: varchar("provider_id", { length: 64 }).notNull(),
+  providerName: varchar("provider_name", { length: 128 }).notNull(),
+  claimType: varchar("claim_type", { length: 32 }).notNull(),
+  diagnosisCodes: text("diagnosis_codes").notNull().default("[]"),
+  procedureCodes: text("procedure_codes").notNull().default("[]"),
+  claimAmount: doublePrecision("claim_amount").notNull(),
+  approvedAmount: doublePrecision("approved_amount"),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  serviceDate: varchar("service_date", { length: 16 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("SUBMITTED"),
+  nhiaClaimRef: varchar("nhia_claim_ref", { length: 128 }),
+  adjudicationNotes: text("adjudication_notes"),
+  submittedBy: varchar("submitted_by", { length: 64 }),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  adjudicatedAt: timestamp("adjudicated_at"),
+  paidAt: timestamp("paid_at"),
+}, (t) => [
+  index("hc_status_idx").on(t.status),
+  index("hc_policy_idx").on(t.policyNumber),
+  index("hc_provider_idx").on(t.providerId),
+]);
+
+export const insurancePremiumPayments = pgTable("insurance_premium_payments", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  policyId: varchar("policy_id", { length: 64 }).notNull(),
+  policyNumber: varchar("policy_number", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  dueDate: varchar("due_date", { length: 16 }).notNull(),
+  paidAt: timestamp("paid_at"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  status: varchar("status", { length: 32 }).notNull().default("PENDING"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("ipp_policy_idx").on(t.policyId),
+  index("ipp_status_idx").on(t.status),
+  index("ipp_due_date_idx").on(t.dueDate),
+]);
+
+export const nexthubBeneficiaryRegistry = pgTable("nexthub_beneficiary_registry", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  fullName: text("full_name").notNull(),
+  nin: text("nin"),
+  bvn: text("bvn"),
+  phone: text("phone"),
+  email: text("email"),
+  bankAccount: text("bank_account"),
+  bankCode: text("bank_code"),
+  domains: text("domains").notNull().default("[]"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const nexthubBulkTransfers = pgTable("nexthub_bulk_transfers", {
+  id: serial("id").primaryKey(),
+  bulkTransferId: varchar("bulk_transfer_id", { length: 64 }).notNull(),
+  bulkQuoteId: varchar("bulk_quote_id", { length: 64 }),
+  payerFsp: varchar("payer_fsp", { length: 64 }).notNull(),
+  payeeFsp: varchar("payee_fsp", { length: 64 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull().default("RECEIVED"),
+  totalTransfers: integer("total_transfers").notNull().default(0),
+  completedTransfers: integer("completed_transfers").notNull().default(0),
+  failedTransfers: integer("failed_transfers").notNull().default(0),
+  expiration: timestamp("expiration"),
+  completedAt: timestamp("completed_at"),
+  errorCode: varchar("error_code", { length: 8 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("nexthub_bulk_transfers_bulk_transfer_id_unique").on(t.bulkTransferId),
+  index("nbt_state_idx").on(t.state),
+  index("nbt_payer_idx").on(t.payerFsp),
+  index("nbt_created_idx").on(t.createdAt),
+]);
+
+export const nexthubDfsps = pgTable("nexthub_dfsps", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  dfspType: text("dfsp_type").notNull().default("bank"),
+  country: text("country").notNull().default("NG"),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("ACTIVE"),
+  tigerBeetlePositionAccountId: text("tigerbeetle_position_account_id"),
+  tigerBeetleLiquidityAccountId: text("tigerbeetle_liquidity_account_id"),
+  liquidityLimitKobo: bigint("liquidity_limit_kobo", { mode: "number" }).notNull().default(0),
+  callbackUrl: text("callback_url"),
+  clientCertificateThumbprint: text("client_certificate_thumbprint"),
+  certificateExpiresAt: timestamp("certificate_expires_at"),
+  onboardedAt: timestamp("onboarded_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("nexthub_dfsps_dfsp_id_unique").on(t.dfspId),
+]);
+
+export const nexthubDomainQuotas = pgTable("nexthub_domain_quotas", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  domain: text("domain").notNull(),
+  dailyLimit: integer("daily_limit").notNull().default(10000),
+  monthlyLimit: integer("monthly_limit").notNull().default(250000),
+  currentDaily: integer("current_daily").notNull().default(0),
+  currentMonthly: integer("current_monthly").notNull().default(0),
+  rateLimitRpm: integer("rate_limit_rpm").notNull().default(120),
+  status: text("status").notNull().default("active"),
+  resetAt: timestamp("reset_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const nexthubFxRates = pgTable("nexthub_fx_rates", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency", { length: 8 }).notNull(),
+  targetCurrency: varchar("target_currency", { length: 8 }).notNull(),
+  rate: varchar("rate", { length: 32 }).notNull(),
+  provider: varchar("provider", { length: 64 }).notNull().default("nexthub-fx"),
+  validFrom: timestamp("valid_from").notNull(),
+  validTo: timestamp("valid_to").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("nfr_pair_idx").on(t.sourceCurrency, t.targetCurrency),
+  index("nfr_valid_idx").on(t.validFrom, t.validTo),
+]);
+
+export const nexthubInvoices = pgTable("nexthub_invoices", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  billingPeriodStart: timestamp("billing_period_start").notNull(),
+  billingPeriodEnd: timestamp("billing_period_end").notNull(),
+  totalSchemeFeesKobo: bigint("total_scheme_fees_kobo", { mode: "number" }).notNull().default(0),
+  totalInterchangeKobo: bigint("total_interchange_kobo", { mode: "number" }).notNull().default(0),
+  totalFxMarkupKobo: bigint("total_fx_markup_kobo", { mode: "number" }).notNull().default(0),
+  totalPenaltiesKobo: bigint("total_penalties_kobo", { mode: "number" }).notNull().default(0),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("DRAFT"),
+  pdfUrl: text("pdf_url"),
+  tigerBeetleInvoiceTransferId: text("tigerbeetle_invoice_transfer_id"),
+  issuedAt: timestamp("issued_at"),
+  dueAt: timestamp("due_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const nexthubLiquidityWindows = pgTable("nexthub_liquidity_windows", {
+  windowId: text("window_id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  openedAt: timestamp("opened_at").defaultNow(),
+  closesAt: timestamp("closes_at").notNull(),
+  status: text("status").notNull().default("OPEN"),
+});
+
+export const nexthubOracles = pgTable("nexthub_oracles", {
+  id: serial("id").primaryKey(),
+  oracleId: varchar("oracle_id", { length: 64 }).notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  partyIdType: varchar("party_id_type", { length: 32 }).notNull(),
+  currency: varchar("currency", { length: 8 }),
+  endpoint: varchar("endpoint", { length: 512 }).notNull(),
+  isDefault: integer("is_default").notNull().default(0),
+  isActive: integer("is_active").notNull().default(1),
+  healthStatus: varchar("health_status", { length: 16 }).notNull().default("UNKNOWN"),
+  lastHealthCheck: timestamp("last_health_check"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("nexthub_oracles_oracle_id_unique").on(t.oracleId),
+  index("no_party_id_type_idx").on(t.partyIdType),
+  index("no_active_idx").on(t.isActive),
+]);
+
+export const nexthubParticipantLimits = pgTable("nexthub_participant_limits", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  netDebitCap: bigint("net_debit_cap", { mode: "number" }).notNull(),
+  liquidityCover: bigint("liquidity_cover", { mode: "number" }).notNull().default(0),
+  positionLimit: bigint("position_limit", { mode: "number" }),
+  alertThreshold: doublePrecision("alert_threshold").notNull().default(0.8),
+  suspendOnBreach: boolean("suspend_on_breach").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+export const nexthubParticipantPositions = pgTable("nexthub_participant_positions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  currentValue: bigint("current_value", { mode: "number" }).notNull().default(0),
+  reservedValue: bigint("reserved_value", { mode: "number" }).notNull().default(0),
+  availableValue: bigint("available_value", { mode: "number" }).notNull().default(0),
+  ndcUtilisation: doublePrecision("ndc_utilisation").notNull().default(0),
+  positionStatus: text("position_status").notNull().default("OK"),
+  lastTransferId: text("last_transfer_id"),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+});
+
+export const nexthubParticipants = pgTable("nexthub_participants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  dfspId: text("dfsp_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("PENDING"),
+  schemeType: text("scheme_type").notNull().default("FSPIOP"),
+  endpointUrl: text("endpoint_url").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("nexthub_participants_dfsp_id_unique").on(t.dfspId),
+]);
+
+export const nexthubPispConsents = pgTable("nexthub_pisp_consents", {
+  id: serial("id").primaryKey(),
+  consentId: varchar("consent_id", { length: 64 }).notNull(),
+  consentRequestId: varchar("consent_request_id", { length: 64 }),
+  consumerId: varchar("consumer_id", { length: 64 }).notNull().default(""),
+  pispId: varchar("pisp_id", { length: 64 }).notNull(),
+  dfspId: varchar("dfsp_id", { length: 64 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull().default("REQUESTED"),
+  scopes: text("scopes").notNull().default("[]"),
+  authChannels: text("auth_channels").default("[]"),
+  credential: text("credential"),
+  expiresAt: timestamp("expires_at"),
+  revokedAt: timestamp("revoked_at"),
+  revokeReason: varchar("revoke_reason", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("nexthub_pisp_consents_consent_id_unique").on(t.consentId),
+  index("npc_consumer_idx").on(t.consumerId),
+  index("npc_pisp_idx").on(t.pispId),
+  index("npc_state_idx").on(t.state),
+]);
+
+export const nexthubRegulators = pgTable("nexthub_regulators", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  regulatorCode: text("regulator_code").notNull(),
+  regulatorName: text("regulator_name").notNull(),
+  jurisdiction: text("jurisdiction").notNull().default("NG"),
+  regulatoryType: text("regulatory_type").notNull().default("central_bank"),
+  contactEmail: text("contact_email"),
+  reportingFrequency: text("reporting_frequency").notNull().default("daily"),
+  dataAccessLevel: text("data_access_level").notNull().default("aggregate"),
+  apiEndpoint: text("api_endpoint"),
+  webhookUrl: text("webhook_url"),
+  status: text("status").notNull().default("active"),
+  onboardedAt: timestamp("onboarded_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("nexthub_regulators_regulator_code_unique").on(t.regulatorCode),
+]);
+
+export const nexthubSecurityEvents = pgTable("nexthub_security_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  eventType: text("event_type").notNull(),
+  severity: text("severity").notNull().default("MEDIUM"),
+  dfspId: text("dfsp_id"),
+  sourceIp: text("source_ip"),
+  description: text("description").notNull(),
+  metadata: text("metadata"),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  acknowledgedBy: text("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const nexthubTransfers = pgTable("nexthub_transfers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  payerFspId: text("payer_fsp_id").notNull(),
+  payeeFspId: text("payee_fsp_id").notNull(),
+  payerPartyId: text("payer_party_id").notNull(),
+  payeePartyId: text("payee_party_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  state: text("state").notNull().default("RECEIVED"),
+  ilpPacket: text("ilp_packet"),
+  condition: text("condition"),
+  fulfilment: text("fulfilment"),
+  fraudScore: real("fraud_score"),
+  schemeFeeKobo: bigint("scheme_fee_kobo", { mode: "number" }).default(0),
+  interchangeFeeKobo: bigint("interchange_fee_kobo", { mode: "number" }).default(0),
+  fxRate: real("fx_rate"),
+  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
+  tigerBeetleFeeId: text("tigerbeetle_fee_id"),
+  windowId: text("window_id"),
+  expirationTime: timestamp("expiration_time"),
+  errorCode: text("error_code"),
+  errorDescription: text("error_description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const nipNameEnquiryCache = pgTable("nip_name_enquiry_cache", {
+  id: serial("id").primaryKey(),
+  bankNipCode: text("bank_nip_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  bankVerificationNumber: text("bank_verification_number"),
+  kycLevel: text("kyc_level"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("nip_name_enquiry_cache_key_idx").on(t.bankNipCode, t.accountNumber),
+  index("nip_name_enquiry_cache_expires_idx").on(t.expiresAt),
+]);
+
+export const nipVirtualAccounts = pgTable("nip_virtual_accounts", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  paymentLinkId: text("payment_link_id"),
+  checkoutSessionId: text("checkout_session_id"),
+  bankNipCode: text("bank_nip_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  amountExpected: integer("amount_expected"),
+  currency: text("currency").notNull().default("NGN"),
+  reference: text("reference").notNull(),
+  status: text("status").notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  paidAmount: integer("paid_amount"),
+  nibssReference: text("nibss_reference"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("nip_virtual_accounts_reference_unique").on(t.reference),
+  index("nip_va_merchant_idx").on(t.merchantId),
+  index("nip_va_reference_idx").on(t.reference),
+  index("nip_va_status_idx").on(t.status),
+  index("nip_va_expires_idx").on(t.expiresAt),
+]);
+
+export const pispOnboardingSessions = pgTable("pisp_onboarding_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  pispId: text("pisp_id"),
+  companyName: text("company_name").notNull(),
+  cbnLicenseNumber: text("cbn_license_number"),
+  cbnLicenseDocUrl: text("cbn_license_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  redirectUrls: text("redirect_urls"),
+  webhookUrl: text("webhook_url"),
+  consentScopeRequested: text("consent_scope_requested"),
+  businessDescription: text("business_description"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(5),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const posOperatorOnboardingSessions = pgTable("pos_operator_onboarding_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id"),
+  operatorName: text("operator_name").notNull(),
+  ptspCode: text("ptsp_code"),
+  terminalCount: integer("terminal_count").notNull().default(1),
+  deploymentLocations: text("deployment_locations"),
+  nibssApprovalDocUrl: text("nibss_approval_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(4),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const pspOnboardingSessions = pgTable("psp_onboarding_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  pspId: text("psp_id"),
+  companyName: text("company_name").notNull(),
+  pspType: text("psp_type").notNull().default("acquirer"),
+  cbnLicenseNumber: text("cbn_license_number"),
+  pcidssLevel: text("pcidss_level"),
+  pcidssDocUrl: text("pcidss_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  settlementBankCode: text("settlement_bank_code"),
+  merchantCategoryCodesAllowed: text("merchant_category_codes_allowed"),
+  maxTransactionAmount: doublePrecision("max_transaction_amount"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(5),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const reconciliationExceptions = pgTable("reconciliation_exceptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowId: text("window_id").notNull(),
+  transferId: text("transfer_id"),
+  dfspId: text("dfsp_id"),
+  breakType: text("break_type").notNull(),
+  severity: text("severity").notNull().default("MEDIUM"),
+  status: text("status").notNull().default("OPEN"),
+  hubAmountKobo: bigint("hub_amount_kobo", { mode: "number" }),
+  railAmountKobo: bigint("rail_amount_kobo", { mode: "number" }),
+  discrepancyAmountKobo: bigint("discrepancy_amount_kobo", { mode: "number" }),
+  currency: text("currency").notNull().default("NGN"),
+  description: text("description"),
+  resolutionNotes: text("resolution_notes"),
+  autoResolveSlaMinutes: integer("auto_resolve_sla_minutes"),
+  resolvedAt: timestamp("resolved_at"),
+  escalatedAt: timestamp("escalated_at"),
+  assignedTo: text("assigned_to"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const regulatorMagicTokens = pgTable("regulator_magic_tokens", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  regulatorId: text("regulator_id").notNull(),
+  email: text("email").notNull(),
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("regulator_magic_tokens_token_unique").on(t.token),
+]);
+
+export const regulatorSessions = pgTable("regulator_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  regulatorId: text("regulator_id").notNull(),
+  email: text("email").notNull(),
+  sessionToken: text("session_token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("regulator_sessions_session_token_unique").on(t.sessionToken),
+]);
+
+export const remittanceCorridors = pgTable("remittance_corridors", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  fromCurrency: varchar("from_currency", { length: 8 }).notNull(),
+  toCurrency: varchar("to_currency", { length: 8 }).notNull(),
+  fromCountry: varchar("from_country", { length: 4 }).notNull(),
+  toCountry: varchar("to_country", { length: 4 }).notNull(),
+  exchangeRate: doublePrecision("exchange_rate").notNull(),
+  fee: doublePrecision("fee").notNull().default(0),
+  feeType: varchar("fee_type", { length: 16 }).notNull().default("FLAT"),
+  minAmount: doublePrecision("min_amount").notNull().default(100),
+  maxAmount: doublePrecision("max_amount").notNull().default(5000000),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("rc_from_to_idx").on(t.fromCurrency, t.toCurrency),
+  index("rc_active_idx").on(t.isActive),
+]);
+
+export const remittanceTransfers = pgTable("remittance_transfers", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  corridorId: varchar("corridor_id", { length: 64 }).notNull(),
+  senderFsp: varchar("sender_fsp", { length: 64 }).notNull(),
+  senderAccount: varchar("sender_account", { length: 64 }).notNull(),
+  receiverFsp: varchar("receiver_fsp", { length: 64 }).notNull(),
+  receiverAccount: varchar("receiver_account", { length: 64 }).notNull(),
+  sendAmount: doublePrecision("send_amount").notNull(),
+  sendCurrency: varchar("send_currency", { length: 8 }).notNull(),
+  receiveAmount: doublePrecision("receive_amount"),
+  receiveCurrency: varchar("receive_currency", { length: 8 }),
+  exchangeRate: doublePrecision("exchange_rate"),
+  fee: doublePrecision("fee"),
+  receiverName: varchar("receiver_name", { length: 128 }).notNull(),
+  narration: varchar("narration", { length: 256 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  railRef: varchar("rail_ref", { length: 128 }),
+  travelRuleRef: varchar("travel_rule_ref", { length: 128 }),
+  riskScore: integer("risk_score"),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (t) => [
+  index("rt_status_idx").on(t.status),
+  index("rt_corridor_idx").on(t.corridorId),
+]);
+
+export const sagaInstances = pgTable("saga_instances", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sagaType: text("saga_type").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  status: text("status").notNull().default("running"),
+  currentStep: integer("current_step").notNull().default(0),
+  totalSteps: integer("total_steps").notNull().default(5),
+  steps: jsonb("steps").notNull().default(sql`'[]'::jsonb`),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  workflowId: text("workflow_id"),
+  runId: text("run_id"),
+});
+
+export const scfInvoices = pgTable("scf_invoices", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tokenId: varchar("token_id", { length: 64 }).notNull(),
+  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull(),
+  supplierId: varchar("supplier_id", { length: 64 }).notNull(),
+  supplierFsp: varchar("supplier_fsp", { length: 64 }).notNull(),
+  supplierAccount: varchar("supplier_account", { length: 64 }).notNull(),
+  buyerId: varchar("buyer_id", { length: 64 }).notNull(),
+  buyerFsp: varchar("buyer_fsp", { length: 64 }).notNull(),
+  buyerAccount: varchar("buyer_account", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  dueDate: varchar("due_date", { length: 16 }).notNull(),
+  discountRate: doublePrecision("discount_rate"),
+  discountAmount: doublePrecision("discount_amount"),
+  netAmount: doublePrecision("net_amount"),
+  status: varchar("status", { length: 32 }).notNull().default("SUBMITTED"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
+}, (t) => [
+  index("scf_status_idx").on(t.status),
+  index("scf_supplier_idx").on(t.supplierId),
+  index("scf_buyer_idx").on(t.buyerId),
+]);
+
+export const settlementBanks = pgTable("settlement_banks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  bankCode: text("bank_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  nipCode: text("nip_code"),
+  swiftCode: text("swift_code"),
+  cbnLicenseNumber: text("cbn_license_number"),
+  settlementAccountNumber: text("settlement_account_number"),
+  settlementAccountName: text("settlement_account_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  status: text("status").notNull().default("active"),
+  isRtgsEnabled: boolean("is_rtgs_enabled").notNull().default(false),
+  isNipEnabled: boolean("is_nip_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("settlement_banks_bank_code_unique").on(t.bankCode),
+]);
+
+export const settlementNetPositions = pgTable("settlement_net_positions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowId: text("window_id").notNull(),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  netPositionKobo: bigint("net_position_kobo", { mode: "number" }).notNull().default(0),
+  totalDebitsKobo: bigint("total_debits_kobo", { mode: "number" }).notNull().default(0),
+  totalCreditsKobo: bigint("total_credits_kobo", { mode: "number" }).notNull().default(0),
+  transferCount: integer("transfer_count").notNull().default(0),
+  tigerBeetleAccountId: text("tigerbeetle_account_id"),
+  settlementInstruction: text("settlement_instruction"),
+  settledAt: timestamp("settled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  foreignKey({ columns: [t.windowId], foreignColumns: [settlementWindows.id], name: "settlement_net_positions_window_id_settlement_windows_id_fk" }),
+]);
+
+export const settlementWindows = pgTable("settlement_windows", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowType: text("window_type").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  currency: text("currency").notNull().default("NGN"),
+  openedAt: timestamp("opened_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  settledAt: timestamp("settled_at"),
+  totalTransfers: integer("total_transfers").notNull().default(0),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
+  settlementReportUrl: text("settlement_report_url"),
+  railReference: text("rail_reference"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const transferDisputes = pgTable("transfer_disputes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: text("transfer_id").notNull(),
+  initiatedByDfspId: text("initiated_by_dfsp_id").notNull(),
+  respondingDfspId: text("responding_dfsp_id"),
+  disputeType: text("dispute_type").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  reason: text("reason").notNull(),
+  evidence: text("evidence"),
+  resolution: text("resolution"),
+  resolutionNotes: text("resolution_notes"),
+  penaltyAmountKobo: bigint("penalty_amount_kobo", { mode: "number" }).default(0),
+  reversalTransferId: text("reversal_transfer_id"),
+  tigerBeetlePenaltyTransferId: text("tigerbeetle_penalty_transfer_id"),
+  slaDeadline: timestamp("sla_deadline"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── Mojaloop FSPIOP bridge tables (new — no prior migration) ────────────────
+
+export const mojaloopParties = pgTable("mojaloop_parties", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  partyIdType: text("party_id_type").notNull(), // MSISDN | ACCOUNT_ID | EMAIL | ...
+  partyIdentifier: text("party_identifier").notNull(),
+  fspId: text("fsp_id"),
+  displayName: text("display_name"),
+  lookupStatus: text("lookup_status").notNull().default("found"),
+  rawResponse: text("raw_response"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("mojaloop_parties_merchant_party_unique").on(t.merchantId, t.partyIdentifier),
+  index("mojaloop_parties_merchant_idx").on(t.merchantId),
+]);
+
+export const mojaloopQuotes = pgTable("mojaloop_quotes", {
+  id: serial("id").primaryKey(),
+  quoteId: text("quote_id").notNull().unique(),
+  merchantId: text("merchant_id").notNull(),
+  payerIdType: text("payer_id_type").notNull(),
+  payerIdValue: text("payer_id_value").notNull(),
+  payeeIdType: text("payee_id_type").notNull(),
+  payeeIdValue: text("payee_id_value").notNull(),
+  amount: integer("amount").notNull(), // minor units
+  currency: text("currency").notNull(),
+  ilpPacket: text("ilp_packet"),
+  condition: text("condition"),
+  expiration: timestamp("expiration"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("mojaloop_quotes_merchant_idx").on(t.merchantId),
+]);
+
+export const mojaloopTransfers = pgTable("mojaloop_transfers", {
+  id: serial("id").primaryKey(),
+  transferId: text("transfer_id").notNull().unique(),
+  quoteId: text("quote_id"),
+  merchantId: text("merchant_id").notNull(),
+  payerFspId: text("payer_fsp_id"),
+  payeeFspId: text("payee_fsp_id"),
+  amount: integer("amount").notNull(), // minor units
+  currency: text("currency").notNull(),
+  transferState: text("transfer_state").notNull().default("RESERVED"), // RESERVED | COMMITTED | ABORTED
+  ilpPacket: text("ilp_packet"),
+  condition: text("condition"),
+  expiration: timestamp("expiration"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("mojaloop_transfers_merchant_idx").on(t.merchantId),
+  index("mojaloop_transfers_state_idx").on(t.transferState),
+]);
+
+// ─── Proxy observability alert tables (new — no prior migration) ─────────────
+
+export const alertThresholds = pgTable("alert_thresholds", {
+  id: serial("id").primaryKey(),
+  ownerOpenId: text("owner_open_id").notNull().unique(),
+  lagWarn: integer("lag_warn").notNull().default(5),
+  lagCritical: integer("lag_critical").notNull().default(20),
+  memWarnPct: integer("mem_warn_pct").notNull().default(70),
+  memCriticalPct: integer("mem_critical_pct").notNull().default(85),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const namedAlertRules = pgTable("named_alert_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  metric: text("metric").notNull(), // kafka_lag | redis_memory | psp_error_rate
+  target: text("target").notNull(), // consumer group name / redis node role / PSP name
+  severity: text("severity").notNull().default("warn"), // warn | critical
+  threshold: doublePrecision("threshold").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const breachEvents = pgTable("breach_events", {
+  id: serial("id").primaryKey(),
+  metric: text("metric").notNull(),
+  severity: text("severity").notNull(), // warn | critical
+  message: text("message").notNull(),
+  value: doublePrecision("value").notNull(),
+  threshold: doublePrecision("threshold").notNull(),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  detectedAt: timestamp("detected_at").notNull().defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+}, (t) => [
+  index("breach_events_detected_idx").on(t.detectedAt),
+  index("breach_events_ack_idx").on(t.acknowledged),
+]);
+
+// ─── Mobile money (new — no prior migration) ─────────────────────────────────
+
+export const mobileMoneyProviders = pgTable("mobile_money_providers", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  country: text("country").notNull(),
+  currency: text("currency").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  supportsCollection: boolean("supports_collection").notNull().default(true),
+  supportsDisbursement: boolean("supports_disbursement").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id"),
+  providerCode: text("provider_code").notNull(),
+  type: text("type").notNull(), // collection | disbursement
+  reference: text("reference").notNull().unique(),
+  externalReference: text("external_reference"),
+  customerMsisdn: text("customer_msisdn"),
+  customerName: text("customer_name"),
+  amountKobo: integer("amount_kobo").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"), // pending | processing | successful | failed | expired | cancelled
+  ussdCode: text("ussd_code"),
+  paymentPromptSentAt: timestamp("payment_prompt_sent_at"),
+  expiresAt: timestamp("expires_at"),
+  completedAt: timestamp("completed_at"),
+  metadata: text("metadata"), // JSON string
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("mm_txn_merchant_idx").on(t.merchantId),
+  index("mm_txn_status_idx").on(t.status),
+]);
+
+// ─── POS terminals (new — no prior migration) ────────────────────────────────
+
+export const terminals = pgTable("terminals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id"),
+  serialNumber: text("serial_number").notNull().unique(),
+  model: text("model"),
+  label: text("label"),
+  location: text("location"),
+  status: text("status").notNull().default("inactive"), // inactive | active | suspended | decommissioned
+  firmwareVersion: text("firmware_version"),
+  ipAddress: text("ip_address"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("terminals_merchant_idx").on(t.merchantId),
+]);
+
+export const terminalTransactions = pgTable("terminal_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  terminalId: text("terminal_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  reference: text("reference").notNull().unique(),
+  type: text("type").notNull(), // sale | refund | void | pre_auth | completion
+  paymentMethod: text("payment_method"),
+  cardBrand: text("card_brand"),
+  cardLast4: text("card_last4"),
+  amountKobo: integer("amount_kobo").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"), // pending | approved | declined | voided | refunded
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("terminal_txn_terminal_idx").on(t.terminalId),
+  index("terminal_txn_merchant_idx").on(t.merchantId),
+]);
+
+// ─── Wave 27–31 Feature Tables (0084_missing_feature_tables) ─────────────────
+// Column sets derived from actual production usage in server/wave27Router.ts,
+// wave28Router.ts, wave29Router.ts, wave30Router.ts, wave31Router.ts,
+// routers.ts, wave34Router.ts and subdomainMiddleware.ts.
+
+// ── KYB state machine transitions (wave30Router.kybStateMachine) ─────────────
+export const kybStateTransitions = pgTable("kyb_state_transitions", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  merchantId: integer("merchant_id"),
+  fromState: text("from_state"),
+  toState: text("to_state"),
+  triggerEvent: text("trigger_event"),
+  actorId: integer("actor_id"),
+  actor: text("actor"),
+  reason: text("reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type KybStateTransition = typeof kybStateTransitions.$inferSelect;
+
+// ── SLA metrics (wave29Router.sla, subdomainMiddleware) ───────────────────────
+export const slaMetrics = pgTable("sla_metrics", {
+  id: serial("id").primaryKey(),
+  tenantId: text("tenant_id"),
+  serviceName: text("service_name").notNull(),
+  metricDate: date("metric_date"),
+  uptimePct: numeric("uptime_pct"),
+  avgLatencyMs: integer("avg_latency_ms"),
+  p99LatencyMs: integer("p99_latency_ms"),
+  errorRatePct: numeric("error_rate_pct"),
+  incidentCount: integer("incident_count").default(0),
+  status: text("status"),
+  responseTimeMs: integer("response_time_ms"),
+  message: text("message"),
+  recordedAt: timestamp("recorded_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  unique("sla_metrics_tenant_service_date_unique").on(t.tenantId, t.serviceName, t.metricDate),
+]);
+export type SlaMetric = typeof slaMetrics.$inferSelect;
+
+// ── Payout batches (wave27Router.payoutApproval) ─────────────────────────────
+export const payoutBatches = pgTable("payout_batches", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }),
+  totalAmount: numeric("total_amount"),
+  payoutCount: integer("payout_count"),
+  count: integer("count"),
+  currency: text("currency").default("NGN"),
+  status: text("status").notNull().default("pending_approval"),
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  approverNote: text("approver_note"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PayoutBatch = typeof payoutBatches.$inferSelect;
+
+// ── FX hedge positions (wave27Router.fxHedging, wave31Router.fxAutoHedge) ─────
+export const fxHedgePositions = pgTable("fx_hedge_positions", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  reference: text("reference"),
+  positionId: text("position_id"),
+  merchantId: text("merchant_id"),
+  baseCurrency: text("base_currency"),
+  quoteCurrency: text("quote_currency"),
+  currencyPair: text("currency_pair"),
+  notionalAmount: numeric("notional_amount"),
+  hedgeAmount: numeric("hedge_amount"),
+  hedgeRate: numeric("hedge_rate"),
+  expiryDate: text("expiry_date"),
+  hedgeType: text("hedge_type"),
+  direction: text("direction").default("buy"),
+  status: text("status").default("active"),
+  openedBy: integer("opened_by"),
+  openedAt: timestamp("opened_at").defaultNow(),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type FxHedgePosition = typeof fxHedgePositions.$inferSelect;
+
+// ── BNPL applications (wave27Router.bnplUnderwriting, wave28/29) ──────────────
+export const bnplApplications = pgTable("bnpl_applications", {
+  id: serial("id").primaryKey(),
+  consumerId: text("consumer_id").notNull(),
+  userId: text("user_id"),
+  planId: text("plan_id"),
+  requestedLimit: numeric("requested_limit"),
+  approvedLimit: numeric("approved_limit"),
+  requestedAmount: numeric("requested_amount"),
+  purpose: text("purpose"),
+  currency: text("currency").default("NGN"),
+  monthlyIncome: numeric("monthly_income"),
+  employmentStatus: text("employment_status"),
+  bvn: text("bvn"),
+  score: numeric("score"),
+  creditScore: numeric("credit_score"),
+  status: text("status").default("pending"),
+  decisionReason: text("decision_reason"),
+  repaymentMonths: integer("repayment_months"),
+  interestRate: numeric("interest_rate"),
+  principalAmount: numeric("principal_amount"),
+  termMonths: integer("term_months"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("bnpl_applications_consumer_id_unique").on(t.consumerId),
+]);
+export type BnplApplication = typeof bnplApplications.$inferSelect;
+
+// ── Feature-flag exposure events (wave27Router.flagExposure) ──────────────────
+export const flagExposureEvents = pgTable("flag_exposure_events", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  flagKey: text("flag_key").notNull(),
+  userId: text("user_id"),
+  tenantId: text("tenant_id"),
+  variant: text("variant").default("control"),
+  converted: boolean("converted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FlagExposureEvent = typeof flagExposureEvents.$inferSelect;
+
+// ── USSD menu builder (wave31Router.ussdMenuBuilder) ──────────────────────────
+export const ussdMenus = pgTable("ussd_menus", {
+  id: serial("id").primaryKey(),
+  menuCode: text("menu_code").notNull(),
+  title: text("title").notNull(),
+  parentId: integer("parent_id"),
+  actionType: text("action_type"),
+  actionPayload: jsonb("action_payload"),
+  options: jsonb("options"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type UssdMenu = typeof ussdMenus.$inferSelect;
+
+// ── Tenant API keys (wave29Router.tenantApiKey) ───────────────────────────────
+export const tenantApiKeys = pgTable("tenant_api_keys", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tenantId: text("tenant_id").notNull(),
+  name: text("name"),
+  keyPrefix: text("key_prefix"),
+  keyHash: text("key_hash"),
+  permissions: integer("permissions").notNull().default(1),
+  scopes: text("scopes").array(),
+  environment: text("environment").default("production"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TenantApiKey = typeof tenantApiKeys.$inferSelect;
+
+// ── Payout approval workflows (wave30/31 payoutApproval routers) ──────────────
+export const payoutApprovalWorkflows = pgTable("payout_approval_workflows", {
+  id: serial("id").primaryKey(),
+  payoutId: text("payout_id"),
+  merchantId: text("merchant_id"),
+  workflowStep: text("workflow_step"),
+  approverEmail: text("approver_email"),
+  approverId: integer("approver_id"),
+  requestedBy: text("requested_by"),
+  amount: numeric("amount"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  currency: text("currency").default("NGN"),
+  riskScore: numeric("risk_score"),
+  status: text("status").notNull().default("pending_approval"),
+  notes: text("notes"),
+  approvalNotes: text("approval_notes"),
+  rejectionReason: text("rejection_reason"),
+  approvedBy: integer("approved_by"),
+  rejectedBy: integer("rejected_by"),
+  autoApproved: boolean("auto_approved").notNull().default(false),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PayoutApprovalWorkflow = typeof payoutApprovalWorkflows.$inferSelect;
+
+// ── Middleware health alerts (wave31Router.middlewareHealthAlerts) ────────────
+export const middlewareHealthAlerts = pgTable("middleware_health_alerts", {
+  id: serial("id").primaryKey(),
+  service: text("service"),
+  serviceName: text("service_name"),
+  alertType: text("alert_type"),
+  severity: text("severity").notNull().default("info"),
+  message: text("message"),
+  errorRate: numeric("error_rate"),
+  latencyP99Ms: integer("latency_p99_ms"),
+  status: text("status").notNull().default("open"),
+  resolved: boolean("resolved").notNull().default(false),
+  acknowledgedBy: integer("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type MiddlewareHealthAlert = typeof middlewareHealthAlerts.$inferSelect;
+
+// ── Loyalty tier configs (wave28Router.loyaltyTiers) ──────────────────────────
+export const loyaltyTierConfigs = pgTable("loyalty_tier_configs", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tierName: text("tier_name").notNull(),
+  minPoints: integer("min_points").notNull().default(0),
+  maxPoints: integer("max_points"),
+  cashbackRate: numeric("cashback_rate").notNull().default("0.5"),
+  bonusMultiplier: numeric("bonus_multiplier").notNull().default("1.0"),
+  perksDescription: text("perks_description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("loyalty_tier_configs_tier_name_unique").on(t.tierName),
+]);
+export type LoyaltyTierConfig = typeof loyaltyTierConfigs.$inferSelect;
+
+// ── Dispute SLA tracking (wave31Router.disputeSla) ────────────────────────────
+export const disputeSlaTracking = pgTable("dispute_sla_tracking", {
+  id: serial("id").primaryKey(),
+  disputeId: text("dispute_id"),
+  slaType: text("sla_type"),
+  targetHours: integer("target_hours").default(72),
+  startedAt: timestamp("started_at").defaultNow(),
+  deadlineAt: timestamp("deadline_at"),
+  completedAt: timestamp("completed_at"),
+  breached: boolean("breached").notNull().default(false),
+  breachReason: text("breach_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type DisputeSlaTracking = typeof disputeSlaTracking.$inferSelect;
+
+// ── Billing cron runs (wave31Router.billingCron) ──────────────────────────────
+export const billingCronRuns = pgTable("billing_cron_runs", {
+  id: serial("id").primaryKey(),
+  runType: text("run_type"),
+  tenantId: integer("tenant_id"),
+  status: text("status").notNull().default("running"),
+  tenantsProcessed: integer("tenants_processed").default(0),
+  invoicesGenerated: integer("invoices_generated").default(0),
+  totalAmount: numeric("total_amount").default("0"),
+  errors: integer("errors").default(0),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BillingCronRun = typeof billingCronRuns.$inferSelect;
+
+// ── Plan limits (routers.ts GNN threshold, wave34Router, seed-wave32) ─────────
+export const planLimits = pgTable("plan_limits", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  plan: text("plan").notNull(),
+  planId: text("plan_id"),
+  name: text("name"),
+  maxApiCallsPerMonth: integer("max_api_calls_per_month").notNull().default(0),
+  maxTxVolumeUsdPerMonth: bigint("max_tx_volume_usd_per_month", { mode: "number" }).notNull().default(0),
+  maxUsers: integer("max_users").notNull().default(0),
+  maxCorridors: integer("max_corridors").notNull().default(0),
+  maxWebhooks: integer("max_webhooks").notNull().default(0),
+  maxApiKeys: integer("max_api_keys").notNull().default(0),
+  priceUsdPerMonth: numeric("price_usd_per_month").notNull().default("0"),
+  priceKobo: bigint("price_kobo", { mode: "number" }),
+  gnnThresholdKobo: bigint("gnn_threshold_kobo", { mode: "number" }),
+  features: jsonb("features"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("plan_limits_plan_unique").on(t.plan),
+]);
+export type PlanLimit = typeof planLimits.$inferSelect;
+
+// ── Webhook failure alerts (wave25 tests, drizzle/seed-extension.ts) ──────────
+export const webhookFailureAlerts = pgTable("webhook_failure_alerts", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  merchantId: text("merchant_id"),
+  webhookId: text("webhook_id"),
+  failureCount: integer("failure_count").default(0),
+  lastError: text("last_error"),
+  lastAttemptedAt: timestamp("last_attempted_at"),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type WebhookFailureAlert = typeof webhookFailureAlerts.$inferSelect;
+
+// ── Middleware health logs (middleware health monitoring fixtures) ────────────
+export const middlewareHealthLogs = pgTable("middleware_health_logs", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  service: text("service").notNull(),
+  status: text("status").notNull().default("up"),
+  latencyMs: integer("latency_ms").default(0),
+  checkedAt: timestamp("checked_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MiddlewareHealthLog = typeof middlewareHealthLogs.$inferSelect;
+
+// ── FX live rates (FX hedging dashboard fixtures) ─────────────────────────────
+export const fxLiveRates = pgTable("fx_live_rates", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  pair: text("pair").notNull(),
+  rate: numeric("rate").notNull(),
+  source: text("source"),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FxLiveRate = typeof fxLiveRates.$inferSelect;
+
+// ── BNPL delinquency cases (wave31 delinquency tracking) ──────────────────────
+export const bnplDelinquencyCases = pgTable("bnpl_delinquency_cases", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  loanId: text("loan_id"),
+  userId: text("user_id"),
+  overdueAmount: numeric("overdue_amount").default("0"),
+  daysOverdue: integer("days_overdue").default(0),
+  collectionStatus: text("collection_status").default("active"),
+  severity: text("severity"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type BnplDelinquencyCase = typeof bnplDelinquencyCases.$inferSelect;
+
+// ── Wave 27/29/34: missing production tables (migration 0085) ─────────────────
+export const kybApplications = pgTable("kyb_applications", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().unique(),
+  businessName: varchar("business_name"),
+  rcNumber: varchar("rc_number"),
+  taxId: varchar("tax_id"),
+  businessAddress: text("business_address"),
+  businessType: varchar("business_type"),
+  directorName: varchar("director_name"),
+  directorBvn: varchar("director_bvn"),
+  directorNin: varchar("director_nin"),
+  cacDocumentUrl: text("cac_document_url"),
+  utilityBillUrl: text("utility_bill_url"),
+  status: varchar("status").default("submitted").notNull(),
+  reviewNote: text("review_note"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type KybApplication = typeof kybApplications.$inferSelect;
+
+export const fraudCases = pgTable("fraud_cases", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  status: varchar("status").default("open"),
+  reason: text("reason"),
+  amount: numeric("amount"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type FraudCase = typeof fraudCases.$inferSelect;
+
+export const consumerReferrals = pgTable("consumer_referrals", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  referralCode: varchar("referral_code").notNull().unique(),
+  successfulReferrals: integer("successful_referrals").default(0),
+  totalRewardsEarned: integer("total_rewards_earned").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type ConsumerReferral = typeof consumerReferrals.$inferSelect;
+
+export const bnplDelinquencyRecords = pgTable("bnpl_delinquency_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  status: varchar("status").default("active"),
+  daysOverdue: integer("days_overdue"),
+  overdueAmount: numeric("overdue_amount"),
+  penaltyAmount: numeric("penalty_amount"),
+  collectionStatus: varchar("collection_status").default("pending"),
+  lastContactDate: timestamp("last_contact_date"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type BnplDelinquencyRecord = typeof bnplDelinquencyRecords.$inferSelect;
+
+export const fxAutoHedgeRules = pgTable("fx_auto_hedge_rules", {
+  id: serial("id").primaryKey(),
+  currencyPair: varchar("currency_pair"),
+  triggerThreshold: numeric("trigger_threshold"),
+  hedgePercentage: numeric("hedge_percentage"),
+  maxPositionSize: numeric("max_position_size"),
+  isActive: boolean("is_active").default(true),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type FxAutoHedgeRule = typeof fxAutoHedgeRules.$inferSelect;
+
+export const mutualFundInvestments = pgTable("mutual_fund_investments", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  fundId: varchar("fund_id"),
+  investedKobo: bigint("invested_kobo", { mode: "number" }),
+  currentValueKobo: bigint("current_value_kobo", { mode: "number" }),
+  units: doublePrecision("units"),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  redeemedAt: timestamp("redeemed_at"),
+});
+export type MutualFundInvestment = typeof mutualFundInvestments.$inferSelect;
+
+export const tenantFeatureFlags = pgTable("tenant_feature_flags", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tenantId: text("tenant_id").notNull(),
+  flagKey: text("flag_key").notNull(),
+  enabled: boolean("enabled").default(false),
+  rolloutPercentage: integer("rollout_percentage").default(0),
+  overrideReason: text("override_reason"),
+  setBy: integer("set_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("tenant_feature_flags_tenant_flag_unique").on(t.tenantId, t.flagKey),
+]);
+export type TenantFeatureFlag = typeof tenantFeatureFlags.$inferSelect;
+
+export const tenantWebhookSecrets = pgTable("tenant_webhook_secrets", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  endpointUrl: text("endpoint_url"),
+  signingSecret: text("signing_secret"),
+  algorithm: varchar("algorithm").default("hmac-sha256"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TenantWebhookSecret = typeof tenantWebhookSecrets.$inferSelect;
+
+export const loyaltyPromotionLog = pgTable("loyalty_promotion_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  oldTier: varchar("old_tier"),
+  newTier: varchar("new_tier"),
+  pointsAtPromotion: numeric("points_at_promotion"),
+  promotedAt: timestamp("promoted_at").defaultNow(),
+});
+export type LoyaltyPromotionLogEntry = typeof loyaltyPromotionLog.$inferSelect;
+
+export const jwtRevocationList = pgTable("jwt_revocation_list", {
+  id: serial("id").primaryKey(),
+  jti: varchar("jti").notNull().unique(),
+  userId: integer("user_id"),
+  expiresAt: timestamp("expires_at").notNull(),
+  reason: varchar("reason"),
+});
+export type JwtRevocationEntry = typeof jwtRevocationList.$inferSelect;
+
+export const tenantStripeCustomers = pgTable("tenant_stripe_customers", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull().unique(),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  stripePaymentMethodId: varchar("stripe_payment_method_id"),
+  plan: varchar("plan"),
+  billingEmail: varchar("billing_email"),
+  billingCycleAnchor: integer("billing_cycle_anchor"),
+  nextInvoiceDate: date("next_invoice_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TenantStripeCustomer = typeof tenantStripeCustomers.$inferSelect;
+
+export const tenantOnboardingEmails = pgTable("tenant_onboarding_emails", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id"),
+  emailType: varchar("email_type"),
+  recipientEmail: varchar("recipient_email"),
+  subject: varchar("subject"),
+  status: varchar("status"),
+  metadata: jsonb("metadata"),
+  sentAt: timestamp("sent_at"),
+  retryCount: integer("retry_count").default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TenantOnboardingEmail = typeof tenantOnboardingEmails.$inferSelect;
+
+export const middlewareIntegrationLogs = pgTable("middleware_integration_logs", {
+  id: serial("id").primaryKey(),
+  service: varchar("service"),
+  operation: varchar("operation"),
+  requestPayload: jsonb("request_payload"),
+  responsePayload: jsonb("response_payload"),
+  statusCode: integer("status_code"),
+  durationMs: integer("duration_ms"),
+  success: boolean("success"),
+  errorMessage: text("error_message"),
+  correlationId: varchar("correlation_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type MiddlewareIntegrationLog = typeof middlewareIntegrationLogs.$inferSelect;
+
+export const slaIncidents = pgTable("sla_incidents", {
+  id: varchar("id").primaryKey(),
+  title: varchar("title"),
+  severity: varchar("severity"),
+  description: text("description"),
+  uptimePct: numeric("uptime_pct"),
+  latencyMs: integer("latency_ms"),
+  status: varchar("status").default("open"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  autoResolved: boolean("auto_resolved").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SlaIncident = typeof slaIncidents.$inferSelect;
+
+export const slaIncidentReports = pgTable("sla_incident_reports", {
+  id: serial("id").primaryKey(),
+  serviceName: varchar("service_name"),
+  message: text("message"),
+  startedAt: timestamp("started_at"),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type SlaIncidentReport = typeof slaIncidentReports.$inferSelect;
+
+export const slaAlertSubscriptions = pgTable("sla_alert_subscriptions", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id"),
+  endpoint: text("endpoint").unique(),
+  p256dh: text("p256dh"),
+  auth: text("auth"),
+  severityThreshold: varchar("severity_threshold"),
+  active: boolean("active").default(true),
+});
+export type SlaAlertSubscription = typeof slaAlertSubscriptions.$inferSelect;
+
+export const grafanaDashboardConfigs = pgTable("grafana_dashboard_configs", {
+  dashboardUid: varchar("dashboard_uid").primaryKey(),
+  title: varchar("title"),
+  description: text("description"),
+  panelCount: integer("panel_count"),
+  tags: jsonb("tags"),
+  isDefault: boolean("is_default").default(false),
+  configJson: jsonb("config_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type GrafanaDashboardConfig = typeof grafanaDashboardConfigs.$inferSelect;
+
+// ─── 0086: SIP plans/executions + subscription plans + missing raw-SQL tables ──
+// Column shapes mirror the raw SQL in server/cronJobs.ts (sip_plans,
+// sip_executions), server/wave90Router.ts (subscription_plans),
+// server/routers.ts (dispute_notes, vendors) and server/wave88Router.ts
+// (corridor_fx_markups, corridor_config).
+
+export const sipPlans = pgTable("sip_plans", {
+  id: varchar("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  assetType: varchar("asset_type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  frequency: varchar("frequency").notNull().default("monthly"),
+  status: varchar("status").notNull().default("active"),
+  nextExecutionAt: timestamp("next_execution_at").notNull(),
+  totalInvestedKobo: bigint("total_invested_kobo", { mode: "number" }).default(0),
+  executionCount: integer("execution_count").default(0),
+  lastExecutedAt: timestamp("last_executed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SipPlan = typeof sipPlans.$inferSelect;
+
+export const sipExecutions = pgTable("sip_executions", {
+  id: varchar("id").primaryKey(),
+  planId: varchar("plan_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  status: varchar("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  executedAt: timestamp("executed_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type SipExecution = typeof sipExecutions.$inferSelect;
+
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name"),
+  amountNgn: numeric("amount_ngn"),
+  currency: varchar("currency").default("NGN"),
+  interval: varchar("interval").default("monthly"),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+
+export const disputeNotes = pgTable("dispute_notes", {
+  id: varchar("id").primaryKey(),
+  disputeId: text("dispute_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  authorId: varchar("author_id"),
+  authorName: varchar("author_name"),
+  note: text("note").notNull(),
+  visibility: varchar("visibility").default("internal"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type DisputeNote = typeof disputeNotes.$inferSelect;
+
+export const vendors = pgTable("vendors", {
+  id: varchar("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name").notNull(),
+  contactName: varchar("contact_name"),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  address: text("address"),
+  paymentTerms: varchar("payment_terms").default("net30"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  // ── Melio AP suite (S0 / migration 0088) ──
+  tin: varchar("tin", { length: 32 }),
+  bankCode: varchar("bank_code", { length: 16 }),
+  accountNumber: varchar("account_number", { length: 32 }),
+  accountName: varchar("account_name", { length: 255 }),
+  creditBalanceKobo: bigint("credit_balance_kobo", { mode: "number" }).default(0).notNull(),
+  openBalanceKobo: bigint("open_balance_kobo", { mode: "number" }).default(0).notNull(),
+  whtRatePct: numeric("wht_rate_pct", { precision: 5, scale: 2 }),
+  isWhtApplicable: boolean("is_wht_applicable").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type Vendor = typeof vendors.$inferSelect;
+
+export const corridorFxMarkups = pgTable("corridor_fx_markups", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency").notNull(),
+  destinationCurrency: varchar("destination_currency").notNull(),
+  markupBps: integer("markup_bps").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [unique("corridor_fx_markups_pair_unique").on(t.sourceCurrency, t.destinationCurrency)]);
+export type CorridorFxMarkup = typeof corridorFxMarkups.$inferSelect;
+
+export const corridorConfig = pgTable("corridor_config", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency").notNull(),
+  destinationCurrency: varchar("destination_currency").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [unique("corridor_config_pair_unique").on(t.sourceCurrency, t.destinationCurrency)]);
+export type CorridorConfig = typeof corridorConfig.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Melio-Inspired AP/AR Suite — S0 schema wave (migrations 0088–0091)
+// Enum-like fields use varchar + zod-level validation (dominant repo pattern for
+// feature tables). Money is bigint kobo. FK-typed columns match the referenced
+// tables: merchants.id/payouts.id/virtual_cards.id are text, vendors.id is varchar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── AP Bills (0088) ──────────────────────────────────────────────────────────
+export const apBills = pgTable("ap_bills", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id"),
+  billNumber: varchar("bill_number", { length: 64 }),
+  status: varchar("status", { length: 32 }).default("draft").notNull(), // draft|pending_extraction|extracted|pending_approval|approved|scheduled|paid|partially_paid|rejected|void
+  currency: varchar("currency", { length: 3 }).default("NGN"),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }),
+  taxKobo: bigint("tax_kobo", { mode: "number" }),
+  whtKobo: bigint("wht_kobo", { mode: "number" }).default(0),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  amountPaidKobo: bigint("amount_paid_kobo", { mode: "number" }).default(0),
+  dueDate: timestamp("due_date"),
+  source: varchar("source", { length: 32 }).default("manual"), // manual|email|upload|ocr|accounting_sync
+  sourceRef: varchar("source_ref", { length: 255 }),
+  documentUrl: text("document_url"),
+  extractedData: jsonb("extracted_data"),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("ap_bills_merchant_bill_vendor_uniq").on(t.merchantId, t.billNumber, t.vendorId),
+  index("ap_bills_merchant_idx").on(t.merchantId),
+  index("ap_bills_vendor_idx").on(t.vendorId),
+  index("ap_bills_status_idx").on(t.status),
+  index("ap_bills_due_date_idx").on(t.dueDate),
+]);
+export type ApBill = typeof apBills.$inferSelect;
+export type InsertApBill = typeof apBills.$inferInsert;
+
+// ─── AP Bill Line Items (0088) ────────────────────────────────────────────────
+export const apBillLineItems = pgTable("ap_bill_line_items", {
+  id: serial("id").primaryKey(),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  description: text("description"),
+  quantity: numeric("quantity"),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  accountCode: varchar("account_code", { length: 32 }),
+}, (t) => [index("ap_bill_line_items_bill_idx").on(t.billId)]);
+export type ApBillLineItem = typeof apBillLineItems.$inferSelect;
+export type InsertApBillLineItem = typeof apBillLineItems.$inferInsert;
+
+// ─── AP Payments (0088) ───────────────────────────────────────────────────────
+export const apPayments = pgTable("ap_payments", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  payoutId: text("payout_id"),
+  fundingMethod: varchar("funding_method", { length: 32 }).default("wallet").notNull(), // wallet|card|bank_transfer|pay_over_time
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  feeKobo: bigint("fee_kobo", { mode: "number" }).default(0),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending|processing|completed|failed
+  reference: varchar("reference", { length: 128 }),
+  vendorCardId: text("vendor_card_id"),
+  remittanceSentAt: timestamp("remittance_sent_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ap_payments_bill_idx").on(t.billId),
+  index("ap_payments_merchant_idx").on(t.merchantId),
+]);
+export type ApPayment = typeof apPayments.$inferSelect;
+export type InsertApPayment = typeof apPayments.$inferInsert;
+
+// ─── AP Bill Approval Rules (0088) ────────────────────────────────────────────
+export const apBillApprovalRules = pgTable("ap_bill_approval_rules", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  priority: integer("priority").default(0),
+  minAmountKobo: bigint("min_amount_kobo", { mode: "number" }),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  vendorId: varchar("vendor_id"),
+  approverRole: varchar("approver_role", { length: 64 }),
+  approverUserId: integer("approver_user_id"),
+  requiredApprovals: integer("required_approvals").default(1),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ap_bill_approval_rules_merchant_idx").on(t.merchantId)]);
+export type ApBillApprovalRule = typeof apBillApprovalRules.$inferSelect;
+export type InsertApBillApprovalRule = typeof apBillApprovalRules.$inferInsert;
+
+// ─── AP Bill Approvals (0088) ─────────────────────────────────────────────────
+export const apBillApprovals = pgTable("ap_bill_approvals", {
+  id: serial("id").primaryKey(),
+  billId: text("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  ruleId: integer("rule_id"),
+  step: integer("step").notNull(),
+  approverUserId: integer("approver_user_id").notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending|approved|rejected|skipped
+  decidedAt: timestamp("decided_at"),
+  notes: text("notes"),
+}, (t) => [
+  unique("ap_bill_approvals_bill_step_approver_uniq").on(t.billId, t.step, t.approverUserId),
+  index("ap_bill_approvals_bill_idx").on(t.billId),
+]);
+export type ApBillApproval = typeof apBillApprovals.$inferSelect;
+export type InsertApBillApproval = typeof apBillApprovals.$inferInsert;
+
+// ─── Vendor Credits (0088) ────────────────────────────────────────────────────
+export const vendorCredits = pgTable("vendor_credits", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  remainingKobo: bigint("remaining_kobo", { mode: "number" }).notNull(),
+  source: varchar("source", { length: 32 }).default("adjustment"), // overpayment|refund|adjustment
+  billId: text("bill_id"),
+  status: varchar("status", { length: 32 }).default("open").notNull(), // open|applied|expired
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  appliedAt: timestamp("applied_at"),
+}, (t) => [
+  index("vendor_credits_merchant_idx").on(t.merchantId),
+  index("vendor_credits_vendor_idx").on(t.vendorId),
+]);
+export type VendorCredit = typeof vendorCredits.$inferSelect;
+export type InsertVendorCredit = typeof vendorCredits.$inferInsert;
+
+// ─── AP Recurring Schedules (0089) ────────────────────────────────────────────
+export const apRecurringSchedules = pgTable("ap_recurring_schedules", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  vendorId: varchar("vendor_id"),
+  billTemplate: jsonb("bill_template"),
+  frequency: varchar("frequency", { length: 16 }).default("monthly").notNull(), // weekly|monthly|quarterly
+  nextRunAt: timestamp("next_run_at"),
+  lastRunAt: timestamp("last_run_at"),
+  runCount: integer("run_count").default(0),
+  maxRuns: integer("max_runs"),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  autoApproveBelowKobo: bigint("auto_approve_below_kobo", { mode: "number" }),
+  isActive: boolean("is_active").default(true),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ap_recurring_schedules_merchant_idx").on(t.merchantId)]);
+export type ApRecurringSchedule = typeof apRecurringSchedules.$inferSelect;
+export type InsertApRecurringSchedule = typeof apRecurringSchedules.$inferInsert;
+
+// ─── Accounting Connections (0090) ────────────────────────────────────────────
+export const accountingConnections = pgTable("accounting_connections", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(), // quickbooks|xero|odoo
+  status: varchar("status", { length: 32 }).default("active").notNull(), // active|expired|revoked|error
+  realmId: varchar("realm_id", { length: 128 }),
+  accessTokenEnc: text("access_token_enc"),
+  refreshTokenEnc: text("refresh_token_enc"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  scopes: text("scopes"),
+  lastSyncAt: timestamp("last_sync_at"),
+  syncCursor: varchar("sync_cursor", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("accounting_connections_merchant_provider_uniq").on(t.merchantId, t.provider),
+  index("accounting_connections_merchant_idx").on(t.merchantId),
+]);
+export type AccountingConnection = typeof accountingConnections.$inferSelect;
+export type InsertAccountingConnection = typeof accountingConnections.$inferInsert;
+
+// ─── Accounting Sync Runs (0090) ──────────────────────────────────────────────
+export const accountingSyncRuns = pgTable("accounting_sync_runs", {
+  id: serial("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => accountingConnections.id, { onDelete: "cascade" }),
+  direction: varchar("direction", { length: 16 }).notNull(), // push|pull
+  entity: varchar("entity", { length: 32 }).notNull(), // bill|invoice|payment|vendor|account
+  status: varchar("status", { length: 32 }).default("running").notNull(), // running|succeeded|failed
+  recordsIn: integer("records_in").default(0),
+  recordsOut: integer("records_out").default(0),
+  error: text("error"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+}, (t) => [index("accounting_sync_runs_connection_idx").on(t.connectionId)]);
+export type AccountingSyncRun = typeof accountingSyncRuns.$inferSelect;
+export type InsertAccountingSyncRun = typeof accountingSyncRuns.$inferInsert;
+
+// ─── Accounting Entity Map (0090) ─────────────────────────────────────────────
+export const accountingEntityMap = pgTable("accounting_entity_map", {
+  id: serial("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => accountingConnections.id, { onDelete: "cascade" }),
+  entity: varchar("entity", { length: 32 }).notNull(),
+  localId: varchar("local_id", { length: 64 }).notNull(),
+  remoteId: varchar("remote_id", { length: 128 }).notNull(),
+  remoteUpdatedAt: timestamp("remote_updated_at"),
+}, (t) => [
+  unique("accounting_entity_map_local_uniq").on(t.connectionId, t.entity, t.localId),
+  unique("accounting_entity_map_remote_uniq").on(t.connectionId, t.entity, t.remoteId),
+]);
+export type AccountingEntityMapEntry = typeof accountingEntityMap.$inferSelect;
+export type InsertAccountingEntityMapEntry = typeof accountingEntityMap.$inferInsert;
+
+// ─── TIN Validations (0091) ───────────────────────────────────────────────────
+export const tinValidations = pgTable("tin_validations", {
+  id: serial("id").primaryKey(),
+  subjectType: varchar("subject_type", { length: 16 }).notNull(), // vendor|merchant
+  subjectId: varchar("subject_id", { length: 255 }).notNull(),
+  tin: varchar("tin", { length: 32 }).notNull(),
+  status: varchar("status", { length: 16 }).default("unverified").notNull(), // valid|invalid|unverified
+  validatedAt: timestamp("validated_at"),
+  validatorRef: varchar("validator_ref", { length: 128 }),
+  rawResponse: jsonb("raw_response"),
+}, (t) => [index("tin_validations_subject_idx").on(t.subjectType, t.subjectId)]);
+export type TinValidation = typeof tinValidations.$inferSelect;
+export type InsertTinValidation = typeof tinValidations.$inferInsert;
+
+// ─── WHT Remittances (0091) ───────────────────────────────────────────────────
+export const whtRemittances = pgTable("wht_remittances", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  period: varchar("period", { length: 7 }).notNull(),
+  totalWhtKobo: bigint("total_wht_kobo", { mode: "number" }).default(0).notNull(),
+  recordCount: integer("record_count").default(0),
+  status: varchar("status", { length: 16 }).default("draft").notNull(), // draft|filed|remitted
+  filedAt: timestamp("filed_at"),
+  remittedAt: timestamp("remitted_at"),
+  reference: varchar("reference", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wht_remittances_merchant_idx").on(t.merchantId),
+  index("wht_remittances_period_idx").on(t.period),
+]);
+export type WhtRemittance = typeof whtRemittances.$inferSelect;
+export type InsertWhtRemittance = typeof whtRemittances.$inferInsert;
+
+// ─── Alert Subscriptions (0093) — Novu alert bridge (OTEL spec §7) ───────────
+export const alertSubscriptions = pgTable("alert_subscriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id"),
+  channel: varchar("channel", { length: 16 }).notNull(), // email|sms|in_app
+  minSeverity: varchar("min_severity", { length: 16 }).default("warning").notNull(), // info|warning|critical
+  target: varchar("target", { length: 255 }).notNull(), // email address or phone
+  novuSubscriberId: varchar("novu_subscriber_id", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("alert_subscriptions_merchant_channel_target_uniq").on(t.merchantId, t.channel, t.target),
+  index("alert_subscriptions_merchant_idx").on(t.merchantId),
+]);
+export type AlertSubscription = typeof alertSubscriptions.$inferSelect;
+export type InsertAlertSubscription = typeof alertSubscriptions.$inferInsert;

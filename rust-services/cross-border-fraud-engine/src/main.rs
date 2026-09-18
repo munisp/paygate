@@ -12,6 +12,8 @@
 /// - Rail-specific rules (CIPS CNAPS validation, UPI VPA format, PIX CPF validation)
 /// - Behavioral patterns (first-time corridor, large amount, round numbers)
 
+mod telemetry;
+
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, middleware};
 use chrono::{DateTime, Utc, Timelike};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,36 @@ struct Config {
     medium_risk_threshold: f64,
 }
 
+/// Resolve INTERNAL_API_KEY — fail closed (mirrors go-services/cips-gateway).
+/// Production (ENV=production|prod): refuse to boot when unset/empty.
+/// Dev: generate a per-boot random key and log it. Never a hardcoded default.
+fn resolve_internal_api_key() -> String {
+    match std::env::var("INTERNAL_API_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => {
+            let env = std::env::var("ENV").unwrap_or_default().to_lowercase();
+            if env == "production" || env == "prod" {
+                error!("FATAL: INTERNAL_API_KEY must be set when ENV=production — refusing to start");
+                std::process::exit(1);
+            }
+            let key = format!("dev-{}", Uuid::new_v4().simple());
+            warn!("INTERNAL_API_KEY unset — generated per-boot dev key (dev mode only): {}", key);
+            key
+        }
+    }
+}
+
+/// Constant-time byte comparison — no early exit on length or content mismatch.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        let x = if i < a.len() { a[i] } else { 0 };
+        let y = if i < b.len() { b[i] } else { 0 };
+        diff |= (x ^ y) as usize;
+    }
+    diff == 0
+}
+
 impl Config {
     fn from_env() -> Self {
         Config {
@@ -37,8 +69,7 @@ impl Config {
                 .unwrap_or_else(|_| "8101".to_string())
                 .parse()
                 .unwrap_or(8101),
-            internal_api_key: std::env::var("INTERNAL_API_KEY")
-                .unwrap_or_else(|_| "internal-api-key-default".to_string()),
+            internal_api_key: resolve_internal_api_key(),
             high_risk_threshold: std::env::var("HIGH_RISK_THRESHOLD")
                 .unwrap_or_else(|_| "75.0".to_string())
                 .parse()
@@ -488,7 +519,9 @@ async fn handle_score(
         .unwrap_or("")
         .trim_start_matches("Bearer ");
 
-    if api_key != state.config.internal_api_key {
+    if api_key.is_empty()
+        || !constant_time_eq(api_key.as_bytes(), state.config.internal_api_key.as_bytes())
+    {
         return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
     }
 
@@ -506,7 +539,9 @@ async fn handle_batch_score(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if api_key != state.config.internal_api_key {
+    if api_key.is_empty()
+        || !constant_time_eq(api_key.as_bytes(), state.config.internal_api_key.as_bytes())
+    {
         return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
     }
 
@@ -560,14 +595,7 @@ async fn handle_rules() -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info".to_string())
-                .as_str()
-        )
-        .json()
-        .init();
+    telemetry::init_tracing("cross-border-fraud-engine");
 
     let config = Config::from_env();
     let port = config.port;

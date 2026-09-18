@@ -14,6 +14,7 @@ import {
   Clock, CheckCircle, XCircle, AlertCircle, Zap, Activity, BarChart2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -522,8 +523,10 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
 
   const corridorInfo = CORRIDORS.find(c => c.value === form.corridor);
 
+  const initiateKey = useIdempotencyKey();
   const initiate = trpc.crossBorder.initiate.useMutation({
     onSuccess: (data) => {
+      initiateKey.reset();
       toast.success(`Transfer initiated! ID: ${data.transferId}`, {
         description: data.bridgeStatus !== "pending"
           ? `Bridge status: ${data.bridgeStatus}`
@@ -532,13 +535,17 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
       setOpen(false);
       onSuccess();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { initiateKey.reset(); toast.error(e.message); },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.receiverId || !form.amount) {
       toast.error("Receiver ID and amount are required");
+      return;
+    }
+    if (!/^\d{1,13}(\.\d{1,2})?$/.test(form.amount) || parseFloat(form.amount) <= 0) {
+      toast.error("Amount must be a positive decimal with up to 2 decimal places (e.g. 1000.00)");
       return;
     }
     initiate.mutate({
@@ -550,6 +557,7 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
       corridor: form.corridor,
       rail: form.rail as any,
       receiverName: form.receiverName || undefined,
+      idempotencyKey: initiateKey.getKey(),
     });
   };
 

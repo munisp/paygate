@@ -10,6 +10,11 @@
  * Authentication: requires a valid session cookie (same as tRPC procedures).
  * The session is validated via the JWT in the cookie before the SSE connection
  * is accepted.
+ *
+ * NOTE (R4): `sagaStreamHandler` is currently NOT mounted on any Express app
+ * (no imports/routes reference it — dead code kept for future wiring). The
+ * null-check + jti revocation enforcement below is defense-in-depth in case
+ * it is ever mounted.
  */
 
 import { Request, Response } from "express";
@@ -17,6 +22,7 @@ import { getDb } from "./db";
 import { sagaInstances } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { verifySessionToken } from "./_core/keycloak";
+import { isJtiRevoked } from "./_core/sdk";
 import { COOKIE_NAME } from "../shared/const";
 
 export interface SagaStepEvent {
@@ -138,7 +144,30 @@ export async function sagaStreamHandler(req: Request, res: Response) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    await verifySessionToken(cookie);
+    // verifySessionToken returns null (not throw) for invalid/expired tokens —
+    // a null result MUST reject, otherwise the SSE stream would serve
+    // unauthenticated requests.
+    const session = await verifySessionToken(cookie);
+    if (!session) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    // R4 spec #8: reject tokens whose jti has been revoked (logout / password
+    // change). Failure policy mirrors sdk.verifySession: on DB error, log +
+    // allow so a transient outage cannot DoS authenticated requests.
+    if (session.jti) {
+      try {
+        if (await isJtiRevoked(session.jti)) {
+          res.status(401).json({ error: "Unauthorized" });
+          return;
+        }
+      } catch (revocationError) {
+        console.error(
+          "[SagaStream] ALERT: jwt_revocation_list check failed; allowing token to avoid login DoS:",
+          revocationError
+        );
+      }
+    }
   } catch {
     res.status(401).json({ error: "Unauthorized" });
     return;

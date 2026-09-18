@@ -44,7 +44,7 @@ export default function SupplyChainFinance() {
     { key: "invoice_amount", label: "Amount" }, { key: "currency", label: "Currency" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: stats, isLoading } = trpc.scf.getSCFStats.useQuery();
+  const { data: stats } = trpc.scf.getSCFStats.useQuery();
   const submitMut = trpc.scf.submitInvoice.useMutation({
     onSuccess: (d) => { toast.success(`Invoice tokenized: ${d.tokenId}`); setShowInvoiceDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),

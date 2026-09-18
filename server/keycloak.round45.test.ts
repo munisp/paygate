@@ -12,8 +12,9 @@ describe("Round 45 — Audit Log UI filters and pagination", () => {
     const dbTs = readFileSync(join(ROOT, "server/db.ts"), "utf8");
     expect(dbTs).toContain("fromDate?: Date");
     expect(dbTs).toContain("toDate?: Date");
-    expect(dbTs).toContain("received_at >= ${fromDate");
-    expect(dbTs).toContain("received_at <= ${toDate");
+    // Real contract: getKeycloakEvents reads opts.* and builds sql`` conditions
+    expect(dbTs).toContain("received_at >= ${opts.fromDate}");
+    expect(dbTs).toContain("received_at <= ${opts.toDate}");
   });
 
   it("getKeycloakEvents accepts offset for pagination", () => {

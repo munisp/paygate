@@ -1,5 +1,10 @@
 import type { CookieOptions, Request } from "express";
 
+/** Short-lived Keycloak id_token cookie (used as id_token_hint on logout). */
+export const ID_TOKEN_COOKIE_NAME = "paygate_id_token";
+/** Long-lived refresh token cookie, path-restricted to /api/auth. */
+export const REFRESH_TOKEN_COOKIE_NAME = "paygate_refresh_token";
+
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isIpAddress(host: string) {

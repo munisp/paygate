@@ -6,19 +6,23 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 export default function MutualFunds() {
   const [category, setCategory] = useState<"equity" | "debt" | "hybrid" | "money_market" | "all">("all");
   const [investAmount, setInvestAmount] = useState("");
   const [selectedFund, setSelectedFund] = useState<string | null>(null);
-  const [investType, setInvestType] = useState<"lumpsum" | "sip">("lumpsum");
 
   const { data: fundsData, isLoading } = trpc.newFeatures.mutualFunds.listFunds.useQuery({ category, sortBy: "returns_1y" }, { staleTime: 30_000 });
   const { data: portfolio } = trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
 
-  const investMutation = trpc.newFeatures.mutualFunds.invest.useMutation({
-    onSuccess: (data) => toast.success(`Investment of ₦${(data.amountKobo / 100).toLocaleString()} placed`),
-    onError: (e: any) => toast.error(e.message),
+  // Invest goes through the hardened wave34 consumerFinancial.funds router,
+  // which REQUIRES an idempotency key (reused across retries of the same
+  // logical investment, regenerated after completion).
+  const investKey = useIdempotencyKey();
+  const investMutation = trpc.consumerFinancial.funds.invest.useMutation({
+    onSuccess: (data) => { investKey.reset(); toast.success(`Investment of ₦${(data.amountKobo / 100).toLocaleString()} placed`); },
+    onError: (e: any) => { investKey.reset(); toast.error(e.message); },
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -94,13 +98,9 @@ export default function MutualFunds() {
         <Card className="border-primary">
           <CardHeader><CardTitle className="text-base">Invest in Selected Fund</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex gap-2">
-              <Button variant={investType === "lumpsum" ? "default" : "outline"} size="sm" onClick={() => setInvestType("lumpsum")}>Lumpsum</Button>
-              <Button variant={investType === "sip" ? "default" : "outline"} size="sm" onClick={() => setInvestType("sip")}>SIP</Button>
-            </div>
             <Input placeholder="Amount (₦)" value={investAmount} onChange={e => setInvestAmount(e.target.value)} />
             <Button className="w-full" disabled={investMutation.isPending}
-              onClick={() => investMutation.mutate({ fundId: selectedFund, amountKobo: Math.round(parseFloat(investAmount) * 100), investmentType: investType })}>
+              onClick={() => investMutation.mutate({ fundId: selectedFund, amountKobo: Math.round(parseFloat(investAmount) * 100), idempotencyKey: investKey.getKey() })}>
               {investMutation.isPending ? "Investing..." : `Invest ₦${parseFloat(investAmount || "0").toLocaleString()}`}
             </Button>
           </CardContent>

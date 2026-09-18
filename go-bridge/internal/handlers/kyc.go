@@ -40,8 +40,11 @@ func StartKYCWorkflow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	// Idempotency
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "kyc.start", req.SubmissionID)
+	// Idempotency — H26: non-money path — log and proceed when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "kyc.start", req.SubmissionID)
+	if err != nil {
+		slog.Warn("[kyc] idempotency store unavailable — proceeding (non-money path)", "err", err)
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.StartKYCWorkflowResponse{
 			SubmissionID: req.SubmissionID,

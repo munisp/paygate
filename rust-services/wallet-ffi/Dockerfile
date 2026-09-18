@@ -1,6 +1,10 @@
 # =============================================================================
-# PayGate Rust Wallet FFI — Multi-stage Dockerfile
-# Builds the Rust shared library (.so) and packages it for use by the Go bridge
+# PayGate Rust Wallet FFI (USDC payout signer) — Multi-stage Dockerfile
+# Builds the Rust shared library (.so) and the wallet-ffi-server HTTP wrapper.
+#
+# NOTE: this crate is `wallet-ffi` (lib name `wallet_ffi`), NOT the
+# `paygate-wallet-ffi` TigerBeetle ledger crate under rust/paygate-wallet-ffi.
+# The artifact produced here is `libwallet_ffi.so`.
 # =============================================================================
 
 # ─── Stage 1: Build ───────────────────────────────────────────────────────────
@@ -18,24 +22,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# Build release binary
-RUN cargo build --release --lib
+# Build the shared library AND the HTTP server binary (server feature).
+RUN cargo build --release --lib --features server --bins
 
-# ─── Stage 2: Runtime artifact ────────────────────────────────────────────────
+# ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /lib/paygate
 
-# Copy the compiled shared library
-COPY --from=builder /app/target/release/libpaygate_wallet_ffi.so ./libpaygate_wallet_ffi.so
-COPY --from=builder /app/target/release/libpaygate_wallet_ffi.a ./libpaygate_wallet_ffi.a
+# Copy the compiled shared library (this crate builds libwallet_ffi.so).
+COPY --from=builder /app/target/release/libwallet_ffi.so ./libwallet_ffi.so
 
-# The Go bridge mounts /lib/paygate and loads the .so at runtime
+# Copy the HTTP server binary — serves GET /health, GET /ready and
+# POST /v1/sign/usdc-transfer on $PORT (default 8099).
+COPY --from=builder /app/target/release/wallet-ffi-server /usr/local/bin/wallet-ffi-server
+
+# The Go bridge may also mount /lib/paygate and load the .so via cgo.
 VOLUME ["/lib/paygate"]
 
-CMD ["sh", "-c", "echo 'Rust FFI library ready at /lib/paygate' && sleep infinity"]
+# Run the actual HTTP server so compose/k8s healthchecks are meaningful.
+# The server refuses to start without INTERNAL_API_KEY/INTERNAL_KEY configured.
+CMD ["wallet-ffi-server"]

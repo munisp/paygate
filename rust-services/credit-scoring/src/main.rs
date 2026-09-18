@@ -2,6 +2,8 @@
 //! Exposes credit score calculation over HTTP.
 //! v2.0: Adds DataFusion-powered batch feature extraction from S3/MinIO lakehouse.
 
+mod telemetry;
+
 use actix_web::{web, App, HttpResponse, HttpServer, middleware};
 use credit_scoring::{
     CreditScoreRequest, CreditFeatures, calculate_credit_score,
@@ -26,6 +28,7 @@ struct AnalyticsQueryRequest {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    telemetry::init_tracing("credit-scoring");
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8100".to_string())
         .parse().unwrap_or(8100);

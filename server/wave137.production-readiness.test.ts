@@ -46,42 +46,56 @@ describe("Wave 137 — Database index coverage", () => {
 });
 
 // ─── 2. Security middleware ───────────────────────────────────────────────────
+// STALE CONTRACT: helmet/cors/express-rate-limit packages and the named
+// limiters (authLimiter/payoutLimiter/…) were replaced by first-party
+// middleware — server/securityHeaders.ts (securityHeaders + corsMiddleware)
+// and server/rateLimit.ts (expressRateLimit / trpcApiRateLimit buckets).
 describe("Wave 137 — Security middleware coverage", () => {
   it("server has rate limiting middleware", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("rateLimit");
-    expect(content).toContain("authLimiter");
-    expect(content).toContain("payoutLimiter");
-    expect(content).toContain("kycLimiter");
-    expect(content).toContain("apiKeyLimiter");
+    const rl = readFileSync(join(ROOT, "server/rateLimit.ts"), "utf-8");
+    expect(content).toContain("expressRateLimit");
+    expect(content).toContain("trpcApiRateLimit");
+    expect(rl).toContain("authLimit");
+    expect(rl).toContain("payoutLimit");
+    expect(rl).toContain("financialLimit");
+    expect(rl).toContain("exportLimit");
   });
 
-  it("server has CORS and helmet middleware", () => {
+  it("server has CORS and security headers middleware", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("cors");
-    expect(content).toContain("helmet");
+    expect(content).toContain("corsMiddleware");
+    expect(content).toContain("securityHeaders");
   });
 
   it("rate limiting applied to high-risk endpoints", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
+    const rl = readFileSync(join(ROOT, "server/rateLimit.ts"), "utf-8");
+    // Auth endpoints get a dedicated bucket; payout procedures get the
+    // tightest tRPC bucket via trpcApiRateLimit classification.
     expect(content).toContain('"/api/oauth"');
-    expect(content).toContain('"/api/trpc/payouts.create"');
-    expect(content).toContain('"/api/trpc/onboarding.submitKYC"');
+    expect(content).toContain('keyPrefix: "auth:oauth"');
+    expect(rl).toContain('PAYOUT_TRPC_PREFIXES = new Set(["payout", "payouts"])');
   });
 });
 
 // ─── 3. Stripe webhook ────────────────────────────────────────────────────────
+// STALE CONTRACT: the Stripe webhook moved from /api/stripe/webhook to
+// /api/webhooks/stripe; signature verification (constructWebhookEvent with
+// the stripe-signature header) lives in server/stripe.ts.
 describe("Wave 137 — Stripe webhook handling", () => {
   it("server has Stripe webhook endpoint", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("/api/stripe/webhook");
-    expect(content).toContain("constructWebhookEvent");
+    const stripe = readFileSync(join(ROOT, "server/stripe.ts"), "utf-8");
+    expect(content).toContain("/api/webhooks/stripe");
+    expect(stripe).toContain("constructWebhookEvent");
   });
 
   it("Stripe webhook uses raw body parser", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
+    const stripe = readFileSync(join(ROOT, "server/stripe.ts"), "utf-8");
     expect(content).toContain("express.raw");
-    expect(content).toContain("stripe-signature");
+    expect(stripe).toContain("stripe-signature");
   });
 });
 

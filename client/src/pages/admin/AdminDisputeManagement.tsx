@@ -16,13 +16,14 @@ import { toast } from "sonner";
 const statusColors: Record<string, string> = {
   open: "bg-red-500/20 text-red-400 border-red-500/30",
   under_review: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  resolved: "bg-green-500/20 text-green-400 border-green-500/30",
-  escalated: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  resolved_merchant: "bg-green-500/20 text-green-400 border-green-500/30",
+  resolved_customer: "bg-green-500/20 text-green-400 border-green-500/30",
+  closed: "bg-slate-500/20 text-slate-400 border-slate-500/30",
 };
 
 export default function AdminDisputeManagement() {
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<"open" | "under_review" | "resolved" | "escalated" | "all">("open");
+  const [statusFilter, setStatusFilter] = useState<"open" | "under_review" | "resolved_merchant" | "resolved_customer" | "closed" | "all">("open");
   const [resolveDialog, setResolveDialog] = useState<{ open: boolean; disputeId: string } | null>(null);
   const [escalateDialog, setEscalateDialog] = useState<{ open: boolean; disputeId: string } | null>(null);
   const [resolution, setResolution] = useState<"merchant_wins" | "customer_wins" | "partial_refund">("merchant_wins");
@@ -59,8 +60,9 @@ export default function AdminDisputeManagement() {
             <SelectContent className="bg-slate-800 border-slate-700">
               <SelectItem value="open">Open</SelectItem>
               <SelectItem value="under_review">Under Review</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="escalated">Escalated</SelectItem>
+              <SelectItem value="resolved_merchant">Resolved (Merchant)</SelectItem>
+              <SelectItem value="resolved_customer">Resolved (Customer)</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
               <SelectItem value="all">All</SelectItem>
             </SelectContent>
           </Select>

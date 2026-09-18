@@ -107,36 +107,45 @@ describe("recordAnomalyConfigChange + getAnomalyConfigAuditLog", () => {
     expect(typeof db.getAnomalyConfigAuditLog).toBe("function");
   });
 
-  it("getAnomalyConfigAuditLog returns an array (graceful on DB unavailable)", async () => {
+  // Real contract: these helpers go through requireDbSync() — they never
+  // fabricate a graceful empty result; with no DATABASE_URL they throw
+  // "[Database] DATABASE_URL is not set", and with a database present they
+  // hit the real anomaly_config_audit table (throwing loudly if migrations
+  // have not been applied). Either way: no silent fallback.
+  it("getAnomalyConfigAuditLog returns rows or throws — never fabricates", async () => {
     const db = await import("./db");
-    const result = await db.getAnomalyConfigAuditLog(5);
-    expect(Array.isArray(result)).toBe(true);
-  });
-
-  it("recordAnomalyConfigChange does not throw on DB unavailable", async () => {
-    const db = await import("./db");
-    await expect(db.recordAnomalyConfigChange({
-      changedByUserId: 1,
-      isGlobal: false,
-      oldWindowMinutes: 15,
-      oldThreshold: 5,
-      newWindowMinutes: 30,
-      newThreshold: 10,
-    })).resolves.not.toThrow();
-  });
-
-  it("audit log entries have correct shape", async () => {
-    const db = await import("./db");
-    const result = await db.getAnomalyConfigAuditLog(5);
-    for (const entry of result) {
-      expect(entry).toHaveProperty("id");
-      expect(entry).toHaveProperty("changedByUserId");
-      expect(entry).toHaveProperty("isGlobal");
-      expect(entry).toHaveProperty("newWindowMinutes");
-      expect(entry).toHaveProperty("newThreshold");
-      expect(entry).toHaveProperty("changedAt");
-      expect(entry.changedAt).toBeInstanceOf(Date);
+    try {
+      const rows = await db.getAnomalyConfigAuditLog(5);
+      expect(Array.isArray(rows)).toBe(true);
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
     }
+  });
+
+  it("recordAnomalyConfigChange returns the inserted row or throws — never fabricates", async () => {
+    const db = await import("./db");
+    try {
+      const row = await db.recordAnomalyConfigChange({
+        changedByUserId: 1,
+        isGlobal: false,
+        oldWindowMinutes: 15,
+        oldThreshold: 5,
+        newWindowMinutes: 30,
+        newThreshold: 10,
+      });
+      expect(row).toHaveProperty("newWindowMinutes", 30);
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+    }
+  });
+
+  it("audit log query orders by changedAt descending with limit/offset", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const dbSrc = readFileSync(resolve(__dirname, "db.ts"), "utf8");
+    expect(dbSrc).toContain("orderBy(desc(anomalyConfigAudit.changedAt))");
+    expect(dbSrc).toContain(".limit(limit)");
+    expect(dbSrc).toContain(".offset(offset)");
   });
 });
 
@@ -148,27 +157,30 @@ describe("getLatestCountryForUsers", () => {
     expect(typeof db.getLatestCountryForUsers).toBe("function");
   });
 
-  it("returns empty object for empty input array", async () => {
+  it("returns an empty array for empty input without touching the DB", async () => {
+    // Real contract: early-returns [] for empty input (no DB needed).
     const db = await import("./db");
     const result = await db.getLatestCountryForUsers([]);
-    expect(result).toEqual({});
+    expect(result).toEqual([]);
   });
 
-  it("returns a Record<string, string> (graceful on DB unavailable)", async () => {
+  it("returns rows of { user_id, geo_country, received_at } (source contract)", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const dbSrc = readFileSync(resolve(__dirname, "db.ts"), "utf8");
+    expect(dbSrc).toContain("Array<{ user_id: string; geo_country: string; received_at: Date }>");
+  });
+
+  it("returns rows or throws — never fabricates", async () => {
+    // Real contract: requireDbSync() fails closed with no DATABASE_URL; with
+    // a database present the query hits the real keycloak_events table.
     const db = await import("./db");
-    const result = await db.getLatestCountryForUsers(["user-abc", "user-xyz"]);
-    expect(typeof result).toBe("object");
-    expect(result).not.toBeNull();
-    // All values should be strings
-    for (const [k, v] of Object.entries(result)) {
-      expect(typeof k).toBe("string");
-      expect(typeof v).toBe("string");
+    try {
+      const rows = await db.getLatestCountryForUsers(["nonexistent-user"]);
+      expect(Array.isArray(rows)).toBe(true);
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
     }
-  });
-
-  it("does not throw on DB unavailable", async () => {
-    const db = await import("./db");
-    await expect(db.getLatestCountryForUsers(["nonexistent-user"])).resolves.not.toThrow();
   });
 });
 

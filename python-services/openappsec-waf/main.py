@@ -31,7 +31,7 @@ Environment variables:
   OPENAPPSEC_API_URL    — OpenAppSec management API URL (default: http://openappsec:8080)
   OPENAPPSEC_API_KEY    — OpenAppSec API key
   APISIX_ADMIN_URL      — APISIX admin API URL (default: http://apisix:9180)
-  APISIX_API_KEY        — APISIX admin API key (default: edd1c9f034335f136f87ad84b625c8f1)
+  APISIX_API_KEY        — APISIX admin API key (required; no default)
   IP_BLOCK_TTL_SECS     — How long to block an IP (default: 3600)
   LOG_LEVEL             — Logging level (default: INFO)
 """
@@ -61,7 +61,7 @@ KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:29092")
 OPENAPPSEC_API_URL = os.getenv("OPENAPPSEC_API_URL", "http://openappsec:8080").rstrip("/")
 OPENAPPSEC_API_KEY = os.getenv("OPENAPPSEC_API_KEY", "")
 APISIX_ADMIN_URL = os.getenv("APISIX_ADMIN_URL", "http://apisix:9180").rstrip("/")
-APISIX_API_KEY = os.getenv("APISIX_API_KEY", "edd1c9f034335f136f87ad84b625c8f1")
+APISIX_API_KEY = _require_secret_env("APISIX_API_KEY")
 IP_BLOCK_TTL_SECS = int(os.getenv("IP_BLOCK_TTL_SECS", "3600"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -70,6 +70,29 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("openappsec-waf")
+
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
 
 # ─── Redis client ─────────────────────────────────────────────────────────────
 
@@ -164,7 +187,11 @@ class IPAllowlistEntry(BaseModel):
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate OpenAppSec WAF", version="1.0.0")
+setup_telemetry("openappsec-waf", app)
 
 @app.get("/health")
 def health():
@@ -289,6 +316,34 @@ def get_stats():
         "lfi": int(r.get("waf:stats:threat:lfi") or 0),
         "currently_blocked_ips": len(r.keys("waf:blocked_ip:*")),
     }
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level=LOG_LEVEL.lower())

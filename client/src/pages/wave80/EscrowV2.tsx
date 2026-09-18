@@ -48,7 +48,8 @@ export default function EscrowV2() {
               <div className="flex items-center gap-3">
                 <p className="font-bold">{c.currency} {(c.amount / 100).toLocaleString()}</p>
                 <Badge variant={c.status === "released" ? "default" : c.status === "disputed" ? "destructive" : "secondary"}>{c.status}</Badge>
-                {(c.status === "pending" || c.status === "active") && <Button size="sm" onClick={() => releaseContract.mutate({ contractId: c.id })}>Release</Button>}
+                {/* Contracts are born 'funded' (not 'pending') — release is only valid from 'funded'. */}
+                {(c.status === "funded" || c.status === "active") && <Button size="sm" onClick={() => releaseContract.mutate({ contractId: c.id })}>Release</Button>}
               </div>
             </div>
           ))}</div>
@@ -67,7 +68,7 @@ export default function EscrowV2() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={() => createContract.mutate({ title: form.title, buyerId: form.buyerId, sellerId: form.sellerId, amount: parseInt(form.amount), currency: form.currency, description: form.description, releaseConditions: form.releaseConditions })} disabled={createContract.isPending}>{createContract.isPending ? "Creating..." : "Create Contract"}</Button>
+            <Button onClick={() => createContract.mutate({ title: form.title, buyerId: form.buyerId, sellerId: form.sellerId, amount: parseInt(form.amount), currency: form.currency, description: form.description, releaseConditions: form.releaseConditions, idempotencyKey: crypto.randomUUID() })} disabled={createContract.isPending}>{createContract.isPending ? "Creating..." : "Create Contract"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

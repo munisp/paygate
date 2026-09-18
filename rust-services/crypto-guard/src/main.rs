@@ -8,6 +8,8 @@
 //! - POST /nonce/generate    — Generate cryptographically secure nonces
 //! - GET  /health            — Health check
 
+mod telemetry;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -17,7 +19,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -206,13 +208,8 @@ async fn generate_csrf_token_handler() -> Json<NonceResponse> {
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-        ))
-        .with(tracing_subscriber::fmt::layer().json())
-        .init();
+    // Initialize tracing (fmt layer + OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set)
+    telemetry::init_tracing("crypto-guard");
 
     // Connect to Redis (optional — service works without it)
     let redis_url = std::env::var("REDIS_URL")
@@ -251,12 +248,23 @@ async fn main() {
         .route("/nonce/payment", post(generate_payment_nonce_handler))
         .route("/nonce/webhook", post(generate_webhook_nonce_handler))
         .route("/nonce/csrf", post(generate_csrf_token_handler))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer({
+            // Internal service — allow only explicitly configured origins
+            // (ALLOWED_ORIGINS, comma-separated). No permissive `Any`.
+            let origins: Vec<axum::http::HeaderValue> = std::env::var("ALLOWED_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|o| o.trim().parse().ok())
+                .collect();
+            let layer = CorsLayer::new()
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                .allow_headers([axum::http::header::CONTENT_TYPE]);
+            if origins.is_empty() {
+                layer
+            } else {
+                layer.allow_origin(origins)
+            }
+        })
         .layer(RequestBodyLimitLayer::new(1 * 1024 * 1024)) // 1 MB body limit
         .with_state(state);
 

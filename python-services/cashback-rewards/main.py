@@ -9,10 +9,14 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cashback-rewards")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9028"))
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Cashback Rewards Service", version="2.0.0")
+setup_telemetry("cashback-rewards", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _pool = None
@@ -107,11 +111,14 @@ async def earn_cashback(req: EarnCashbackRequest):
     txn_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=CASHBACK_EXPIRY_DAYS)
-    if pool:
-        try:
-            async with pool.acquire() as c:
-                await c.execute("INSERT INTO cashback_transactions (id, customer_id, merchant_id, transaction_id, type, amount, currency, status, rate_applied, expires_at, created_at) VALUES ($1,$2,$3,$4,'earn',$5,$6,'confirmed',$7,$8,$9) ON CONFLICT DO NOTHING", txn_id, req.customer_id, req.merchant_id, req.transaction_id, earned, req.currency, rate, expires_at, now)
-        except Exception as e: logger.warning(f"DB insert: {e}")
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Cashback store unavailable — cashback was NOT credited")
+    try:
+        async with pool.acquire() as c:
+            await c.execute("INSERT INTO cashback_transactions (id, customer_id, merchant_id, transaction_id, type, amount, currency, status, rate_applied, expires_at, created_at) VALUES ($1,$2,$3,$4,'earn',$5,$6,'confirmed',$7,$8,$9) ON CONFLICT DO NOTHING", txn_id, req.customer_id, req.merchant_id, req.transaction_id, earned, req.currency, rate, expires_at, now)
+    except Exception as e:
+        logger.error(f"DB insert failed: {e}")
+        raise HTTPException(status_code=503, detail="Cashback persist failed — nothing was credited") from e
     return {"cashback_id": txn_id, "customer_id": req.customer_id, "earned": earned, "rate_applied": rate, "currency": req.currency, "expires_at": expires_at.isoformat(), "transaction_id": req.transaction_id}
 
 @app.post("/cashback/redeem")
@@ -166,12 +173,43 @@ async def get_merchant_config(merchant_id: str = Query(...)):
 async def update_merchant_config(req: MerchantConfigRequest):
     pool = await get_pool()
     now = datetime.now(timezone.utc)
-    if pool:
-        try:
-            async with pool.acquire() as c:
-                await c.execute("INSERT INTO cashback_merchant_configs (id, merchant_id, cashback_rate, min_transaction_amount, max_cashback_per_txn, enabled, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT (merchant_id) DO UPDATE SET cashback_rate=$3, min_transaction_amount=$4, max_cashback_per_txn=$5, enabled=$6, updated_at=$7", str(uuid.uuid4()), req.merchant_id, req.cashback_rate, req.min_transaction_amount, req.max_cashback_per_txn or MAX_CASHBACK_PER_TXN, req.enabled, now)
-        except Exception as e: logger.warning(f"DB upsert: {e}")
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Cashback store unavailable — config was NOT updated")
+    try:
+        async with pool.acquire() as c:
+            await c.execute("INSERT INTO cashback_merchant_configs (id, merchant_id, cashback_rate, min_transaction_amount, max_cashback_per_txn, enabled, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT (merchant_id) DO UPDATE SET cashback_rate=$3, min_transaction_amount=$4, max_cashback_per_txn=$5, enabled=$6, updated_at=$7", str(uuid.uuid4()), req.merchant_id, req.cashback_rate, req.min_transaction_amount, req.max_cashback_per_txn or MAX_CASHBACK_PER_TXN, req.enabled, now)
+    except Exception as e:
+        logger.error(f"DB upsert failed: {e}")
+        raise HTTPException(status_code=503, detail="Merchant config persist failed — nothing was updated") from e
     return {"success": True, "merchant_id": req.merchant_id, "cashback_rate": req.cashback_rate, "updated_at": now.isoformat()}
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -25,7 +25,7 @@ Environment variables:
   PORT                  — HTTP port (default: 8300)
   OPENSEARCH_URL        — OpenSearch endpoint (default: http://opensearch:9200)
   OPENSEARCH_USER       — OpenSearch username (default: admin)
-  OPENSEARCH_PASSWORD   — OpenSearch password (default: admin)
+  OPENSEARCH_PASSWORD   — OpenSearch password (required; no default)
   DATABASE_URL          — PostgreSQL connection string
   KAFKA_BROKERS         — Kafka bootstrap servers (optional)
   LOG_LEVEL             — Logging level (default: INFO)
@@ -55,12 +55,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger("opensearch-service")
 
+
+import secrets as _secrets_mod
+import sys as _sys_mod
+
+
+def _require_secret_env(var_name):
+    """Fail closed: no hardcoded default secrets (cips-gateway main.go:48-56 pattern).
+
+    Production (ENV/APP_ENV=production) with the variable unset -> FATAL log + exit.
+    Dev -> per-boot random value (secrets.token_hex) logged once; never a
+    well-known default.
+    """
+    value = os.getenv(var_name, "")
+    if value:
+        return value
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        logger.critical("FATAL: %s must be set when ENV=production -- refusing to serve", var_name)
+        _sys_mod.exit(1)
+    value = "dev-" + _secrets_mod.token_hex(16)
+    logger.warning("%s unset -- generated per-boot dev value; set %s to a real secret", var_name, var_name)
+    return value
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "admin")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+OPENSEARCH_PASSWORD = _require_secret_env("OPENSEARCH_PASSWORD")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")
 PORT = int(os.getenv("PORT", "8300"))
 
@@ -396,11 +419,15 @@ async def lifespan(app: FastAPI):
     logger.info("OpenSearch Service shutting down...")
 
 
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate OpenSearch Service",
     version="v97",
     lifespan=lifespan,
 )
+setup_telemetry("opensearch-service", app)
 
 
 def _seed_demo_data():
@@ -624,6 +651,34 @@ def _start_kafka_consumer():
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     _start_kafka_consumer()

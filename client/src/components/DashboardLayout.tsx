@@ -1,6 +1,6 @@
 // Obsidian Operations — DashboardLayout v3
 // Fixed left sidebar + live operational top bar with interval selector + scrollable main content
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Activity,
@@ -18,10 +18,8 @@ import {
 } from "lucide-react";
 import { Settings, Bell, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { mockRoutes, mockWorkflows } from "@/lib/mockData";
 import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
 import { trpc } from "@/lib/trpc";
-import { FlaskConical, Wifi } from "lucide-react";
 import { toast } from "sonner";
 
 const NAV_ITEMS = [
@@ -98,9 +96,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showIntervalMenu, setShowIntervalMenu] = useState(false);
-  const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
-  const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
+  const { interval, setInterval, secondsUntilRefresh, triggerRefresh } = useRefresh();
+  const pingQuery = trpc.paygate.ping.useQuery(undefined, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
+  const simulated = (pingQuery.data as { simulation?: boolean } | undefined)?.simulation === true;
   const unacknowledgedQuery = trpc.paygate.unacknowledgedCount.useQuery(undefined, {
     refetchInterval: 30_000,
   });
@@ -160,12 +159,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     },
   });
 
-  // Compute global health from mock data (will be replaced by live data in pages)
-  const degradedRoutes = mockRoutes.filter(r => r.status === "degraded" || r.status === "critical").length;
-  const failedWorkflows = mockWorkflows.filter(w => w.status === "failed" || w.status === "timed_out").length;
-  const runningWorkflows = mockWorkflows.filter(w => w.status === "running").length;
-  const totalAlerts = degradedRoutes + failedWorkflows;
-  const globalStatus = totalAlerts > 0 ? "degraded" : "nominal";
+  // Global health badge — polled from the real /api/health endpoint every 30s.
+  // 200 => healthy, 503 => degraded, unreachable/other => unknown (never fabricated).
+  const [globalStatus, setGlobalStatus] = useState<"healthy" | "degraded" | "unknown">("unknown");
+  useEffect(() => {
+    let cancelled = false;
+    const checkHealth = async () => {
+      try {
+        const res = await fetch("/api/health", { credentials: "include" });
+        if (cancelled) return;
+        setGlobalStatus(res.status === 200 ? "healthy" : res.status === 503 ? "degraded" : "unknown");
+      } catch {
+        if (!cancelled) setGlobalStatus("unknown");
+      }
+    };
+    checkHealth();
+    // NB: `setInterval` is shadowed in this component by useRefresh()'s state
+    // setter, so the global timer functions must be qualified with `window.`
+    const id = window.setInterval(checkHealth, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const sidebarWidth = collapsed ? "w-16" : "w-56";
 
@@ -240,27 +256,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               System State
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground font-mono">Gateway</span>
+              <span className="text-muted-foreground font-mono">API Health</span>
               <span
                 className={
-                  degradedRoutes > 0 ? "text-amber-400 font-mono" : "text-emerald-400 font-mono"
+                  globalStatus === "healthy"
+                    ? "text-emerald-400 font-mono"
+                    : globalStatus === "degraded"
+                      ? "text-amber-400 font-mono"
+                      : "text-zinc-400 font-mono"
                 }
               >
-                {degradedRoutes > 0 ? `${degradedRoutes} degraded` : "nominal"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground font-mono">Workflows</span>
-              <span className="text-primary font-mono">{runningWorkflows} running</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground font-mono">Incidents</span>
-              <span
-                className={
-                  failedWorkflows > 0 ? "text-red-400 font-mono" : "text-emerald-400 font-mono"
-                }
-              >
-                {failedWorkflows > 0 ? `${failedWorkflows} open` : "none"}
+                {globalStatus === "healthy" ? "nominal" : globalStatus === "degraded" ? "degraded" : "unknown"}
               </span>
             </div>
             {/* Backend connectivity */}
@@ -333,70 +339,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium border",
-                globalStatus === "nominal"
+                globalStatus === "healthy"
                   ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20"
-                  : "bg-amber-400/10 text-amber-400 border-amber-400/20"
+                  : globalStatus === "degraded"
+                    ? "bg-amber-400/10 text-amber-400 border-amber-400/20"
+                    : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
               )}
             >
-              {globalStatus === "nominal" ? (
+              {globalStatus === "healthy" ? (
                 <>
                   <CheckCircle size={11} /> ALL SYSTEMS NOMINAL
                 </>
+              ) : globalStatus === "degraded" ? (
+                <>
+                  <AlertTriangle size={11} /> SERVICE DEGRADED
+                </>
               ) : (
                 <>
-                  <AlertTriangle size={11} /> {totalAlerts} ALERT
-                  {totalAlerts !== 1 ? "S" : ""} ACTIVE
+                  <AlertTriangle size={11} /> HEALTH UNKNOWN
                 </>
               )}
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono bg-primary/10 text-primary border border-primary/20">
-              <Activity size={11} className="animate-pulse" />
-              {runningWorkflows} WORKFLOW{runningWorkflows !== 1 ? "S" : ""} LIVE
             </div>
           </div>
 
           {/* Right: backend status + interval selector + refresh */}
           <div className="flex items-center gap-2 py-3">
-            {/* Backend connectivity indicator */}
+            {/* Backend connectivity indicator — truthful states only.
+                "SIMULATION" is shown ONLY when the server payload itself
+                carries simulation:true (PAYGATE_SIMULATION_MODE); a backend
+                outage shows OFFLINE, never a misleading MOCK label. */}
             <div
               className={cn(
                 "hidden lg:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border",
-                connected
-                  ? "text-emerald-400 border-emerald-400/20 bg-emerald-400/5"
-                  : "text-muted-foreground border-border/50 bg-secondary/50"
+                simulated
+                  ? "text-amber-400 border-amber-400/30 bg-amber-400/10"
+                  : connected
+                    ? "text-emerald-400 border-emerald-400/20 bg-emerald-400/5"
+                    : "text-red-400 border-red-400/20 bg-red-400/5"
               )}
             >
               <span
                 className={cn(
                   "w-1.5 h-1.5 rounded-full",
-                  connected ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+                  simulated
+                    ? "bg-amber-400"
+                    : connected
+                      ? "bg-emerald-400 animate-pulse"
+                      : "bg-red-400"
                 )}
               />
-              {connected ? "LIVE" : "MOCK"}
+              {simulated ? "SIMULATION" : connected ? "LIVE" : "OFFLINE"}
             </div>
-
-            {/* Mock/Live toggle */}
-            <button
-              onClick={() => {
-                const next = !forceMock;
-                setForceMock(next);
-                checkBreachesMutation.mutate({ forceMock: next });
-                toast.success(next ? "Switched to MOCK mode" : "Switched to LIVE mode", {
-                  description: next ? "All panels now use mock data" : "All panels now use live data (with mock fallback)",
-                  duration: 2500,
-                });
-              }}
-              title={forceMock ? "Currently forcing MOCK data — click to try LIVE" : "Currently using LIVE data (with mock fallback) — click to force MOCK"}
-              className={cn(
-                "hidden md:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
-                forceMock
-                  ? "text-amber-400 border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20"
-                  : "text-primary border-primary/20 bg-primary/5 hover:bg-primary/10"
-              )}
-            >
-              {forceMock ? <FlaskConical size={10} /> : <Wifi size={10} />}
-              {forceMock ? "MOCK" : "LIVE"}
-            </button>
 
             {/* Countdown */}
             {interval > 0 && (
@@ -441,7 +434,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button
               onClick={() => {
                 triggerRefresh();
-                checkBreachesMutation.mutate({ forceMock });
+                checkBreachesMutation.mutate();
                 toast.success("Data refreshed", {
                   description: "All panels updated",
                   duration: 2000,

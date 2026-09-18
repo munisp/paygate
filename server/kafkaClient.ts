@@ -89,11 +89,90 @@ async function getProducer() {
   return _producer;
 }
 
+/**
+ * M14: explicitly disconnect the shared producer during graceful shutdown
+ * (server/_core/index.ts gracefulShutdown calls this) instead of relying on
+ * the beforeExit hook — beforeExit never fires on SIGTERM-driven exit paths.
+ * Idempotent; safe to call when no producer was ever created.
+ */
+export async function disconnectKafkaProducer(): Promise<void> {
+  const producer = _producer;
+  _producer = null;
+  if (producer) {
+    await producer.disconnect();
+    console.info("[kafka] producer disconnected");
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Topics whose events carry regulatory/compliance obligations (STR → NFIU
+ * goAML, CBN Form A/B/C, velocity-limit compliance). These must NEVER be
+ * silently dropped — when the bus is unavailable the publish FAILS LOUD so
+ * the caller (and the user) sees the failure instead of a fabricated success.
+ */
+export const REGULATORY_TOPICS: ReadonlySet<string> = new Set([
+  KAFKA_TOPICS.STR,
+  KAFKA_TOPICS.REGULATORY,
+  KAFKA_TOPICS.COMPLIANCE,
+  // Literal topics used by psp-production.ts callers
+  "str.filed",
+  "str.submitted",
+  "velocity_limit.updated",
+]);
+
+/** True for any topic carrying regulatory/compliance obligations. */
+export function isRegulatoryTopic(topic: string): boolean {
+  return REGULATORY_TOPICS.has(topic) || topic.startsWith("regulatory.");
+}
+
+export class EventBusUnavailableError extends Error {
+  readonly topic: string;
+  readonly queuedToOutbox: boolean;
+  constructor(topic: string, queuedToOutbox: boolean, cause?: unknown) {
+    super(
+      `Event bus unavailable — regulatory event on topic '${topic}' could NOT be delivered` +
+      (queuedToOutbox
+        ? "; it was durably recorded in the consumer_outbox table for replay"
+        : "; durable outbox recording ALSO FAILED — the event is LOST and must be re-submitted") +
+      (cause instanceof Error ? ` (cause: ${cause.message})` : "")
+    );
+    this.name = "EventBusUnavailableError";
+    this.topic = topic;
+    this.queuedToOutbox = queuedToOutbox;
+  }
+}
+
+/**
+ * Best-effort durable record of an undeliverable event in the consumer_outbox
+ * table so compliance events are never lost without trace.
+ */
+async function recordToOutbox<T>(topic: string, value: T, key?: string): Promise<boolean> {
+  try {
+    const { getDb } = await import("./db");
+    const db = await getDb();
+    if (!db) return false;
+    const { consumerOutbox } = await import("../drizzle/schema");
+    await db.insert(consumerOutbox).values({
+      aggregateId: key ?? topic,
+      eventType: `kafka_undelivered:${topic}`,
+      payload: { topic, key: key ?? null, value } as any,
+      status: "pending",
+    });
+    return true;
+  } catch (err) {
+    console.error(`[kafka] Outbox recording failed for topic ${topic}:`, err);
+    return false;
+  }
+}
+
+/**
  * Publish a single event to a Kafka topic.
- * Fire-and-forget — never throws; logs errors instead.
+ * Non-regulatory topics: fire-and-forget — returns false on failure.
+ * Regulatory topics (STR/REGULATORY/COMPLIANCE): throws EventBusUnavailableError
+ * when the event cannot be delivered — silent drops of regulatory events are
+ * a compliance breach.
  */
 export async function publishEvent<T = unknown>(
   topic: string,
@@ -103,7 +182,14 @@ export async function publishEvent<T = unknown>(
 ): Promise<boolean> {
   try {
     const producer = await getProducer();
-    if (!producer) return false;
+    if (!producer) {
+      if (isRegulatoryTopic(topic)) {
+        const queued = await recordToOutbox(topic, value, key);
+        throw new EventBusUnavailableError(topic, queued);
+      }
+      console.warn(`[kafka] Event bus unavailable — dropping non-regulatory event on topic ${topic}`);
+      return false;
+    }
 
     await producer.send({
       topic,
@@ -122,6 +208,11 @@ export async function publishEvent<T = unknown>(
     });
     return true;
   } catch (err) {
+    if (err instanceof EventBusUnavailableError) throw err;
+    if (isRegulatoryTopic(topic)) {
+      const queued = await recordToOutbox(topic, value, key);
+      throw new EventBusUnavailableError(topic, queued, err);
+    }
     console.error(`[kafka] Failed to publish to ${topic}:`, err);
     return false;
   }

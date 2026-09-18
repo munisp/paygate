@@ -210,7 +210,7 @@ func (s *PubSubSubscription) runSession() error {
 
 	// Send SUBSCRIBE command.
 	args := append([]string{"SUBSCRIBE"}, s.channels...)
-	if _, err := fmt.Fprintf(conn, buildRESP(args...)); err != nil {
+	if _, err := fmt.Fprint(conn, buildRESP(args...)); err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
 

@@ -43,7 +43,7 @@ export interface SIPProcessorResult {
 
 // ─── Gold Price Oracle ────────────────────────────────────────────────────────
 
-let _cachedGoldPriceNGN: number = 98_500; // Updated by fetchAndCacheGoldPrice()
+let _cachedGoldPriceNGN: number = 0; // 0 = no real price fetched yet — must never trade on a seed value
 let _goldPriceLastFetched = 0;
 const GOLD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -75,10 +75,13 @@ export async function fetchAndCacheGoldPrice(): Promise<number> {
   return _cachedGoldPriceNGN;
 }
 
+/**
+ * Returns the last real cached gold price. NO random jitter — an execution
+ * price must be a real quote. Returns 0 when no real price has been fetched;
+ * callers MUST treat 0 as "no price available" and refuse to execute.
+ */
 export function getGoldPriceNGN(): number {
-  // Returns the cached price with a small random variation (±0.5%) to simulate live market data
-  const variation = 1 + (Math.random() - 0.5) * 0.01; // ±0.5% variation
-  return Math.round(_cachedGoldPriceNGN * variation);
+  return _cachedGoldPriceNGN;
 }
 
 // ─── SIP Due Date Calculator ──────────────────────────────────────────────────
@@ -117,31 +120,39 @@ export function isSIPDueToday(plan: Pick<SIPPlan, "nextDebitAt">): boolean {
 
 // ─── SIP Execution ────────────────────────────────────────────────────────────
 
+/**
+ * Execute one SIP plan. FAILS LOUD when the gold provider is unavailable or
+ * returns an incomplete fill — grams and txId are only ever returned from a
+ * real confirmed purchase. Callers must record the failure and alert.
+ */
 export async function executeSIPPlan(
   plan: SIPPlan,
   goldPriceNGN: number
 ): Promise<{ grams: number; amountNGN: number; txId: string }> {
   const amountNGN = plan.monthlyAmountNGN;
-  const grams = amountNGN / goldPriceNGN;
-
-  if (isBridgeAvailable()) {
-    const result = await buyDigitalGoldViaMiddleware(
-      plan.userId,
-      plan.merchantId,
-      amountNGN
-    );
-    if (result) {
-      return {
-        grams: result.grams ?? grams,
-        amountNGN,
-        txId: result.txId ?? `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      };
-    }
+  if (!goldPriceNGN || goldPriceNGN <= 0) {
+    throw new Error("No real gold price available — SIP execution refused");
   }
 
-  // Fallback: direct calculation without middleware
-  const txId = `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  return { grams, amountNGN, txId };
+  if (!isBridgeAvailable()) {
+    throw new Error("Gold provider bridge is not configured — SIP purchase NOT executed");
+  }
+
+  // Bridge signature is (merchantId, customerId, amountNGN) — merchant first.
+  const result = await buyDigitalGoldViaMiddleware(
+    plan.merchantId,
+    plan.userId,
+    amountNGN
+  );
+  if (!result || !result.txId) {
+    throw new Error("Gold provider bridge returned no confirmed fill — SIP purchase NOT executed");
+  }
+
+  return {
+    grams: result.grams ?? amountNGN / goldPriceNGN,
+    amountNGN,
+    txId: result.txId,
+  };
 }
 
 // ─── Main Processor ───────────────────────────────────────────────────────────
@@ -162,7 +173,19 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
     return result;
   }
 
-  const goldPrice = getGoldPriceNGN();
+  // Refresh the real gold price before executing; abort the run loudly when
+  // no real quote can be obtained rather than trading on a fabricated price.
+  const goldPrice = await fetchAndCacheGoldPrice();
+  if (!goldPrice || goldPrice <= 0) {
+    const msg = "SIP Processor: ABORTING run — no real gold price available from the provider bridge";
+    logger.error(msg);
+    await notifyOwner({
+      title: "Gold SIP Run Aborted: No Price Feed",
+      content: `${msg}. ${result.processed} plan(s) were NOT executed. Manual intervention required.`,
+    }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
+    result.errors.push({ planId: "*", error: msg });
+    return result;
+  }
   logger.info(`SIP Processor: Starting run. Gold price: ₦${goldPrice.toLocaleString()}/g`);
 
   try {
@@ -173,10 +196,20 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
 
     for (const plan of duePlans) {
       result.processed++;
+      // Tracks whether the external purchase actually settled — a failure
+      // AFTER settlement is a reconciliation emergency, not a "failed debit",
+      // and must be messaged as such (the plan was already claimed, so there
+      // is no double-debit risk, but the totals are stranded until reconciled).
+      let purchaseSettled = false;
       try {
         const { grams, amountNGN, txId } = await executeSIPPlan(plan, goldPrice);
+        purchaseSettled = true;
 
-        // Update plan record
+        // Money has moved. Update the plan totals — this MUST NOT fail
+        // silently: updateSIPPlanAfterExecution throws on any DB error so the
+        // failure path below records the stranded state and alerts the owner.
+        // The plan's next_run_at was already advanced atomically at claim time
+        // (see getDueSIPPlans), so a retry can never double-debit this plan.
         await updateSIPPlanAfterExecution(db, plan.id, {
           totalGramsAccumulated: plan.totalGramsAccumulated + grams,
           totalInvestedNGN: plan.totalInvestedNGN + amountNGN,
@@ -202,7 +235,7 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
             `Purchased ${grams.toFixed(4)} grams of gold for ₦${amountNGN.toLocaleString()} ` +
             `at ₦${goldPrice.toLocaleString()}/g. ` +
             `Total accumulated: ${(plan.totalGramsAccumulated + grams).toFixed(4)}g.`,
-        }).catch(() => {}); // Non-blocking
+        }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) })); // Non-blocking
 
       } catch (err) {
         result.failed++;
@@ -210,15 +243,32 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
         result.errors.push({ planId: plan.id, error: errorMsg });
         logger.error(`SIP Processor: Plan ${plan.id} failed: ${errorMsg}`);
 
-        // Notify owner of failure
-        await notifyOwner({
-          title: `Gold SIP Failed: Plan ${plan.id}`,
-          content: `Auto-debit failed for SIP plan ${plan.id}: ${errorMsg}. Manual intervention may be required.`,
-        }).catch(() => {});
+        if (purchaseSettled) {
+          // Money MOVED but bookkeeping failed — reconciliation emergency.
+          // Do NOT message this as a failed debit; the debit succeeded.
+          await notifyOwner({
+            title: `🚨 Gold SIP RECONCILIATION REQUIRED: Plan ${plan.id}`,
+            content:
+              `The gold purchase for SIP plan ${plan.id} SETTLED at the provider, but the ` +
+              `post-debit plan update failed: ${errorMsg}. The plan was already claimed ` +
+              `(no duplicate debit can occur), but its totals are stale. Reconcile manually.`,
+          }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
+        } else {
+          // Notify owner of failure
+          await notifyOwner({
+            title: `Gold SIP Failed: Plan ${plan.id}`,
+            content: `Auto-debit failed for SIP plan ${plan.id}: ${errorMsg}. Manual intervention may be required.`,
+          }).catch((e) => logger.error("SIP Processor: owner notification failed — alert lost", { error: e instanceof Error ? e.message : String(e) }));
+        }
       }
     }
   } catch (err) {
-    logger.error(`SIP Processor: Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+    // FAIL LOUD — a fatal run error (e.g. the claim query failed) must
+    // propagate to the scheduler/operator, not vanish into a log line.
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`SIP Processor: Fatal error: ${msg}`);
+    result.errors.push({ planId: "*", error: msg });
+    throw err;
   }
 
   logger.info(
@@ -232,51 +282,118 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
 
 // ─── DB Helpers (production-ready — wired to gold_sip_plans schema) ──────────────
 
-async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
-  try {
-    // Try to query actual gold_sip_plans table
-    const { sql } = await import("drizzle-orm");
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-    // Dynamic import to avoid hard dependency on schema table existence
-    const schema = await import("../../drizzle/schema");
-    if (!schema.goldSipPlans) return [];
-
-    const { and, eq, gte, lt } = await import("drizzle-orm");
-    return db
-      .select()
-      .from(schema.goldSipPlans)
-      .where(
-        and(
-          eq(schema.goldSipPlans.status, "active"),
-          gte(schema.goldSipPlans.nextRunAt, today),
-          lt(schema.goldSipPlans.nextRunAt, tomorrow)
-        )
-      );
-  } catch {
-    // Table doesn't exist yet — return empty array gracefully
-    return [];
-  }
+/**
+ * Map a gold_sip_plans row (snake_case from raw SQL) onto the SIPPlan shape.
+ * The table stores kobo (NGN minor units); SIPPlan works in naira.
+ */
+function rowToSIPPlan(row: any): SIPPlan {
+  const nextRunAt = row.next_run_at ?? row.nextRunAt ?? null;
+  return {
+    id: String(row.id),
+    merchantId: String(row.merchant_id ?? row.merchantId),
+    // gold_sip_plans has no separate user column — the merchant IS the investor.
+    userId: String(row.merchant_id ?? row.merchantId),
+    monthlyAmountNGN: Number(row.amount_kobo ?? row.amountKobo ?? 0) / 100,
+    frequency: (row.frequency ?? "monthly") as SIPPlan["frequency"],
+    dayOfMonth: nextRunAt ? new Date(nextRunAt).getUTCDate() : 1,
+    status: (row.status ?? "active") as SIPPlan["status"],
+    nextDebitAt: nextRunAt ? new Date(nextRunAt) : new Date(),
+    totalGramsAccumulated: Number(row.total_gold_grams ?? row.totalGoldGrams ?? 0),
+    totalInvestedNGN: Number(row.total_invested_kobo ?? row.totalInvestedKobo ?? 0) / 100,
+    runCount: 0,
+    lastRunAt: null,
+    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+  };
 }
 
+/**
+ * Claim-then-execute: atomically advance next_run_at for every plan due today
+ * and return the claimed rows. This is the idempotency guard for the external
+ * gold purchase — once claimed, no concurrent cron instance (or retry of this
+ * run) can select the same plan, so a plan can never be double-debited.
+ * FOR UPDATE SKIP LOCKED makes two racing pollers claim disjoint sets.
+ *
+ * FAILS LOUD: a query error throws (it previously returned [], silently
+ * skipping every due debit for the day).
+ */
+async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
+  const { sql } = await import("drizzle-orm");
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+  let rows: any[];
+  try {
+    const res = await db.execute(sql`
+      UPDATE gold_sip_plans
+      SET next_run_at = CASE frequency
+            WHEN 'daily'  THEN next_run_at + interval '1 day'
+            WHEN 'weekly' THEN next_run_at + interval '7 days'
+            ELSE next_run_at + interval '1 month'
+          END,
+          updated_at = now()
+      WHERE id IN (
+        SELECT id FROM gold_sip_plans
+        WHERE status = 'active'
+          AND next_run_at >= ${today}
+          AND next_run_at < ${tomorrow}
+        ORDER BY next_run_at
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `);
+    rows = ((res as any)?.rows ?? res ?? []) as any[];
+  } catch (err) {
+    // Table missing in a pre-migration environment → no plans, but LOG it;
+    // any other failure is thrown so the run aborts loudly.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("gold_sip_plans") && msg.includes("does not exist")) {
+      logger.warn("SIP Processor: gold_sip_plans table not migrated yet — skipping run");
+      return [];
+    }
+    throw new Error(`SIP Processor: failed to claim due plans: ${msg}`);
+  }
+  return rows.map(rowToSIPPlan);
+}
+
+/**
+ * Post-debit plan update. Money has ALREADY moved when this runs, so a silent
+ * failure here strands state (totals never recorded) and, worse, used to be
+ * swallowed entirely. This function FAILS LOUD: it logs and rethrows so the
+ * caller records the plan as failed and alerts the owner for manual
+ * reconciliation. The update is guarded (RETURNING) so a missing/inactive
+ * plan row is an error, not a no-op.
+ */
 async function updateSIPPlanAfterExecution(
   db: any,
   planId: string,
   updates: Partial<SIPPlan>
 ): Promise<void> {
+  const { sql } = await import("drizzle-orm");
   try {
-    const schema = await import("../../drizzle/schema");
-    if (!schema.goldSipPlans) return;
-    const { eq } = await import("drizzle-orm");
-    await db
-      .update(schema.goldSipPlans)
-      .set(updates)
-      .where(eq(schema.goldSipPlans.id, planId));
-  } catch {
-    // Graceful degradation
+    const res = await db.execute(sql`
+      UPDATE gold_sip_plans
+      SET total_gold_grams = ${String(updates.totalGramsAccumulated ?? 0)},
+          total_invested_kobo = ${Math.round((updates.totalInvestedNGN ?? 0) * 100)},
+          updated_at = now()
+      WHERE id = ${planId} AND status = 'active'
+      RETURNING id
+    `);
+    const rows = ((res as any)?.rows ?? res ?? []) as any[];
+    if (rows.length === 0) {
+      throw new Error(`no active gold_sip_plans row matched id=${planId}`);
+    }
+  } catch (err) {
+    // FAIL LOUD — the gold purchase already settled; swallowing this strands
+    // the execution state. Rethrow so the run marks the plan failed and the
+    // owner is alerted. The plan's next_run_at was advanced at claim time,
+    // so this can never cause a duplicate debit on retry.
+    logger.error(
+      `SIP Processor: CRITICAL — post-debit update failed for plan ${planId} ` +
+      `after money moved: ${err instanceof Error ? err.message : String(err)}`
+    );
+    throw err;
   }
 }
 

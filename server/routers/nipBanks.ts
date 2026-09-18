@@ -11,12 +11,33 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { db } from "../db";
 import {
+  getCachedNipNameEnquiry,
+  cacheNipNameEnquiry,
+  createNipVirtualAccount,
+  getNipVirtualAccountByReference,
+  listNipVirtualAccounts,
+  getUserByOpenId,
+  getMerchantByOwnerId,
+} from "../db";
+import {
   nipBanks as nibssBanks,
-  nipVirtualAccounts,
-  nipNameEnquiryCache,
 } from "../../drizzle/schema";
-import { eq, and, gt, ilike, or } from "drizzle-orm";
+import type { Merchant } from "../../drizzle/schema";
+import { eq, and, ilike, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+
+/**
+ * Resolve the authenticated user's merchant server-side.
+ * Client-supplied merchantId is NEVER trusted — it is not forwarded to the
+ * bridge and not used for scoping.
+ */
+async function resolveMerchant(openId: string): Promise<Merchant> {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) throw new TRPCError({ code: "FORBIDDEN", message: "No merchant account for this user" });
+  return merchant;
+}
 
 const NIBSS_GATEWAY_URL = process.env.NIBSS_GATEWAY_URL ?? "";
 const NIBSS_INSTITUTION_CODE = process.env.NIBSS_INSTITUTION_CODE ?? "";
@@ -114,24 +135,16 @@ export const nipBanksRouter = router({
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      // Check cache
-      const cached = await database
-        .select()
-        .from(nipNameEnquiryCache)
-        .where(
-          and(
-            eq(nipNameEnquiryCache.bankNipCode, input.bankNipCode),
-            eq(nipNameEnquiryCache.accountNumber, input.accountNumber),
-            gt(nipNameEnquiryCache.expiresAt, new Date())
-          )
-        )
-        .limit(1);
+      // Check cache (real `nip_name_enquiry_cache` table via db helper —
+      // drizzle/schema.ts does not export this table, so the helper queries
+      // it with parameterized raw SQL).
+      const cached = await getCachedNipNameEnquiry(input.bankNipCode, input.accountNumber);
 
-      if (cached.length > 0) {
+      if (cached) {
         return {
-          accountName: cached[0].accountName,
-          bankVerificationNumber: cached[0].bankVerificationNumber,
-          kycLevel: cached[0].kycLevel,
+          accountName: cached.accountName,
+          bankVerificationNumber: cached.bankVerificationNumber,
+          kycLevel: cached.kycLevel,
           fromCache: true,
         };
       }
@@ -185,14 +198,14 @@ export const nipBanksRouter = router({
 
       // Cache result for 24 hours
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      await database.insert(nipNameEnquiryCache).values({
+      await cacheNipNameEnquiry({
         bankNipCode: input.bankNipCode,
         accountNumber: input.accountNumber,
         accountName,
         bankVerificationNumber: bvn,
         kycLevel,
         expiresAt,
-      }).onConflictDoNothing();
+      });
 
       return { accountName, bankVerificationNumber: bvn, kycLevel, fromCache: false };
     }),
@@ -201,10 +214,10 @@ export const nipBanksRouter = router({
    * Generate a NIP virtual account for a payment session.
    * The customer pays into this account and NIBSS notifies PayGate via webhook.
    */
-  generateVirtualAccount: publicProcedure
+  generateVirtualAccount: protectedProcedure
     .input(
       z.object({
-        merchantId: z.string().optional(), // optional — resolved from paymentLinkId if not provided
+        merchantId: z.string().optional(), // IGNORED — merchant is resolved server-side from ctx.user
         reference: z.string(),
         bankNipCode: z.string(),
         accountName: z.string(),
@@ -214,20 +227,23 @@ export const nipBanksRouter = router({
         checkoutSessionId: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      // Resolve merchantId from paymentLinkId if not provided directly
-      let resolvedMerchantId = input.merchantId;
-      if (!resolvedMerchantId && input.paymentLinkId) {
+      // Merchant is ALWAYS resolved server-side from the authenticated user —
+      // a client-supplied merchantId is never trusted or forwarded.
+      const merchant = await resolveMerchant(ctx.user.openId);
+      const resolvedMerchantId = merchant.id;
+
+      // If a payment link is supplied, it must belong to the resolved merchant.
+      if (input.paymentLinkId) {
         const { getPaymentLinkById } = await import('../db');
         const link = await getPaymentLinkById(input.paymentLinkId);
         if (!link) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found" });
-        resolvedMerchantId = link.merchantId;
-      }
-      if (!resolvedMerchantId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "merchantId or paymentLinkId is required" });
+        if (link.merchantId !== resolvedMerchantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Payment link does not belong to this merchant" });
+        }
       }
 
       // Get bank name
@@ -251,7 +267,7 @@ export const nipBanksRouter = router({
             "X-Internal-Key": MIDDLEWARE_INTERNAL_KEY,
           },
           body: JSON.stringify({
-            merchantId: input.merchantId,
+            merchantId: resolvedMerchantId,
             reference: input.reference,
             bankNipCode: input.bankNipCode,
             amountExpected: input.amountExpected ?? 0,
@@ -278,8 +294,9 @@ export const nipBanksRouter = router({
         accountNumber = data.accountNumber;
       }
 
-      // Persist to DB
-      await database.insert(nipVirtualAccounts).values({
+      // Persist to DB (real `nip_virtual_accounts` table via db helper —
+      // drizzle/schema.ts does not export this table).
+      await createNipVirtualAccount({
         merchantId: resolvedMerchantId,
         paymentLinkId: input.paymentLinkId ?? null,
         checkoutSessionId: input.checkoutSessionId ?? null,
@@ -310,21 +327,19 @@ export const nipBanksRouter = router({
    */
   getVirtualAccountStatus: protectedProcedure
     .input(z.object({ reference: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const va = await database
-        .select()
-        .from(nipVirtualAccounts)
-        .where(eq(nipVirtualAccounts.reference, input.reference))
-        .limit(1);
+      const merchant = await resolveMerchant(ctx.user.openId);
+      const va = await getNipVirtualAccountByReference(input.reference);
 
-      if (!va.length) {
+      // Ownership scoping — do not leak existence of other merchants' accounts.
+      if (!va || va.merchantId !== merchant.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Virtual account not found" });
       }
 
-      return va[0];
+      return va;
     }),
 
   /**
@@ -333,34 +348,21 @@ export const nipBanksRouter = router({
   listVirtualAccounts: protectedProcedure
     .input(
       z.object({
-        merchantId: z.string(),
+        merchantId: z.string().optional(), // ignored — resolved server-side
         status: z.enum(["pending", "paid", "expired", "cancelled", "all"]).optional().default("all"),
         limit: z.number().int().min(1).max(100).optional().default(20),
         offset: z.number().int().min(0).optional().default(0),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      let query = database
-        .select()
-        .from(nipVirtualAccounts)
-        .where(eq(nipVirtualAccounts.merchantId, input.merchantId))
-        .$dynamic();
-
-      if (input.status !== "all") {
-        query = query.where(
-          and(
-            eq(nipVirtualAccounts.merchantId, input.merchantId),
-            eq(nipVirtualAccounts.status, input.status)
-          )
-        );
-      }
-
-      return query
-        .orderBy(nipVirtualAccounts.createdAt)
-        .limit(input.limit)
-        .offset(input.offset);
+      const merchant = await resolveMerchant(ctx.user.openId);
+      return listNipVirtualAccounts(merchant.id, {
+        status: input.status === "all" ? null : input.status,
+        limit: input.limit,
+        offset: input.offset,
+      });
     }),
 });

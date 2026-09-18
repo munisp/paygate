@@ -65,6 +65,9 @@ class DocType(str, Enum):
     UTILITY_BILL = "utility_bill"
     BANK_STATEMENT = "bank_statement"
     CAC_CERTIFICATE = "cac_certificate"
+    # AP bill inbox (Melio P0-b) — supplier invoices and receipts
+    SUPPLIER_INVOICE = "supplier_invoice"
+    RECEIPT = "receipt"
 
 
 class ExtractionMode(str, Enum):
@@ -101,6 +104,12 @@ class KYCExtractionResult(BaseModel):
     rc_number: ExtractedField = Field(default_factory=ExtractedField)
     account_number: ExtractedField = Field(default_factory=ExtractedField)
     bank_name: ExtractedField = Field(default_factory=ExtractedField)
+
+    # Structured AP bill payload (supplier_invoice / receipt only). Schema:
+    # {vendor_name, tin, bill_number, due_date, currency, subtotal_kobo,
+    #  tax_kobo, total_kobo, line_items:[{description, quantity,
+    #  unit_price_kobo, amount_kobo}]} — all amounts integer kobo.
+    structured_data: dict[str, Any] = Field(default_factory=dict)
 
     # Quality metrics
     overall_confidence: float = 0.0
@@ -156,11 +165,15 @@ async def lifespan(app: FastAPI):
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate KYC OCR Service",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("kyc-ocr", app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -276,7 +289,27 @@ async def extract_with_vlm(img_bytes: bytes, doc_type: DocType) -> dict[str, Any
 
     img_b64 = base64.b64encode(img_bytes).decode()
 
-    prompt = f"""You are a KYC document extraction specialist. Extract all fields from this {doc_type.value.replace('_', ' ')} document.
+    if doc_type in (DocType.SUPPLIER_INVOICE, DocType.RECEIPT):
+        prompt = f"""You are an accounts-payable document extraction specialist. Extract structured data from this {doc_type.value.replace('_', ' ')} document.
+
+Return a JSON object with these fields (use null if not found):
+{{
+  "vendor_name": "string (supplier/merchant name)",
+  "tin": "string (tax identification number)",
+  "bill_number": "string (invoice/receipt number)",
+  "due_date": "YYYY-MM-DD (payment due date; null for receipts already paid)",
+  "currency": "ISO 4217 code, e.g. NGN",
+  "subtotal_kobo": integer (subtotal BEFORE tax, smallest currency unit),
+  "tax_kobo": integer (VAT/tax amount, smallest currency unit),
+  "total_kobo": integer (grand total, smallest currency unit),
+  "line_items": [{{"description": "string", "quantity": number, "unit_price_kobo": integer, "amount_kobo": integer}}],
+  "tamper_indicators": ["list of any suspicious features"]
+}}
+
+CRITICAL: all monetary amounts MUST be integers in the smallest currency unit (e.g. kobo for NGN — multiply naira by 100; cents for USD). Never return decimals for *_kobo fields.
+Be precise. Return only valid JSON."""
+    else:
+        prompt = f"""You are a KYC document extraction specialist. Extract all fields from this {doc_type.value.replace('_', ' ')} document.
 
 Return a JSON object with these fields (use null if not found):
 {{
@@ -383,6 +416,78 @@ def parse_fields_from_text(raw_text: str, doc_type: DocType) -> dict[str, Extrac
     return fields
 
 
+# ─── AP Bill Structured Extraction ────────────────────────────────────────────
+def _to_kobo_int(value: Any) -> int | None:
+    """
+    Coerce a VLM-reported amount to integer kobo (smallest currency unit).
+    Accepts ints and integer-valued floats/strings as-is; non-integer numbers
+    are treated as major units (naira) and multiplied by 100. Anything
+    unparseable → None (never fabricated).
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else int(round(value * 100))
+    if isinstance(value, str):
+        cleaned = value.replace(",", "").replace("₦", "").replace("$", "").strip()
+        if not cleaned:
+            return None
+        try:
+            num = float(cleaned)
+        except ValueError:
+            return None
+        return int(num) if num.is_integer() else int(round(num * 100))
+    return None
+
+
+def build_bill_structured_data(vlm_fields: dict[str, Any]) -> dict[str, Any]:
+    """
+    Normalize the VLM payload for supplier_invoice / receipt documents into the
+    canonical AP bill schema. Missing fields stay None — no fabricated values.
+    """
+    line_items: list[dict[str, Any]] = []
+    raw_items = vlm_fields.get("line_items")
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            quantity = item.get("quantity")
+            try:
+                quantity = float(quantity) if quantity is not None else None
+            except (TypeError, ValueError):
+                quantity = None
+            line_items.append({
+                "description": item.get("description") if isinstance(item.get("description"), str) else None,
+                "quantity": quantity,
+                "unit_price_kobo": _to_kobo_int(item.get("unit_price_kobo")),
+                "amount_kobo": _to_kobo_int(item.get("amount_kobo")),
+            })
+
+    due_date = vlm_fields.get("due_date")
+    if isinstance(due_date, str) and not re.match(r"^\d{4}-\d{2}-\d{2}$", due_date.strip()):
+        due_date = None  # keep only ISO dates; everything else is unreliable
+
+    currency = vlm_fields.get("currency")
+    if isinstance(currency, str):
+        currency = currency.strip().upper()[:3] or None
+    else:
+        currency = None
+
+    return {
+        "vendor_name": vlm_fields.get("vendor_name") if isinstance(vlm_fields.get("vendor_name"), str) else None,
+        "tin": vlm_fields.get("tin") if isinstance(vlm_fields.get("tin"), str) else None,
+        "bill_number": vlm_fields.get("bill_number") if isinstance(vlm_fields.get("bill_number"), str) else None,
+        "due_date": due_date.strip() if isinstance(due_date, str) and due_date else None,
+        "currency": currency,
+        "subtotal_kobo": _to_kobo_int(vlm_fields.get("subtotal_kobo")),
+        "tax_kobo": _to_kobo_int(vlm_fields.get("tax_kobo")),
+        "total_kobo": _to_kobo_int(vlm_fields.get("total_kobo")),
+        "line_items": line_items,
+    }
+
+
 def merge_results(
     ocr_fields: dict[str, ExtractedField],
     vlm_fields: dict[str, Any],
@@ -464,6 +569,11 @@ async def extract_document(request: ExtractionRequest, background_tasks: Backgro
     ocr_fields = parse_fields_from_text(raw_text, request.doc_type)
     merged_fields = merge_results(ocr_fields, vlm_fields, docling_data)
 
+    # AP bill docs: build the canonical structured payload from the VLM fields.
+    bill_structured: dict[str, Any] = {}
+    if request.doc_type in (DocType.SUPPLIER_INVOICE, DocType.RECEIPT):
+        bill_structured = build_bill_structured_data(vlm_fields)
+
     # Build result
     result = KYCExtractionResult(
         submission_id=request.submission_id,
@@ -472,6 +582,7 @@ async def extract_document(request: ExtractionRequest, background_tasks: Backgro
         image_quality_score=quality_score,
         raw_text=raw_text[:2000],  # Truncate for storage
         processing_ms=int(time.time() * 1000) - start_ms,
+        structured_data=bill_structured,
     )
 
     # Populate fields
@@ -554,6 +665,34 @@ async def health():
         "docling": docling_converter is not None,
         "vlm_enabled": VLM_ENABLED,
     }
+
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

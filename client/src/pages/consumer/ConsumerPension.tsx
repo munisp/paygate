@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Shield, PiggyBank, FileText, Building2 } from "lucide-react";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 export default function ConsumerPension() {
   const [contributionAmount, setContributionAmount] = useState("");
@@ -27,13 +28,17 @@ export default function ConsumerPension() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const contributeMutation = trpc.newFeatures.pension.contribute.useMutation({
+  // Server: wave34 consumerFinancial.pension.contribute — requires an
+  // idempotency key (reused across retries of the same logical contribution).
+  const contributeKey = useIdempotencyKey();
+  const contributeMutation = trpc.consumerFinancial.pension.contribute.useMutation({
     onSuccess: (d: any) => {
+      contributeKey.reset();
       toast.success(`Contributed ₦${(d.amountKobo / 100).toLocaleString()} to pension`);
       setContributionAmount("");
       refetch();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { contributeKey.reset(); toast.error(e.message); },
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -149,7 +154,7 @@ export default function ConsumerPension() {
                 </div>
                 <div className="flex items-end">
                   <Button
-                    onClick={() => contributeMutation.mutate({ amountKobo: parseFloat(contributionAmount) * 100 })}
+                    onClick={() => contributeMutation.mutate({ amountKobo: parseFloat(contributionAmount) * 100, idempotencyKey: contributeKey.getKey() })}
                     disabled={!contributionAmount || contributeMutation.isPending}
                   >
                     {contributeMutation.isPending ? "Processing..." : "Contribute"}

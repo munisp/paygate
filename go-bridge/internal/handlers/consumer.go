@@ -45,17 +45,29 @@ func ConsumerWalletCredit(w http.ResponseWriter, r *http.Request) {
 		req.Currency = "NGN"
 	}
 
-	// TigerBeetle: credit consumer wallet (via transfer from float account)
-	tbClient := tb.Get()
-	if tbClient != nil {
-		accountID, err := tb.UUIDToID(req.WalletID)
-		if err == nil {
-			floatID := tb.FloatAccountID()
-			transferID := tb.ReferenceToID(req.Reference)
-			if terr := tbClient.Transfer(transferID, floatID, accountID, uint64(req.AmountKobo), tb.CurrencyToLedger(req.Currency), 0); terr != nil {
-				slog.Warn("tigerbeetle consumer credit failed (non-fatal)", "err", terr, "wallet", req.WalletID)
-			}
-		}
+	// TigerBeetle: credit consumer wallet (via transfer from float account).
+	// The ledger write is authoritative — on failure the request fails loud (503).
+	tbClient := tb.GetActive()
+	if tbClient == nil {
+		slog.Error("consumer credit refused: TigerBeetle ledger client unavailable", "wallet", req.WalletID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger unavailable", "reference": req.Reference,
+		})
+		return
+	}
+	accountID, err := tb.UUIDToID(req.WalletID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid wallet_id")
+		return
+	}
+	floatID := tb.FloatAccountID()
+	transferID := tb.ReferenceToID(req.Reference)
+	if terr := tbClient.Transfer(transferID, floatID, accountID, uint64(req.AmountKobo), tb.CurrencyToLedger(req.Currency), 0); terr != nil {
+		slog.Error("tigerbeetle consumer credit failed — refusing to report success", "err", terr, "wallet", req.WalletID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger posting failed", "reference": req.Reference,
+		})
+		return
 	}
 
 	// Kafka: emit consumer.wallet.credited event
@@ -71,7 +83,7 @@ func ConsumerWalletCredit(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-wallet-events", req.WalletID, event); err != nil {
-			slog.Warn("kafka consumer credit event failed (non-fatal)", "err", err)
+			slog.Error("kafka consumer credit event publish failed after ledger success — reconciliation required", "err", err, "reference", req.Reference)
 		}
 	}
 
@@ -120,17 +132,29 @@ func ConsumerWalletDebit(w http.ResponseWriter, r *http.Request) {
 		req.TxType = "debit"
 	}
 
-	// TigerBeetle: debit consumer wallet (transfer to float account)
-	tbClient := tb.Get()
-	if tbClient != nil {
-		accountID, err := tb.UUIDToID(req.WalletID)
-		if err == nil {
-			floatID := tb.FloatAccountID()
-			transferID := tb.ReferenceToID(req.Reference)
-			if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), tb.CurrencyToLedger(req.Currency), 0); terr != nil {
-				slog.Warn("tigerbeetle consumer debit failed (non-fatal)", "err", terr, "wallet", req.WalletID)
-			}
-		}
+	// TigerBeetle: debit consumer wallet (transfer to float account).
+	// The ledger write is authoritative — on failure the request fails loud (503).
+	tbClient := tb.GetActive()
+	if tbClient == nil {
+		slog.Error("consumer debit refused: TigerBeetle ledger client unavailable", "wallet", req.WalletID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger unavailable", "reference": req.Reference,
+		})
+		return
+	}
+	accountID, err := tb.UUIDToID(req.WalletID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid wallet_id")
+		return
+	}
+	floatID := tb.FloatAccountID()
+	transferID := tb.ReferenceToID(req.Reference)
+	if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), tb.CurrencyToLedger(req.Currency), 0); terr != nil {
+		slog.Error("tigerbeetle consumer debit failed — refusing to report success", "err", terr, "wallet", req.WalletID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger posting failed", "reference": req.Reference,
+		})
+		return
 	}
 
 	// Kafka: emit consumer.wallet.debited event
@@ -147,7 +171,7 @@ func ConsumerWalletDebit(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-wallet-events", req.WalletID, event); err != nil {
-			slog.Warn("kafka consumer debit event failed (non-fatal)", "err", err)
+			slog.Error("kafka consumer debit event publish failed after ledger success — reconciliation required", "err", err, "reference", req.Reference)
 		}
 	}
 
@@ -194,18 +218,30 @@ func ConsumerP2PTransfer(w http.ResponseWriter, r *http.Request) {
 		req.Currency = "NGN"
 	}
 
-	// TigerBeetle: double-entry debit sender, credit recipient
-	tbClient := tb.Get()
-	if tbClient != nil {
-		senderID, err1 := tb.UUIDToID(req.SenderWalletID)
-		recipientID, err2 := tb.UUIDToID(req.RecipientWalletID)
-		if err1 == nil && err2 == nil {
-			ledger := tb.CurrencyToLedger(req.Currency)
-			transferID := tb.ReferenceToID(req.Reference)
-			if terr := tbClient.Transfer(transferID, senderID, recipientID, uint64(req.AmountKobo), ledger, 0); terr != nil {
-				slog.Warn("tigerbeetle p2p transfer failed (non-fatal)", "err", terr)
-			}
-		}
+	// TigerBeetle: double-entry debit sender, credit recipient.
+	// The ledger write is authoritative — on failure the request fails loud (503).
+	tbClient := tb.GetActive()
+	if tbClient == nil {
+		slog.Error("consumer p2p refused: TigerBeetle ledger client unavailable", "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger unavailable", "reference": req.Reference,
+		})
+		return
+	}
+	senderID, err1 := tb.UUIDToID(req.SenderWalletID)
+	recipientID, err2 := tb.UUIDToID(req.RecipientWalletID)
+	if err1 != nil || err2 != nil {
+		writeError(w, http.StatusBadRequest, "invalid sender_wallet_id or recipient_wallet_id")
+		return
+	}
+	ledger := tb.CurrencyToLedger(req.Currency)
+	transferID := tb.ReferenceToID(req.Reference)
+	if terr := tbClient.Transfer(transferID, senderID, recipientID, uint64(req.AmountKobo), ledger, 0); terr != nil {
+		slog.Error("tigerbeetle p2p transfer failed — refusing to report success", "err", terr, "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger posting failed", "reference": req.Reference,
+		})
+		return
 	}
 
 	// Kafka: emit consumer.transfer.p2p event
@@ -223,7 +259,7 @@ func ConsumerP2PTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-transfer-events", req.Reference, event); err != nil {
-			slog.Warn("kafka p2p transfer event failed (non-fatal)", "err", err)
+			slog.Error("kafka p2p transfer event publish failed after ledger success — reconciliation required", "err", err, "reference", req.Reference)
 		}
 	}
 
@@ -271,18 +307,30 @@ func ConsumerBankTransfer(w http.ResponseWriter, r *http.Request) {
 		req.Currency = "NGN"
 	}
 
-	// TigerBeetle: debit consumer wallet (transfer to float account)
-	tbClient := tb.Get()
-	if tbClient != nil {
-		accountID, err := tb.UUIDToID(req.WalletID)
-		if err == nil {
-			floatID := tb.FloatAccountID()
-			ledger := tb.CurrencyToLedger(req.Currency)
-			transferID := tb.ReferenceToID(req.Reference)
-			if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), ledger, 0); terr != nil {
-				slog.Warn("tigerbeetle bank transfer debit failed (non-fatal)", "err", terr)
-			}
-		}
+	// TigerBeetle: debit consumer wallet (transfer to float account).
+	// The ledger write is authoritative — on failure the request fails loud (503).
+	tbClient := tb.GetActive()
+	if tbClient == nil {
+		slog.Error("consumer bank transfer refused: TigerBeetle ledger client unavailable", "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger unavailable", "reference": req.Reference,
+		})
+		return
+	}
+	accountID, err := tb.UUIDToID(req.WalletID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid wallet_id")
+		return
+	}
+	floatID := tb.FloatAccountID()
+	ledger := tb.CurrencyToLedger(req.Currency)
+	transferID := tb.ReferenceToID(req.Reference)
+	if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), ledger, 0); terr != nil {
+		slog.Error("tigerbeetle bank transfer debit failed — refusing to report success", "err", terr, "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger posting failed", "reference": req.Reference,
+		})
+		return
 	}
 
 	// Kafka: emit consumer.transfer.bank event (NIP processor picks this up)
@@ -301,7 +349,7 @@ func ConsumerBankTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-transfer-events", req.Reference, event); err != nil {
-			slog.Warn("kafka bank transfer event failed (non-fatal)", "err", err)
+			slog.Error("kafka bank transfer event publish failed after ledger success — reconciliation required", "err", err, "reference", req.Reference)
 		}
 	}
 
@@ -349,18 +397,30 @@ func ConsumerBillPay(w http.ResponseWriter, r *http.Request) {
 		req.Currency = "NGN"
 	}
 
-	// TigerBeetle: debit consumer wallet (transfer to float account)
-	tbClient := tb.Get()
-	if tbClient != nil {
-		accountID, err := tb.UUIDToID(req.WalletID)
-		if err == nil {
-			floatID := tb.FloatAccountID()
-			ledger := tb.CurrencyToLedger(req.Currency)
-			transferID := tb.ReferenceToID(req.Reference)
-			if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), ledger, 0); terr != nil {
-				slog.Warn("tigerbeetle bill pay debit failed (non-fatal)", "err", terr)
-			}
-		}
+	// TigerBeetle: debit consumer wallet (transfer to float account).
+	// The ledger write is authoritative — on failure the request fails loud (503).
+	tbClient := tb.GetActive()
+	if tbClient == nil {
+		slog.Error("consumer bill pay refused: TigerBeetle ledger client unavailable", "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger unavailable", "reference": req.Reference,
+		})
+		return
+	}
+	accountID, err := tb.UUIDToID(req.WalletID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid wallet_id")
+		return
+	}
+	floatID := tb.FloatAccountID()
+	ledger := tb.CurrencyToLedger(req.Currency)
+	transferID := tb.ReferenceToID(req.Reference)
+	if terr := tbClient.Transfer(transferID, accountID, floatID, uint64(req.AmountKobo), ledger, 0); terr != nil {
+		slog.Error("tigerbeetle bill pay debit failed — refusing to report success", "err", terr, "reference", req.Reference)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false, "error": "ledger posting failed", "reference": req.Reference,
+		})
+		return
 	}
 
 	// Kafka: emit consumer.bill.paid event (billing processor picks this up)
@@ -378,7 +438,7 @@ func ConsumerBillPay(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-billing-events", req.Reference, event); err != nil {
-			slog.Warn("kafka bill pay event failed (non-fatal)", "err", err)
+			slog.Error("kafka bill pay event publish failed after ledger success — reconciliation required", "err", err, "reference", req.Reference)
 		}
 	}
 
@@ -458,7 +518,7 @@ func ConsumerFraudScore(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := kafka.GetProducer(); p != nil {
 		if err := p.Publish(context.Background(), "paygate-consumer-fraud-events", req.Reference, event); err != nil {
-			slog.Warn("kafka consumer fraud score event failed (non-fatal)", "err", err)
+			slog.Warn("kafka consumer fraud score event publish failed", "err", err)
 		}
 	}
 

@@ -15,7 +15,8 @@ export default function InvoiceFinancingV2() {
 
   const { data, isLoading, refetch } = trpc.wave80.invoiceFinancingV2.listApplications.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.invoiceFinancingV2.getStats.useQuery();
-  const { data: eligibility } = trpc.wave80.invoiceFinancingV2.getEligibility.useQuery();
+  // NB: wave80.invoiceFinancingV2.getEligibility always throws server-side
+  // (underwriting service not integrated), so eligibility cannot be gated on here.
 
   const apply = trpc.wave80.invoiceFinancingV2.applyForFinancing.useMutation({
     onSuccess: () => { toast.success("Application submitted"); setApplyOpen(false); refetch(); },
@@ -32,9 +33,8 @@ export default function InvoiceFinancingV2() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Invoice Financing V2</h1><p className="text-muted-foreground">Get advance financing on your invoices</p></div>
-        <Button onClick={() => setApplyOpen(true)} disabled={!eligibility?.eligible}><Plus className="w-4 h-4 mr-2" />Submit Invoice</Button>
+        <Button onClick={() => setApplyOpen(true)}><Plus className="w-4 h-4 mr-2" />Submit Invoice</Button>
       </div>
-      {eligibility && <div className="p-4 bg-muted rounded-lg text-sm"><span className="font-medium">Eligibility: </span>{eligibility.eligible ? "Eligible for financing" : "Not eligible"}</div>}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><FileText className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">{stats?.total ?? 0}</p><p className="text-sm text-muted-foreground">Total Applications</p></div></div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><DollarSign className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">&#8358;{((stats?.totalDisbursed ?? 0) / 100).toLocaleString()}</p><p className="text-sm text-muted-foreground">Total Financed</p></div></div></CardContent></Card>

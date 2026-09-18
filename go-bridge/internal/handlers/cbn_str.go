@@ -31,12 +31,12 @@ import (
 
 // STR status constants aligned with CBN FIU reporting lifecycle
 const (
-	STRStatusDraft        = "draft"
+	STRStatusDraft         = "draft"
 	STRStatusPendingReview = "pending_review"
-	STRStatusSubmitted    = "submitted"
-	STRStatusAcknowledged = "acknowledged"
-	STRStatusRejected     = "rejected"
-	STRStatusSuperseded   = "superseded"
+	STRStatusSubmitted     = "submitted"
+	STRStatusAcknowledged  = "acknowledged"
+	STRStatusRejected      = "rejected"
+	STRStatusSuperseded    = "superseded"
 )
 
 // STRDeadlineHours is the CBN-mandated maximum hours from detection to FIU submission
@@ -81,11 +81,15 @@ func CreateSTR(w http.ResponseWriter, r *http.Request) {
 	// Redis idempotency — prevent duplicate STRs for same transaction
 	rdb := redis.Get()
 	idempKey := fmt.Sprintf("str:tx:%s", req.TransactionID)
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "str.create", idempKey)
+	// H26: non-money path (regulatory report) — log and proceed when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "str.create", idempKey)
+	if err != nil {
+		slog.Warn("[cbn_str] idempotency store unavailable — proceeding (non-money path)", "err", err)
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":  "STR already exists for this transaction",
-			"strId":  idempKey,
+			"error": "STR already exists for this transaction",
+			"strId": idempKey,
 		})
 		return
 	}
@@ -132,9 +136,9 @@ func CreateSTR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish str.created to Kafka
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(strPayload)
-	if err := kc.Publish(ctx, "str.created", string(eventData)); err != nil {
+	if err := kc.Publish(ctx, "str.created", "", string(eventData)); err != nil {
 		slog.Error("[cbn_str] kafka publish failed", "err", err)
 	}
 
@@ -217,7 +221,7 @@ func SubmitSTRToFIU(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish str.submitted to Kafka
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"str_id":          strID,
 		"submission_ref":  submissionRef,
@@ -225,7 +229,7 @@ func SubmitSTRToFIU(w http.ResponseWriter, r *http.Request) {
 		"analyst_id":      req.AnalystID,
 		"late_submission": deadlineErr != nil,
 	})
-	if err := kc.Publish(ctx, "str.submitted", string(eventData)); err != nil {
+	if err := kc.Publish(ctx, "str.submitted", "", string(eventData)); err != nil {
 		slog.Error("[cbn_str] kafka publish str.submitted failed", "err", err)
 	}
 
@@ -238,10 +242,10 @@ func SubmitSTRToFIU(w http.ResponseWriter, r *http.Request) {
 	)
 
 	writeJSON(w, http.StatusOK, types.SubmitSTRResponse{
-		STRID:         strID,
-		SubmissionRef: submissionRef,
-		Status:        STRStatusSubmitted,
-		SubmittedAt:   time.Now().UTC(),
+		STRID:          strID,
+		SubmissionRef:  submissionRef,
+		Status:         STRStatusSubmitted,
+		SubmittedAt:    time.Now().UTC(),
 		LateSubmission: deadlineErr != nil,
 	})
 }
@@ -336,7 +340,7 @@ func AcknowledgeSTR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"str_id":              strID,
 		"acknowledgement_ref": req.AcknowledgementRef,
@@ -344,7 +348,7 @@ func AcknowledgeSTR(w http.ResponseWriter, r *http.Request) {
 		"fiu_notes":           req.FIUNotes,
 		"status":              STRStatusAcknowledged,
 	})
-	if err := kc.Publish(ctx, "str.acknowledged", string(eventData)); err != nil {
+	if err := kc.Publish(ctx, "str.acknowledged", "", string(eventData)); err != nil {
 		slog.Error("[cbn_str] kafka publish str.acknowledged failed", "err", err)
 	}
 
@@ -360,41 +364,41 @@ func AcknowledgeSTR(w http.ResponseWriter, r *http.Request) {
 // Returns a JSON representation that the Python FIU formatter will convert to XML.
 func buildNFIUPayload(strID string, req types.SubmitSTRRequest) map[string]any {
 	return map[string]any{
-		"report_type":      "STR",
-		"schema_version":   "3.2",
-		"str_id":           strID,
+		"report_type":    "STR",
+		"schema_version": "3.2",
+		"str_id":         strID,
 		"reporting_entity": map[string]any{
-			"name":             req.ReportingEntityName,
-			"cbn_licence_no":   req.CBNLicenceNo,
-			"rc_number":        req.RCNumber,
-			"contact_officer":  req.ContactOfficer,
-			"contact_email":    req.ContactEmail,
-			"contact_phone":    req.ContactPhone,
+			"name":            req.ReportingEntityName,
+			"cbn_licence_no":  req.CBNLicenceNo,
+			"rc_number":       req.RCNumber,
+			"contact_officer": req.ContactOfficer,
+			"contact_email":   req.ContactEmail,
+			"contact_phone":   req.ContactPhone,
 		},
 		"subject": map[string]any{
-			"customer_id":      req.CustomerID,
-			"full_name":        req.CustomerName,
-			"bvn":              req.CustomerBVN,
-			"account_number":   req.AccountNumber,
-			"bank_code":        req.BankCode,
+			"customer_id":    req.CustomerID,
+			"full_name":      req.CustomerName,
+			"bvn":            req.CustomerBVN,
+			"account_number": req.AccountNumber,
+			"bank_code":      req.BankCode,
 		},
 		"transaction": map[string]any{
-			"id":               req.TransactionID,
-			"amount_ngn":       float64(req.AmountKobo) / 100.0,
-			"currency":         req.Currency,
-			"date":             req.TransactionDate,
-			"channel":          req.Channel,
-			"description":      req.TransactionDescription,
+			"id":          req.TransactionID,
+			"amount_ngn":  float64(req.AmountKobo) / 100.0,
+			"currency":    req.Currency,
+			"date":        req.TransactionDate,
+			"channel":     req.Channel,
+			"description": req.TransactionDescription,
 		},
 		"suspicion": map[string]any{
-			"type":             req.SuspicionType,
-			"reason":           req.SuspicionReason,
-			"narrative":        req.NarrativeText,
-			"risk_score":       req.RiskScore,
-			"fraud_signals":    req.FraudSignals,
+			"type":          req.SuspicionType,
+			"reason":        req.SuspicionReason,
+			"narrative":     req.NarrativeText,
+			"risk_score":    req.RiskScore,
+			"fraud_signals": req.FraudSignals,
 		},
-		"filed_by":         req.AnalystID,
-		"filed_at":         time.Now().UTC().Format(time.RFC3339),
+		"filed_by": req.AnalystID,
+		"filed_at": time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

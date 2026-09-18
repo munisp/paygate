@@ -9,9 +9,13 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wealth-management")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # required env; no default credentials (was postgres:postgres)
 PORT = int(os.getenv("PORT", "9035"))
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate Wealth Management Service", version="2.0.0")
+setup_telemetry("wealth-management", app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 _pool = None
 async def get_pool():
@@ -95,11 +99,14 @@ async def set_risk_profile(req: RiskProfileRequest):
     profile = RISK_PROFILES[req.risk_category]
     profile_id = str(uuid.uuid4()); now = datetime.now(timezone.utc)
     pool = await get_pool()
-    if pool:
-        try:
-            async with pool.acquire() as c:
-                await c.execute("INSERT INTO wealth_risk_profiles (id,customer_id,risk_score,risk_category,investment_horizon_years,equity_pct,bonds_pct,money_market_pct,expected_return,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (customer_id) DO UPDATE SET risk_score=$3,risk_category=$4,investment_horizon_years=$5,equity_pct=$6,bonds_pct=$7,money_market_pct=$8,expected_return=$9,updated_at=$10",profile_id,req.customer_id,req.risk_score,req.risk_category,req.investment_horizon_years,profile["equity"],profile["bonds"],profile["money_market"],profile["expected_return"],now)
-        except Exception as e: logger.warning(f"DB: {e}")
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Wealth store unavailable — risk profile was NOT saved")
+    try:
+        async with pool.acquire() as c:
+            await c.execute("INSERT INTO wealth_risk_profiles (id,customer_id,risk_score,risk_category,investment_horizon_years,equity_pct,bonds_pct,money_market_pct,expected_return,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (customer_id) DO UPDATE SET risk_score=$3,risk_category=$4,investment_horizon_years=$5,equity_pct=$6,bonds_pct=$7,money_market_pct=$8,expected_return=$9,updated_at=$10",profile_id,req.customer_id,req.risk_score,req.risk_category,req.investment_horizon_years,profile["equity"],profile["bonds"],profile["money_market"],profile["expected_return"],now)
+    except Exception as e:
+        logger.error(f"DB upsert failed: {e}")
+        raise HTTPException(status_code=503, detail="Risk profile persist failed — nothing was saved") from e
     return {"profile_id":profile_id,"customer_id":req.customer_id,"risk_score":req.risk_score,"risk_category":req.risk_category,"allocation":profile,"expected_annual_return":profile["expected_return"],"set_at":now.isoformat()}
 
 @app.get("/wealth/risk-profile")
@@ -168,6 +175,34 @@ async def get_recommendations(customer_id: str = Query(...)):
         elif asset["type"]=="bonds" and profile["bonds"]>30: recs.append({**asset,"recommendation":"hold","rationale":"Provides portfolio stability"})
         elif asset["type"]=="money_market" and profile["money_market"]>10: recs.append({**asset,"recommendation":"buy","rationale":"Liquidity buffer for short-term needs"})
     return {"customer_id":customer_id,"risk_category":risk_cat,"recommendations":recs[:5],"generated_at":datetime.now(timezone.utc).isoformat()}
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     import uvicorn

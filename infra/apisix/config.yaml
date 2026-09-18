@@ -34,12 +34,14 @@ apisix:
   admin_listen:
     ip: 127.0.0.1
     port: 9180
+  # Render with envsubst at deploy time; keys come from the secret manager.
+  # Hard-fail (?:) — no default admin/viewer keys are allowed.
   admin_key:
     - name: admin
-      key: "${APISIX_ADMIN_KEY:-paygate-apisix-admin-key-change-in-prod}"
+      key: "${APISIX_ADMIN_KEY:?must be set — no default admin key allowed}"
       role: admin
     - name: viewer
-      key: "${APISIX_VIEWER_KEY:-paygate-apisix-viewer-key-change-in-prod}"
+      key: "${APISIX_VIEWER_KEY:?must be set — no default viewer key allowed}"
       role: viewer
   # Declarative config mode — routes loaded from apisix.yaml (routes.yaml)
   config_center: yaml
@@ -102,6 +104,9 @@ plugins:
   - limit-conn
   - traffic-split
   # Observability
+  # NOTE (spec §6): the global opentelemetry plugin rule (sampler 0.1, collector
+  # http://otel-collector:4318) is configured as global_rules in routes.yaml
+  # (declarative config mode); it must stay enabled in this list.
   - prometheus
   - opentelemetry
   - zipkin

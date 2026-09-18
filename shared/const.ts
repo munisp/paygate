@@ -35,3 +35,42 @@ export const decodeOAuthState = (state: string): OAuthState => {
   }
   return { redirectUri: decoded };
 };
+
+// ─── Platform constants ──────────────────────────────────────────────────────
+// Shared payment/tax/loyalty constants (server + client safe — no secrets).
+
+/** Currencies the platform accepts for collections and payouts. */
+export const SUPPORTED_CURRENCIES = ["NGN", "USD", "GHS", "KES", "ZAR", "EGP", "XOF"] as const;
+
+/** Minimum single payout (NGN). Mirrors payouts.create input min (100). */
+export const PAYOUT_MIN_NGN = 100;
+/** Maximum single payout (NGN) before enhanced review. */
+export const PAYOUT_MAX_NGN = 50_000_000;
+/** Single transaction limit (NGN) for standard merchant accounts. */
+export const SINGLE_TXN_LIMIT_NGN = 10_000_000;
+/** Standard payout/processing fee in basis points (50 bps = 0.5%). */
+export const STANDARD_FEE_BPS = 50;
+
+// ─── Nigerian tax rates ───────────────────────────────────────────────────────
+/** Value-added tax. */
+export const VAT_RATE = 0.075; // 7.5%
+/** Withholding tax on dividends. */
+export const WHT_DIVIDEND_RATE = 0.10; // 10%
+/** Stamp duty rate on electronic transfers above the threshold. */
+export const STAMP_DUTY_RATE = 0.001; // 0.1%
+/** Stamp duty applies to transfers of at least ₦10,000. */
+export const STAMP_DUTY_THRESHOLD_NGN = 10_000;
+
+// ─── Loyalty & agent banking ──────────────────────────────────────────────────
+/** Loyalty points earned per ₦1 spent. */
+export const LOYALTY_POINTS_PER_NGN = 0.01;
+/** Minimum agent float (NGN). */
+export const AGENT_FLOAT_MIN_NGN = 10_000;
+/** Maximum agent float (NGN). */
+export const AGENT_FLOAT_MAX_NGN = 5_000_000;
+/** Points required for the Gold loyalty tier. */
+export const LOYALTY_TIER_GOLD_MIN = 50_000;
+
+// ─── Middleware bridge defaults ───────────────────────────────────────────────
+export const BRIDGE_ERR_MSG = "Middleware bridge unavailable";
+export const BRIDGE_TIMEOUT_MS = 10_000;

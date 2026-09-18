@@ -8,7 +8,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, desc, and, like, gte, lte, sql, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "./_core/trpc";
-import { getDb } from "./db";
+import { getDb, execRaw } from "./db";
 import {
   inviteCodes,
   partnerOnboardingSessions,
@@ -30,6 +30,30 @@ async function requireDb() {
   return db;
 }
 
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Everything in this router is cross-tenant administration (SSO configs,
+// corridors, fee overrides, plan limits, billing invoices, invite codes,
+// usage metering, BNPL schedules): the caller's session role is NOT trusted —
+// the role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await requireDb();
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+/** Never leak an IdP client secret over the API — report presence only. */
+function stripSsoSecret(row: any) {
+  if (!row) return null;
+  const { clientSecret, ...safe } = row as any;
+  return { ...safe, clientSecretSet: Boolean(clientSecret) };
+}
+
 // ─── Invite Codes ─────────────────────────────────────────────────────────────
 const inviteCodesRouter = router({
   list: protectedProcedure
@@ -40,7 +64,9 @@ const inviteCodesRouter = router({
       search: z.string().optional(),
       isRevoked: z.boolean().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Invite codes are bearer credentials for onboarding — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const offset = (input.page - 1) * input.limit;
       const conditions = [];
@@ -69,6 +95,8 @@ const inviteCodesRouter = router({
       metadata: z.record(z.string(), z.string(), z.string(), z.any()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Creates onboarding invite codes (incl. type "admin") — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const code = `PG-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
       const [row] = await db.insert(inviteCodes).values({
@@ -88,7 +116,8 @@ const inviteCodesRouter = router({
 
   revoke: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.update(inviteCodes)
         .set({ isRevoked: true })
@@ -120,6 +149,7 @@ const inviteCodesRouter = router({
       tenantId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const codes = Array.from({ length: input.count }, () => ({
         id: crypto.randomUUID(),
@@ -142,11 +172,13 @@ const inviteCodesRouter = router({
 const partnerOnboardingRouter = router({
   getSession: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await requireDb();
       const [row] = await db.select().from(partnerOnboardingSessions)
         .where(eq(partnerOnboardingSessions.id, input.id));
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      // Own session only — cross-tenant reads require platform admin.
+      if (String(row.userId) !== String(ctx.user.id)) await requirePlatformAdmin(ctx);
       return row;
     }),
 
@@ -157,7 +189,9 @@ const partnerOnboardingRouter = router({
       isCompleted: z.boolean().optional(),
       search: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant list of partner onboarding PII — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const offset = (input.page - 1) * input.limit;
       const conditions = [];
@@ -203,16 +237,23 @@ const partnerOnboardingRouter = router({
       step: z.enum(["invite_code", "company_info", "branding", "fee_structure", "review", "completed"]),
       data: z.record(z.string(), z.string(), z.string(), z.any()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      // Mass-assignment guard: the free-form payload may never overwrite
+      // identity/ownership/completion columns.
+      const { id: _id, userId: _userId, isCompleted: _ic, completedAt: _ca, createdAt: _cr, ...data } = input.data as any;
+      // Ownership scope: a caller may only advance their OWN onboarding session.
       const [row] = await db.update(partnerOnboardingSessions)
         .set({
           currentStep: input.step,
-          ...input.data,
+          ...data,
           updatedAt: new Date(),
           ...(input.step === "completed" ? { isCompleted: true, completedAt: new Date() } : {}),
         })
-        .where(eq(partnerOnboardingSessions.id, input.id))
+        .where(and(
+          eq(partnerOnboardingSessions.id, input.id),
+          eq(partnerOnboardingSessions.userId, String(ctx.user.id)),
+        ))
         .returning();
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -226,7 +267,9 @@ const corridorsRouter = router({
       tenantId: z.string().optional(),
       isEnabled: z.boolean().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant corridor fee/limit config — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const conditions = [];
       if (input.tenantId) conditions.push(eq(tenantCorridors.tenantId, input.tenantId));
@@ -247,7 +290,9 @@ const corridorsRouter = router({
       maxAmountUsd: z.number().min(0).default(10000),
       flatFeeUsd: z.number().min(0).default(0),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant corridor write — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.insert(tenantCorridors).values({
         id: crypto.randomUUID(),
@@ -267,7 +312,8 @@ const corridorsRouter = router({
       maxAmountUsd: z.number().min(0).optional(),
       flatFeeUsd: z.number().min(0).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const { id, ...data } = input;
       const [row] = await db.update(tenantCorridors)
@@ -280,7 +326,8 @@ const corridorsRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       await db.delete(tenantCorridors).where(eq(tenantCorridors.id, input.id));
       return { success: true };
@@ -293,7 +340,9 @@ const corridorsRouter = router({
       from: z.string().optional(),
       to: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant financial volume stats — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const conditions = [eq(tenantCorridorDailyStats.tenantId, input.tenantId)];
       if (input.corridorId) conditions.push(eq(tenantCorridorDailyStats.corridorId, input.corridorId));
@@ -310,7 +359,9 @@ const corridorsRouter = router({
 const feeOverridesRouter = router({
   list: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant fee config — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       return db.select().from(tenantFeeOverrides)
         .where(eq(tenantFeeOverrides.tenantId, input.tenantId))
@@ -327,7 +378,9 @@ const feeOverridesRouter = router({
       floorNgn: z.number().min(0).optional(),
       isActive: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant fee override write — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       // Check if override already exists for this tenant+type
       const [existing] = await db.select().from(tenantFeeOverrides)
@@ -362,7 +415,8 @@ const feeOverridesRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       await db.delete(tenantFeeOverrides).where(eq(tenantFeeOverrides.id, input.id));
       return { success: true };
@@ -373,7 +427,9 @@ const feeOverridesRouter = router({
 const usageMetricsRouter = router({
   get: protectedProcedure
     .input(z.object({ tenantId: z.string(), period: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant billing/usage data — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.select().from(tenantUsageMetrics)
         .where(and(
@@ -385,7 +441,8 @@ const usageMetricsRouter = router({
 
   history: protectedProcedure
     .input(z.object({ tenantId: z.string(), months: z.number().int().min(1).max(24).default(6) }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       return db.select().from(tenantUsageMetrics)
         .where(eq(tenantUsageMetrics.tenantId, input.tenantId))
@@ -400,7 +457,9 @@ const usageMetricsRouter = router({
       field: z.enum(["apiCalls", "txCount", "webhookDeliveries", "activeUsers"]),
       amount: z.number().int().min(1).default(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant metering write — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const fieldMap: Record<string, any> = {
         apiCalls: tenantUsageMetrics.apiCalls,
@@ -429,7 +488,9 @@ const billingInvoicesRouter = router({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant financial records — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const offset = (input.page - 1) * input.limit;
       const conditions = [];
@@ -449,7 +510,8 @@ const billingInvoicesRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.select().from(tenantBillingInvoices)
         .where(eq(tenantBillingInvoices.id, input.id));
@@ -462,7 +524,10 @@ const billingInvoicesRouter = router({
       id: z.string(),
       stripePaymentIntentId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Marks an invoice paid without verifying an external payment — an
+      // unbacked value write, so it is a platform-admin action.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.update(tenantBillingInvoices)
         .set({
@@ -479,13 +544,27 @@ const billingInvoicesRouter = router({
 
   void: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
+      // Status guard: only a non-void, non-paid invoice may be voided.
       const [row] = await db.update(tenantBillingInvoices)
         .set({ status: "void", updatedAt: new Date() })
-        .where(eq(tenantBillingInvoices.id, input.id))
+        .where(and(
+          eq(tenantBillingInvoices.id, input.id),
+          inArray(tenantBillingInvoices.status, ["draft", "open", "uncollectible"]),
+        ))
         .returning();
-      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!row) {
+        const [existing] = await db.select({ status: tenantBillingInvoices.status })
+          .from(tenantBillingInvoices)
+          .where(eq(tenantBillingInvoices.id, input.id));
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Invoice cannot be voided from status '${(existing as any).status}'`,
+        });
+      }
       return row;
     }),
 });
@@ -521,7 +600,9 @@ const planLimitsRouter = router({
       stripePriceId: z.string().optional(),
       features: z.array(z.string()).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Plan-limit definition is platform-level config — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const existing = await db.select().from(tenantPlanLimits)
         .where(eq(tenantPlanLimits.plan, input.plan));
@@ -552,11 +633,13 @@ const planLimitsRouter = router({
 const ssoConfigsRouter = router({
   get: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant SSO config (contains IdP credentials) — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.select().from(tenantSsoConfigs)
         .where(eq(tenantSsoConfigs.tenantId, input.tenantId));
-      return row ?? null;
+      return stripSsoSecret(row);
     }),
 
   upsert: protectedProcedure
@@ -574,7 +657,9 @@ const ssoConfigsRouter = router({
       scopes: z.string().optional(),
       attributeMapping: z.record(z.string(), z.string(), z.string(), z.string()).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant SSO repoint is an account-takeover primitive — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const existing = await db.select().from(tenantSsoConfigs)
         .where(eq(tenantSsoConfigs.tenantId, input.tenantId));
@@ -596,19 +681,20 @@ const ssoConfigsRouter = router({
         const [row] = await db.update(tenantSsoConfigs).set(data)
           .where(eq(tenantSsoConfigs.tenantId, input.tenantId))
           .returning();
-        return row;
+        return stripSsoSecret(row);
       }
 
       const [row] = await db.insert(tenantSsoConfigs).values({
         id: crypto.randomUUID(),
         ...data,
       }).returning();
-      return row;
+      return stripSsoSecret(row);
     }),
 
   test: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [config] = await db.select().from(tenantSsoConfigs)
         .where(eq(tenantSsoConfigs.tenantId, input.tenantId));
@@ -623,11 +709,16 @@ const ssoConfigsRouter = router({
 const bnplRepaymentRouter = router({
   getByLoan: protectedProcedure
     .input(z.object({ loanId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await requireDb();
-      return db.select().from(bnplRepaymentSchedules)
+      const rows = await db.select().from(bnplRepaymentSchedules)
         .where(eq(bnplRepaymentSchedules.bnplLoanId, input.loanId))
         .orderBy(bnplRepaymentSchedules.instalmentNumber);
+      // Cross-user read guard: own repayment schedules only, unless platform admin.
+      if (rows.some((r: any) => String(r.userId) !== String(ctx.user.id))) {
+        await requirePlatformAdmin(ctx);
+      }
+      return rows;
     }),
 
   getByUser: protectedProcedure
@@ -637,7 +728,10 @@ const bnplRepaymentRouter = router({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Arbitrary userId would expose other users' repayment schedules —
+      // own userId only, unless platform admin.
+      if (input.userId !== String(ctx.user.id)) await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(bnplRepaymentSchedules.userId, input.userId)];
@@ -660,7 +754,10 @@ const bnplRepaymentRouter = router({
       paidAmountNgn: z.number().min(0),
       paymentReference: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Marks a repayment paid without verifying an external payment — an
+      // unbacked value write, so it is a platform-admin action.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const [row] = await db.update(bnplRepaymentSchedules)
         .set({
@@ -681,7 +778,8 @@ const bnplRepaymentRouter = router({
       ids: z.array(z.string()),
       lateFeeNgn: z.number().min(0).default(500),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const rows = await db.update(bnplRepaymentSchedules)
         .set({
@@ -703,7 +801,10 @@ const bnplRepaymentRouter = router({
       interestRatePct: z.number().min(0).max(100).default(5),
       firstDueDate: z.string().datetime(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Creates value-bearing repayment schedules for an arbitrary loan/user —
+      // platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const principalPerInstalment = input.totalAmountNgn / input.instalments;
       const interestPerInstalment = (input.totalAmountNgn * input.interestRatePct / 100) / input.instalments;
@@ -753,7 +854,9 @@ const stripeSubsRouter = router({
       status: z.string().optional(),
       plan: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Cross-tenant subscription list — platform-admin only.
+      await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const offset = (input.page - 1) * input.limit;
       const conditions = [];
@@ -773,11 +876,16 @@ const stripeSubsRouter = router({
 
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      // Self-service cancel scoped to the caller's OWN subscription
+      // (previously any authenticated user could cancel any subscription by id).
       const [row] = await db.update(stripeSubscriptions)
         .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
-        .where(eq(stripeSubscriptions.id, input.id))
+        .where(and(
+          eq(stripeSubscriptions.id, input.id),
+          eq(stripeSubscriptions.userId, String(ctx.user.id)),
+        ))
         .returning();
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;

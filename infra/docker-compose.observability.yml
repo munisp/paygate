@@ -12,6 +12,9 @@ volumes:
   prometheus_data:
   grafana_data:
   alertmanager_data:
+  tempo_data:
+  loki_data:
+  novu_mongodb_data:
 
 services:
   # ─── Prometheus ────────────────────────────────────────────────────────────
@@ -25,6 +28,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/paygate-alerts.yml:/etc/prometheus/paygate-alerts.yml:ro
+      - ./prometheus/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -92,13 +96,14 @@ services:
     ports:
       - "9093:9093"
     volumes:
+      - ./alertmanager/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml.tmpl:ro
       - alertmanager_data:/alertmanager
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY required for novu-bridge webhook auth}
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    configs:
-      - source: alertmanager_config
-        target: /etc/alertmanager/alertmanager.yml
+      - '/bin/sh'
+      - '-c'
+      - 'sed "s|__INTERNAL_API_KEY__|$${INTERNAL_API_KEY}|g" /etc/alertmanager/alertmanager.yml.tmpl > /tmp/alertmanager.yml && alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager'
     deploy:
       resources:
         limits:
@@ -137,32 +142,135 @@ services:
       resources:
         limits:
           memory: 32M
+  # ─── Tempo (trace backend) ─────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: paygate-tempo
+    restart: unless-stopped
+    networks: [paygate-net]
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo query API
+      - "4317"        # OTLP gRPC ingest (internal)
+      - "4318"        # OTLP HTTP ingest (internal)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
-configs:
-  alertmanager_config:
-    content: |
-      global:
-        smtp_smarthost: 'smtp.paygate.internal:587'
-        smtp_from: 'alerts@paygate.ng'
-        smtp_auth_username: 'alerts@paygate.ng'
-        smtp_auth_password: '${SMTP_PASS}'
-      route:
-        group_by: ['alertname', 'severity']
-        group_wait: 30s
-        group_interval: 5m
-        repeat_interval: 4h
-        receiver: 'paygate-ops'
-        routes:
-          - match:
-              severity: critical
-            receiver: 'paygate-critical'
-            repeat_interval: 1h
-      receivers:
-        - name: 'paygate-ops'
-          email_configs:
-            - to: 'ops@paygate.ng'
-              send_resolved: true
-        - name: 'paygate-critical'
-          email_configs:
-            - to: 'cto@paygate.ng,security@paygate.ng'
-              send_resolved: true
+  # ─── Loki (log aggregation) ────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: paygate-loki
+    restart: unless-stopped
+    networks: [paygate-net]
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ─── Promtail (log shipping → Loki) ────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: paygate-promtail
+    restart: unless-stopped
+    networks: [paygate-net]
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── Novu OSS stack (alert fan-out, spec §6/§7) ────────────────────────────
+  novu-mongodb:
+    image: mongo:6.0.14
+    container_name: paygate-novu-mongodb
+    restart: unless-stopped
+    networks: [paygate-net]
+    volumes:
+      - novu_mongodb_data:/data/db
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  novu-api:
+    image: ghcr.io/novuhq/novu/api:0.24.0
+    container_name: paygate-novu-api
+    restart: unless-stopped
+    networks: [paygate-net]
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      MONGO_URL: mongodb://novu-mongodb:27017/novu-db
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${NOVU_JWT_SECRET:?must be set — no default Novu JWT secret allowed}
+      STORE_ENCRYPTION_KEY: ${NOVU_STORE_ENCRYPTION_KEY:?must be set — no default Novu encryption key allowed}
+      API_ROOT_URL: ${NOVU_API_URL:-http://novu-api:3000}
+      DISABLE_USER_REGISTRATION: "true"
+    depends_on: [novu-mongodb]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  novu-worker:
+    image: ghcr.io/novuhq/novu/worker:0.24.0
+    container_name: paygate-novu-worker
+    restart: unless-stopped
+    networks: [paygate-net]
+    environment:
+      NODE_ENV: production
+      MONGO_URL: mongodb://novu-mongodb:27017/novu-db
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${NOVU_JWT_SECRET:?must be set}
+      STORE_ENCRYPTION_KEY: ${NOVU_STORE_ENCRYPTION_KEY:?must be set}
+      API_ROOT_URL: ${NOVU_API_URL:-http://novu-api:3000}
+    depends_on: [novu-api]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  novu-ws:
+    image: ghcr.io/novuhq/novu/ws:0.24.0
+    container_name: paygate-novu-ws
+    restart: unless-stopped
+    networks: [paygate-net]
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      MONGO_URL: mongodb://novu-mongodb:27017/novu-db
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${NOVU_JWT_SECRET:?must be set}
+      API_ROOT_URL: ${NOVU_API_URL:-http://novu-api:3000}
+    depends_on: [novu-api]
+    deploy:
+      resources:
+        limits:
+          memory: 256M

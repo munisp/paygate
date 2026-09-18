@@ -10,7 +10,6 @@ function ScoreGauge({ score }: { score: number }) {
   const ringColor = score >= 90 ? "stroke-green-500" : score >= 70 ? "stroke-yellow-500" : "stroke-destructive";
   const circumference = 2 * Math.PI * 40;
   const offset = circumference - (score / 100) * circumference;
-  if (isError) return <div className="text-red-500">Error: {error?.message}</div>;
 
   return (
     <div className="relative w-28 h-28 mx-auto">
@@ -61,10 +60,10 @@ export default function ComplianceScorecard() {
               <CardContent className="pt-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">{cat.name}</span>
-                  <span className={`text-lg font-bold ${cat.score >= 90 ? "text-green-600" : cat.score >= 70 ? "text-yellow-600" : "text-destructive"}`}>{cat.score}</span>
+                  <span className={`text-lg font-bold ${(cat.score ?? 0) >= 90 ? "text-green-600" : (cat.score ?? 0) >= 70 ? "text-yellow-600" : "text-destructive"}`}>{cat.score ?? 0}</span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-700 ${cat.score >= 90 ? "bg-green-500" : cat.score >= 70 ? "bg-yellow-500" : "bg-destructive"}`} style={{ width: `${cat.score}%` }} />
+                  <div className={`h-full rounded-full transition-all duration-700 ${(cat.score ?? 0) >= 90 ? "bg-green-500" : (cat.score ?? 0) >= 70 ? "bg-yellow-500" : "bg-destructive"}`} style={{ width: `${cat.score ?? 0}%` }} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{cat.passedChecks}/{cat.totalChecks} checks passed</p>
               </CardContent>

@@ -50,7 +50,7 @@ export default function CryptoOfframpV2() {
           <div className="space-y-2"><Label>Account Number</Label><Input placeholder="0123456789" value={accountNumber} onChange={e=>setAccountNumber(e.target.value)} /></div>
           <div className="space-y-2"><Label>Wallet Address</Label><Input placeholder="0x..." value={walletAddress} onChange={e=>setWalletAddress(e.target.value)} /></div>
           {amount && <div className="p-3 bg-muted rounded-lg"><div className="flex items-center justify-between"><span>{amount} {asset}</span><ArrowRight className="w-4 h-4" /><span className="font-bold">&#8358;{(parseFloat(amount||"0")*currentRate).toLocaleString()} NGN</span></div><p className="text-xs text-muted-foreground mt-1">Rate: 1 {asset} = &#8358;{currentRate.toLocaleString()} NGN</p></div>}
-          <Button className="w-full" onClick={() => initiate.mutate({ cryptoAsset: asset, cryptoAmount: amount, bankCode, accountNumber, walletAddress })} disabled={!amount || !bankCode || !accountNumber || !walletAddress || initiate.isPending}>{initiate.isPending ? "Initiating..." : "Initiate Off-Ramp"}</Button>
+          <Button className="w-full" onClick={() => initiate.mutate({ cryptoAsset: asset, cryptoAmount: amount, bankCode, accountNumber, walletAddress, idempotencyKey: crypto.randomUUID() })} disabled={!amount || !bankCode || !accountNumber || !walletAddress || initiate.isPending}>{initiate.isPending ? "Initiating..." : "Initiate Off-Ramp"}</Button>
         </CardContent></Card>
         <Card><CardHeader><CardTitle>Recent Orders</CardTitle></CardHeader><CardContent>
           {isLoading ? <p className="text-sm text-muted-foreground py-4">Loading...</p> :

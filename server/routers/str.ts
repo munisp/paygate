@@ -49,7 +49,7 @@ export const strRouter = router({
           alertId: r.transactionId ?? r.id,
           status: r.submissionStatus,
           reportType: r.strType,
-          reportRef: r.reportRef,
+          reportRef: r.nfiuRef,
           strType: r.strType,
           suspicionType: r.suspicionType,
           narrative: r.narrative,
@@ -89,7 +89,7 @@ export const strRouter = router({
           status: schema.strRecords.submissionStatus,
           reportType: schema.strRecords.strType,
           nfiuRef: schema.strRecords.nfiuRef,
-          submittedAt: schema.strRecords.submittedAt,
+          submittedAt: schema.strRecords.nfiuSubmittedAt,
           createdAt: schema.strRecords.createdAt,
         }).from(schema.strRecords)
           .where(and(...conditions))
@@ -131,7 +131,7 @@ export const strRouter = router({
         .where(and(
           eq(schema.strRecords.merchantId, merchantId),
           eq(schema.strRecords.submissionStatus, 'submitted'),
-          gte(schema.strRecords.submittedAt, startOfMonth),
+          gte(schema.strRecords.nfiuSubmittedAt, startOfMonth),
         )),
       db.select({ total: count() }).from(schema.strRecords)
         .where(and(
@@ -167,7 +167,6 @@ export const strRouter = router({
           submissionStatus: 'submitted',
           nfiuRef,
           nfiuSubmittedAt: submittedAt,
-          submittedAt,
           submissionAttempts: (record.submissionAttempts ?? 0) + 1,
           updatedAt: submittedAt,
         })

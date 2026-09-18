@@ -22,7 +22,7 @@ import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 import { logger } from "../logger";
 // Cron authentication uses direct header check instead of sdk
 import { scumlChecks } from "../../drizzle/schema";
-import { and, lte, eq, gte, sql } from "drizzle-orm";
+import { and, lte, eq, gte, inArray } from "drizzle-orm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WARNING_DAYS = 30;  // notify when expiry is within 30 days
@@ -35,8 +35,15 @@ export async function scumlExpiryJobHandler(req: Request, res: Response) {
     const authHeader = req.headers.authorization ?? "";
     const apiKey = process.env.BUILT_IN_FORGE_API_KEY ?? "";
     const internalKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
-    const isCron = authHeader === `Bearer ${apiKey}` || authHeader === `Bearer ${internalKey}` || req.headers["x-cron-secret"] === apiKey;
+    // R4 F12: fail CLOSED — each comparison is gated on the key being
+    // non-empty, so an unset env var can never be matched by an empty/forged
+    // header (securityAuditJob.ts pattern).
+    const isCron =
+      (apiKey !== "" && authHeader === `Bearer ${apiKey}`) ||
+      (internalKey !== "" && authHeader === `Bearer ${internalKey}`) ||
+      (apiKey !== "" && req.headers["x-cron-secret"] === apiKey);
     if (!isCron) {
+      logger.warn("scuml_expiry_job: rejected unauthenticated invocation (cron keys unset or mismatch)");
       return res.status(403).json({ error: "cron-only endpoint" });
     }
 
@@ -142,7 +149,13 @@ export async function scumlExpiryJobHandler(req: Request, res: Response) {
         },
         record.merchantId,
         { "x-event-type": record.eventType },
-      ).then(() => { kafkaPublished++; }).catch(() => {});
+      ).then(() => { kafkaPublished++; }).catch((e) => {
+        logger.error("scuml_expiry_job: Kafka alert publish failed — SCUML alert lost", {
+          error: e instanceof Error ? e.message : String(e),
+          merchantId: record.merchantId,
+          checkType: record.checkType,
+        });
+      });
     }
 
     // ── Mark lapsed records as expired in the DB ───────────────────────────
@@ -153,7 +166,7 @@ export async function scumlExpiryJobHandler(req: Request, res: Response) {
         .set({ status: "error", flagReason: "Registration lapsed — renewal required" })
         .where(
           and(
-            sql`${scumlChecks.id} = ANY(${sql.raw(`ARRAY[${expiredIds.map(id => `'${id}'`).join(",")}]`)})`,
+            inArray(scumlChecks.id, expiredIds),
             eq(scumlChecks.status, "cleared"),
           )
         );

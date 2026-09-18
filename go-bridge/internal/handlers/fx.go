@@ -44,7 +44,12 @@ func RecordFXConversion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "fx.convert", req.ConversionID)
+	// H26: money path fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "fx.convert", req.ConversionID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to convert (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.FXConversionResponse{
 			ConversionID:  req.ConversionID,
@@ -111,12 +116,15 @@ func RecordFXConversion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 3: Move fee to fee pool (source ledger)
+	feePosted := true
 	if req.Fee > 0 {
 		feeRef := "fx-fee-" + req.ConversionID
 		feeID := tb.ReferenceToID(feeRef)
 		if err := client.Transfer(feeID, floatID, feePoolID, req.Fee, sourceLedger, tb.CodeFeePool); err != nil {
-			slog.Warn("[fx] fee transfer failed", "err", err, "conversion_id", req.ConversionID)
-			// Non-fatal: fee collection failure should not block the conversion
+			// The conversion itself settled; the fee leg did not. Report this
+			// honestly in the response instead of hiding it.
+			feePosted = false
+			slog.Error("[fx] fee transfer failed after conversion settled — fee remains in float, reconciliation required", "err", err, "conversion_id", req.ConversionID)
 		}
 	}
 
@@ -163,9 +171,13 @@ func RecordFXConversion(w http.ResponseWriter, r *http.Request) {
 		})
 	}()
 
+	status := "converted"
+	if !feePosted {
+		status = "converted_fee_unposted" // honest: conversion settled, fee leg failed
+	}
 	writeJSON(w, http.StatusOK, types.FXConversionResponse{
 		ConversionID:  req.ConversionID,
 		LedgerEntryID: ledgerEntryID,
-		Status:        "converted",
+		Status:        status,
 	})
 }

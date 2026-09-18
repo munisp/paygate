@@ -5,36 +5,45 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/paygate/upi-gateway/internal/telemetry"
 )
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 
 type Config struct {
-	Port           string
-	UPIURL         string
+	Port              string
+	UPIURL            string
 	NPCIParticipantID string
-	UPISecretKey   string
-	InternalAPIKey string
-	RBIPurposeCodes map[string]string
+	UPISecretKey      string
+	InternalAPIKey    string
+	RBIPurposeCodes   map[string]string
 }
 
 func loadConfig() Config {
-	return Config{
+	cfg := Config{
 		Port:              getEnv("PORT", "8099"),
-		UPIURL:            getEnv("UPI_URL", "https://api.npci.org.in/upi/v2"),
-		NPCIParticipantID: getEnv("NPCI_PARTICIPANT_ID", "PAYGATE"),
-		UPISecretKey:      getEnv("UPI_SECRET_KEY", "upi-secret-key-default"),
-		InternalAPIKey:    getEnv("INTERNAL_API_KEY", "internal-api-key-default"),
+		UPIURL:            os.Getenv("UPI_URL"),
+		NPCIParticipantID: os.Getenv("NPCI_PARTICIPANT_ID"),
+		UPISecretKey:      os.Getenv("UPI_SECRET_KEY"), // no default — verifies callbacks
+		InternalAPIKey:    os.Getenv("INTERNAL_API_KEY"),
 		RBIPurposeCodes: map[string]string{
 			"P0001": "Family Maintenance",
 			"P0002": "Personal Gifts",
@@ -46,6 +55,30 @@ func loadConfig() Config {
 			"P0008": "Investment",
 		},
 	}
+	env := strings.ToLower(os.Getenv("ENV"))
+	prod := env == "production" || env == "prod"
+	if cfg.InternalAPIKey == "" {
+		if prod {
+			slog.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.InternalAPIKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("INTERNAL_API_KEY unset — generated per-boot dev key; refusing well-known defaults")
+	}
+	if cfg.upstreamEnabled() && (cfg.UPIURL == "" || cfg.NPCIParticipantID == "") {
+		slog.Error("FATAL: UPI_UPSTREAM_ENABLED=true requires UPI_URL and NPCI_PARTICIPANT_ID")
+		os.Exit(1)
+	}
+	return cfg
+}
+
+// upstreamEnabled reports whether real NPCI submission is configured.
+// Without UPI_UPSTREAM_ENABLED=true the gateway FAILS LOUD (503) instead of
+// fabricating NPCI references.
+func (c Config) upstreamEnabled() bool {
+	return os.Getenv("UPI_UPSTREAM_ENABLED") == "true"
 }
 
 func getEnv(key, fallback string) string {
@@ -62,26 +95,26 @@ var vpaRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$`)
 
 // Known UPI handles (PSP handles)
 var upiHandles = map[string]string{
-	"@okaxis":    "Axis Bank",
+	"@okaxis":     "Axis Bank",
 	"@okhdfcbank": "HDFC Bank",
-	"@okicici":   "ICICI Bank",
-	"@oksbi":     "State Bank of India",
-	"@paytm":     "Paytm Payments Bank",
-	"@ybl":       "PhonePe (Yes Bank)",
-	"@ibl":       "PhonePe (ICICI Bank)",
-	"@axl":       "PhonePe (Axis Bank)",
-	"@upi":       "Generic UPI",
-	"@apl":       "Amazon Pay",
-	"@gpay":      "Google Pay",
+	"@okicici":    "ICICI Bank",
+	"@oksbi":      "State Bank of India",
+	"@paytm":      "Paytm Payments Bank",
+	"@ybl":        "PhonePe (Yes Bank)",
+	"@ibl":        "PhonePe (ICICI Bank)",
+	"@axl":        "PhonePe (Axis Bank)",
+	"@upi":        "Generic UPI",
+	"@apl":        "Amazon Pay",
+	"@gpay":       "Google Pay",
 	"@freecharge": "FreeCharge",
-	"@kotak":     "Kotak Mahindra Bank",
-	"@indus":     "IndusInd Bank",
-	"@pnb":       "Punjab National Bank",
-	"@boi":       "Bank of India",
-	"@cnrb":      "Canara Bank",
-	"@mahb":      "Bank of Maharashtra",
-	"@rbl":       "RBL Bank",
-	"@idbi":      "IDBI Bank",
+	"@kotak":      "Kotak Mahindra Bank",
+	"@indus":      "IndusInd Bank",
+	"@pnb":        "Punjab National Bank",
+	"@boi":        "Bank of India",
+	"@cnrb":       "Canara Bank",
+	"@mahb":       "Bank of Maharashtra",
+	"@rbl":        "RBL Bank",
+	"@idbi":       "IDBI Bank",
 }
 
 type UPICollectRequest struct {
@@ -115,11 +148,11 @@ type UPICollectResponse struct {
 
 type VPALookupResponse struct {
 	VPA         string `json:"vpa"`
-	Valid        bool   `json:"valid"`
-	Name         string `json:"name,omitempty"`
-	PSPName      string `json:"psp_name,omitempty"`
-	BankName     string `json:"bank_name,omitempty"`
-	AccountType  string `json:"account_type,omitempty"`
+	Valid       bool   `json:"valid"`
+	Name        string `json:"name,omitempty"`
+	PSPName     string `json:"psp_name,omitempty"`
+	BankName    string `json:"bank_name,omitempty"`
+	AccountType string `json:"account_type,omitempty"`
 }
 
 // ─── UPI Validation ───────────────────────────────────────────────────────────
@@ -170,12 +203,15 @@ func generateNPCITransactionID() string {
 type Server struct {
 	cfg    Config
 	client *http.Client
+	mu     sync.RWMutex
+	txns   map[string]npciTxnRecord
 }
 
 func NewServer(cfg Config) *Server {
 	return &Server{
 		cfg:    cfg,
 		client: &http.Client{Timeout: 30 * time.Second},
+		txns:   make(map[string]npciTxnRecord),
 	}
 }
 
@@ -195,9 +231,11 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-Internal-Key")
 		if key == "" {
-			key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				key = strings.TrimPrefix(auth, "Bearer ")
+			}
 		}
-		if key != s.cfg.InternalAPIKey {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.InternalAPIKey)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -205,16 +243,80 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// npciTxnRecord tracks a real submitted transaction.
+type npciTxnRecord struct {
+	TransferID string
+	NPCITxnID  string
+	UPIRef     string
+	Status     string
+	Raw        map[string]interface{}
+	UpdatedAt  time.Time
+}
+
+// callNPCI posts a signed request to the NPCI UPI API. Returns (body, error).
+func (s *Server) callNPCI(r *http.Request, path string, payload map[string]interface{}) (map[string]interface{}, error) {
+	payload["participant_id"] = s.cfg.NPCIParticipantID
+	body, _ := json.Marshal(payload)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		s.cfg.UPIURL+path, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.cfg.UPISecretKey != "" {
+		mac := hmac.New(sha256.New, []byte(s.cfg.UPISecretKey))
+		mac.Write(body)
+		httpReq.Header.Set("X-UPI-Signature", hex.EncodeToString(mac.Sum(nil)))
+	}
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if resp.StatusCode >= 400 {
+		return out, fmt.Errorf("NPCI returned HTTP %d", resp.StatusCode)
+	}
+	return out, nil
+}
+
+func (s *Server) storeTxn(rec npciTxnRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.txns[rec.NPCITxnID] = rec
+	if rec.TransferID != "" {
+		s.txns[rec.TransferID] = rec
+	}
+}
+
+func (s *Server) lookupTxn(id string) (npciTxnRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.txns[id]
+	return rec, ok
+}
+
+// upstreamRequired responds 503 when the NPCI upstream is not wired.
+func (s *Server) upstreamRequired(w http.ResponseWriter) bool {
+	if s.cfg.upstreamEnabled() {
+		return false
+	}
+	slog.Error("UPI upstream not enabled — refusing to fabricate NPCI references (set UPI_UPSTREAM_ENABLED=true with UPI_URL/NPCI_PARTICIPANT_ID)")
+	http.Error(w, `{"error":"upi_upstream_not_configured","message":"NPCI upstream is not configured; no transaction was executed"}`, http.StatusServiceUnavailable)
+	return true
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":              "healthy",
-		"service":             "upi-gateway",
-		"version":             "1.0.0",
-		"participant_id":      s.cfg.NPCIParticipantID,
+		"status":               "healthy",
+		"service":              "upi-gateway",
+		"version":              "1.0.0",
+		"participant_id":       s.cfg.NPCIParticipantID,
 		"supported_currencies": []string{"INR"},
-		"transaction_types":   []string{"COLLECT", "PAY"},
-		"ts":                  time.Now().UTC().Format(time.RFC3339),
+		"transaction_types":    []string{"COLLECT", "PAY"},
+		"ts":                   time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -242,16 +344,47 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 		req.TargetCurrency = "INR"
 	}
 
+	if s.upstreamRequired(w) {
+		return
+	}
 	pspName, _ := lookupPSPFromVPA(req.ReceiverVPA)
-	upiRef := generateUPIRef()
-	npciTxnID := generateNPCITransactionID()
 
-	slog.Info("UPI collect request",
+	upstream, err := s.callNPCI(r, "/collect", map[string]interface{}{
+		"transfer_id":  req.TransferID,
+		"payee_vpa":    req.ReceiverVPA,
+		"amount":       req.Amount,
+		"currency":     req.TargetCurrency,
+		"purpose_code": req.PurposeCode,
+		"remarks":      req.Remarks,
+	})
+	if err != nil {
+		slog.Error("NPCI collect failed", "transfer_id", req.TransferID, "error", err)
+		http.Error(w, `{"error":"npci_submission_failed","message":"UPI collect submission failed; no request was sent"}`, http.StatusBadGateway)
+		return
+	}
+	npciTxnID, _ := upstream["txn_id"].(string)
+	upiRef, _ := upstream["upi_ref"].(string)
+	status, _ := upstream["status"].(string)
+	if status == "" {
+		status = "pending" // UPI collect is async — user must approve on their device
+	}
+
+	s.storeTxn(npciTxnRecord{
+		TransferID: req.TransferID,
+		NPCITxnID:  npciTxnID,
+		UPIRef:     upiRef,
+		Status:     status,
+		Raw:        upstream,
+		UpdatedAt:  time.Now().UTC(),
+	})
+
+	slog.Info("UPI collect request submitted to NPCI",
 		"transfer_id", req.TransferID,
 		"vpa", req.ReceiverVPA,
 		"amount", req.Amount,
 		"purpose_code", req.PurposeCode,
 		"psp", pspName,
+		"npci_status", status,
 	)
 
 	resp := UPICollectResponse{
@@ -259,18 +392,27 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 		TransferID:    req.TransferID,
 		UPITransferID: npciTxnID,
 		UPIRef:        upiRef,
-		Status:        "pending", // UPI collect is async — user must approve on their device
+		Status:        status,
 		VPA:           req.ReceiverVPA,
 		PSPName:       pspName,
-		ExchangeRate:  "83.2500",
-		Fee:           "0.25",
-		EstimatedTime: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
-		Message:       fmt.Sprintf("UPI collect request %s sent to %s (%s). Awaiting approval.", upiRef, req.ReceiverVPA, pspName),
+		// FX rate / fee come from the upstream response only.
+		ExchangeRate: stringFromMap(upstream, "exchange_rate"),
+		Fee:          stringFromMap(upstream, "fee"),
+		Message:      fmt.Sprintf("UPI collect request submitted to %s (%s). Awaiting approval.", req.ReceiverVPA, pspName),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// stringFromMap extracts a string field ("" if absent).
+func stringFromMap(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
 }
 
 func (s *Server) handlePay(w http.ResponseWriter, r *http.Request) {
@@ -286,22 +428,51 @@ func (s *Server) handlePay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.upstreamRequired(w) {
+		return
+	}
 	pspName, _ := lookupPSPFromVPA(req.ReceiverVPA)
-	upiRef := generateUPIRef()
-	npciTxnID := generateNPCITransactionID()
+
+	upstream, err := s.callNPCI(r, "/pay", map[string]interface{}{
+		"transfer_id":  req.TransferID,
+		"payee_vpa":    req.ReceiverVPA,
+		"amount":       req.Amount,
+		"currency":     req.TargetCurrency,
+		"purpose_code": req.PurposeCode,
+		"remarks":      req.Remarks,
+	})
+	if err != nil {
+		slog.Error("NPCI pay failed", "transfer_id", req.TransferID, "error", err)
+		http.Error(w, `{"error":"npci_submission_failed","message":"UPI pay submission failed; no payment was executed"}`, http.StatusBadGateway)
+		return
+	}
+	npciTxnID, _ := upstream["txn_id"].(string)
+	upiRef, _ := upstream["upi_ref"].(string)
+	status, _ := upstream["status"].(string)
+	if status == "" {
+		status = "submitted"
+	}
+
+	s.storeTxn(npciTxnRecord{
+		TransferID: req.TransferID,
+		NPCITxnID:  npciTxnID,
+		UPIRef:     upiRef,
+		Status:     status,
+		Raw:        upstream,
+		UpdatedAt:  time.Now().UTC(),
+	})
 
 	resp := UPICollectResponse{
 		Success:       true,
 		TransferID:    req.TransferID,
 		UPITransferID: npciTxnID,
 		UPIRef:        upiRef,
-		Status:        "submitted",
+		Status:        status,
 		VPA:           req.ReceiverVPA,
 		PSPName:       pspName,
-		ExchangeRate:  "83.2500",
-		Fee:           "0.25",
-		EstimatedTime: time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339),
-		Message:       fmt.Sprintf("UPI pay %s submitted to %s (%s)", upiRef, req.ReceiverVPA, pspName),
+		ExchangeRate:  stringFromMap(upstream, "exchange_rate"),
+		Fee:           stringFromMap(upstream, "fee"),
+		Message:       fmt.Sprintf("UPI pay submitted to %s (%s)", req.ReceiverVPA, pspName),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -311,11 +482,30 @@ func (s *Server) handlePay(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	rec, ok := s.lookupTxn(id)
+	if !ok {
+		http.Error(w, `{"error":"transaction_not_found"}`, http.StatusNotFound)
+		return
+	}
+	// Best-effort live refresh from NPCI.
+	if s.cfg.upstreamEnabled() && rec.NPCITxnID != "" {
+		if upstream, err := s.callNPCI(r, "/status", map[string]interface{}{"txn_id": rec.NPCITxnID}); err == nil {
+			if st, _ := upstream["status"].(string); st != "" {
+				rec.Status = st
+				rec.Raw = upstream
+				rec.UpdatedAt = time.Now().UTC()
+				s.storeTxn(rec)
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"transfer_id": id,
-		"status":      "pending",
-		"message":     "UPI transaction status lookup",
+		"transfer_id": rec.TransferID,
+		"npci_txn_id": rec.NPCITxnID,
+		"upi_ref":     rec.UPIRef,
+		"status":      rec.Status,
+		"updated_at":  rec.UpdatedAt.Format(time.RFC3339),
+		"upstream":    rec.Raw,
 	})
 }
 
@@ -330,16 +520,29 @@ func (s *Server) handleVPALookup(w http.ResponseWriter, r *http.Request) {
 
 	vpa := normalizeVPA(req.VPA)
 	valid := validateVPA(vpa)
-	pspName, _ := lookupPSPFromVPA(vpa)
-
-	resp := VPALookupResponse{
-		VPA:     vpa,
-		Valid:   valid,
-		PSPName: pspName,
+	if !valid {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(VPALookupResponse{VPA: vpa, Valid: false})
+		return
 	}
-	if valid {
-		resp.Name = "Account Holder"
-		resp.AccountType = "SAVINGS"
+
+	// Payee identity comes from NPCI only — never fabricate a name.
+	if s.upstreamRequired(w) {
+		return
+	}
+	upstream, err := s.callNPCI(r, "/vpa/lookup", map[string]interface{}{"vpa": vpa})
+	if err != nil {
+		slog.Error("NPCI VPA lookup failed", "vpa", vpa, "error", err)
+		http.Error(w, `{"error":"npci_lookup_failed"}`, http.StatusBadGateway)
+		return
+	}
+	pspName, _ := lookupPSPFromVPA(vpa)
+	resp := VPALookupResponse{
+		VPA:         vpa,
+		Valid:       true,
+		Name:        stringFromMap(upstream, "name"),
+		PSPName:     pspName,
+		AccountType: stringFromMap(upstream, "account_type"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -378,7 +581,28 @@ func (s *Server) handleListHandles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
-	slog.Info("UPI callback received")
+	// Settlement callbacks mutate transaction state — require HMAC-SHA256 over
+	// the raw body keyed by UPI_SECRET_KEY (header X-UPI-Signature, hex encoded).
+	if s.cfg.UPISecretKey == "" {
+		slog.Error("UPI callback rejected: UPI_SECRET_KEY not configured")
+		http.Error(w, `{"error":"callback_not_configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	sig := r.Header.Get("X-UPI-Signature")
+	mac := hmac.New(sha256.New, []byte(s.cfg.UPISecretKey))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if sig == "" || !hmac.Equal([]byte(strings.ToLower(sig)), []byte(expected)) {
+		slog.Warn("UPI callback rejected: invalid or missing signature")
+		http.Error(w, `{"error":"invalid_signature"}`, http.StatusUnauthorized)
+		return
+	}
+	slog.Info("UPI callback accepted (signature verified)")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -387,6 +611,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// OpenTelemetry — env-gated no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	otelShutdown := telemetry.Init(context.Background(), "paygate-upi-gateway")
+	defer otelShutdown(context.Background())
+
 	cfg := loadConfig()
 	srv := NewServer(cfg)
 	mux := http.NewServeMux()
@@ -394,7 +622,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      telemetry.Middleware(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}

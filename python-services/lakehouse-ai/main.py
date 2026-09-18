@@ -109,7 +109,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")
 VECTOR_STORE_URL = os.getenv("VECTOR_STORE_URL", "http://vector-store:8130")
 KNOWLEDGE_GRAPH_URL = os.getenv("KNOWLEDGE_GRAPH_URL", "http://knowledge-graph:8132")
-FRAUD_SCORING_URL = os.getenv("FRAUD_SCORING_URL", "http://fraud-scoring:8120")
+FRAUD_SCORING_URL = os.getenv("FRAUD_SCORING_URL", "http://fraud-scoring:8083")  # POST /v1/score
 ART_URL = os.getenv("ART_URL", "http://art-reasoning:8133")
 COCOINDEX_URL = os.getenv("COCOINDEX_URL", "http://cocoindex:8131")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
@@ -341,6 +341,13 @@ async def log_ai_decision(
     return entry
 
 # ─── Full Inference Pipeline ──────────────────────────────────────────────────
+class FraudScoringUnavailable(Exception):
+    """fraud-scoring could not provide a real score; mapped to HTTP 503 at the API layer.
+
+    A fabricated or rule-based substitute score must never be served.
+    """
+
+
 async def run_fraud_inference_pipeline(tx: Dict) -> Dict:
     """
     End-to-end fraud inference pipeline:
@@ -359,29 +366,37 @@ async def run_fraud_inference_pipeline(tx: Dict) -> Dict:
     features = compute_transaction_features(tx)
     _feature_store[transaction_id] = features
 
-    # Step 2: Fraud scoring
-    fraud_score = 50.0
-    fraud_signals = []
+    # Step 2: Fraud scoring — fail loud on any error; never fabricate a score
+    score_payload = {
+        "tx_id": transaction_id,
+        "merchant_id": tx.get("merchant_id", ""),
+        "amount_kobo": int(tx.get("amount_kobo", 0) or 0),
+        "currency": tx.get("currency", "NGN"),
+        "channel": tx.get("channel", "api"),
+        "customer_id": tx.get("customer_id"),
+        "metadata": tx.get("metadata"),
+    }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{FRAUD_SCORING_URL}/score",
-                json=tx,
+                f"{FRAUD_SCORING_URL}/v1/score",
+                json=score_payload,
+                headers={"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")},
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    fraud_score = float(data.get("fraud_score", 50))
-                    fraud_signals = data.get("signals", [])
-    except Exception:
-        # Fallback: rule-based scoring from features
-        fraud_score = (
-            features["channel_risk_score"] * 40
-            + features["is_night_transaction"] * 15
-            + features["is_weekend"] * 10
-            + features["description_entropy"] * 20
-        )
-        fraud_score = min(100, fraud_score)
+                if resp.status != 200:
+                    raise FraudScoringUnavailable(
+                        f"fraud-scoring returned HTTP {resp.status}"
+                    )
+                data = await resp.json()
+    except FraudScoringUnavailable:
+        raise
+    except Exception as e:
+        raise FraudScoringUnavailable(f"fraud-scoring unreachable: {e}") from e
+    if "risk_score" not in data:
+        raise FraudScoringUnavailable("fraud-scoring response missing risk_score")
+    fraud_score = float(data["risk_score"])
+    fraud_signals = data.get("signals", [])
 
     # Step 3: Vector similarity search (find similar fraudulent transactions)
     similar_txns = []
@@ -559,12 +574,23 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] Lakehouse AI service stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate Lakehouse AI",
     description="Central AI orchestration: Feature Store + Model Registry + Audit Trail",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("lakehouse-ai", app)
+
+
+@app.exception_handler(FraudScoringUnavailable)
+async def _fraud_scoring_unavailable_handler(request, exc):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 @app.get("/health")
 async def health():
@@ -707,6 +733,34 @@ async def model_metrics():
         "total_decisions": len(_audit_log),
         "feature_store_size": len(_feature_store),
     }
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False, workers=4, log_level="warning")

@@ -11,6 +11,7 @@
 import mysql from "mysql2/promise";
 import { randomUUID } from "crypto";
 
+// NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
 const DB_URL = process.env.DATABASE_URL || "mysql://root:password@localhost:3306/paygate";
 const VERBOSE = process.env.VERBOSE === "1";
 

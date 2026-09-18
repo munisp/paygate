@@ -2,11 +2,34 @@
  * kyc.ts — Full DB-backed KYC router with liveness detection procedures.
  */
 import { router, protectedProcedure } from '../_core/trpc';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from '../db';
 import * as schema from '../../drizzle/schema';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, sql } from 'drizzle-orm';
 import { ENV } from '../_core/env';
+
+/**
+ * G7 — payout gate: a merchant may only initiate payouts once its KYC has been
+ * approved by a reviewer. Single indexed SELECT (kyc_merchant_idx), fail-loud.
+ */
+export async function assertApprovedKyc(merchantId: string): Promise<void> {
+  const db = await getDbInstance();
+  const [row] = await db
+    .select({ id: schema.kycSubmissions.id })
+    .from(schema.kycSubmissions)
+    .where(and(
+      eq(schema.kycSubmissions.merchantId, merchantId),
+      eq(schema.kycSubmissions.status, 'approved' as any),
+    ))
+    .limit(1);
+  if (!row) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'KYC verification required — complete and pass KYC before payouts',
+    });
+  }
+}
 
 async function resolveMerchantId(openId: string): Promise<string> {
   const user = await getUserByOpenId(openId);
@@ -123,7 +146,13 @@ export const kycRouter = router({
       return result ?? { matched: false, distance: 1, error: 'Face match service unavailable' };
     }),
 
-  /** Save liveness result to the KYC submission record */
+  /**
+   * Save a client-reported liveness outcome from the onboarding wizard.
+   * G5: the client is NEVER trusted as authoritative — `passed`/`score` are
+   * stored only as unverified `client_reported_*` metadata. `livenessPassedAt`
+   * may be set exclusively by a server-side checkLiveness result or an admin
+   * override; the submission status stays pending until then.
+   */
   saveLivenessResult: protectedProcedure
     .input(z.object({
       submissionId: z.string(),
@@ -132,18 +161,36 @@ export const kycRouter = router({
       mode: z.string().optional(),
       challengeType: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
-      await (await getDbInstance()).update(schema.kycSubmissions)
+    .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user!.openId);
+      const db = await getDbInstance();
+      // Merchant-scoped: a caller can only report against its own submission.
+      const scope = and(
+        eq(schema.kycSubmissions.id, input.submissionId),
+        eq(schema.kycSubmissions.merchantId, merchantId),
+      );
+      const [sub] = await db.select({ id: schema.kycSubmissions.id })
+        .from(schema.kycSubmissions).where(scope).limit(1);
+      if (!sub) throw new TRPCError({ code: 'NOT_FOUND', message: 'KYC submission not found' });
+      // Non-authoritative metadata only — never livenessScore / livenessPassedAt.
+      await db.update(schema.kycSubmissions)
         .set({
-          livenessScore: input.score,
           livenessMode: input.mode ?? 'passive',
           livenessChallengeType: input.challengeType ?? null,
-          livenessPassedAt: input.passed ? new Date() : null,
           livenessSessionId: input.submissionId,
           updatedAt: new Date(),
         })
-        .where(eq(schema.kycSubmissions.id, input.submissionId));
-      return { success: true };
+        .where(scope);
+      // Unverified client report (columns added in migration 0105; raw SQL
+      // because drizzle/schema.ts is owned by another change stream).
+      await db.execute(sql`
+        UPDATE kyc_submissions
+        SET client_reported_liveness_score = ${input.score},
+            client_reported_liveness_passed = ${input.passed},
+            client_reported_liveness_at = now()
+        WHERE id = ${input.submissionId} AND merchant_id = ${merchantId}
+      `);
+      return { success: true, verified: false };
     }),
 
   /** KYC stats for the merchant dashboard */

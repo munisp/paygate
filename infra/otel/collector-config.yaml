@@ -1,3 +1,13 @@
+# DEPRECATED POINTER — consolidated collector config lives at:
+#   infra/otel-collector/otel-collector.yml
+# Kept in sync verbatim for legacy mounts; edit the file above, not this one.
+
+# =============================================================================
+# PayGate OpenTelemetry Collector — CONSOLIDATED single config (spec §6)
+# Supersedes infra/otel/collector-config.yaml (which now points here).
+# Traces → Tempo | Metrics → Prometheus exporter :8889 | Logs → Loki
+# =============================================================================
+
 receivers:
   otlp:
     protocols:
@@ -5,46 +15,179 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
-  zipkin:
-    endpoint: 0.0.0.0:9411
+
+  # Kafka cluster metrics (kafka-1:9092)
+  kafkametrics:
+    brokers:
+      - kafka-1:9092
+    protocol_version: 2.0.0
+    scrapers:
+      - brokers
+      - topics
+      - consumers
+    collection_interval: 30s
+
+  # PostgreSQL metrics via dedicated monitor role (env-injected, no hardcoded secrets)
+  postgresql:
+    endpoint: postgres:5432
+    transport: tcp
+    username: ${env:PG_MONITOR_USER}
+    password: ${env:PG_MONITOR_PASSWORD}
+    databases:
+      - paygate_monitor
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+  # Redis metrics
+  redis:
+    endpoint: redis:6379
+    collection_interval: 30s
+
+  # Prometheus-style scrape endpoints (middleware + data-plane)
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 10s
+          static_configs:
+            - targets: [0.0.0.0:8888]
+
+        - job_name: keycloak
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [keycloak:8080]
+
+        - job_name: permify
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [permify:3476]
+
+        - job_name: apisix
+          scrape_interval: 15s
+          static_configs:
+            - targets: [apisix:9091]
+
+        - job_name: opensearch
+          scrape_interval: 30s
+          static_configs:
+            - targets: [opensearch:9600]
+
+        - job_name: openappsec
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [openappsec:8090]
+
+        - job_name: temporal
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [temporal:8000]
+
+        - job_name: tigerbeetle-ledger
+          scrape_interval: 15s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [tigerbeetle-ledger:3000]
+
+        - job_name: spark
+          scrape_interval: 30s
+          static_configs:
+            - targets: [spark:4040]
+
+        - job_name: trino
+          scrape_interval: 30s
+          static_configs:
+            - targets: [trino:8080]
+
+  # File logs → Loki pipeline
+  filelog:
+    include:
+      - /var/log/paygate/*.log
+    start_at: end
+    operators:
+      - type: regex_parser
+        regex: '^(?P<timestamp>\S+)\s+(?P<severity>\w+)\s+(?P<body>.*)$'
+        if: 'attributes != nil'
+      - type: time_parser
+        parse_from: attributes.timestamp
+        layout: '%Y-%m-%dT%H:%M:%S'
+        if: 'attributes.timestamp != nil'
 
 processors:
   batch:
-    timeout: 5s
+    timeout: 1s
     send_batch_size: 1024
+
   memory_limiter:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
+
   resource:
     attributes:
-      - key: deployment.environment
+      - action: insert
+        key: deployment.environment
         value: production
-        action: upsert
+      - action: insert
+        key: cluster
+        value: paygate-prod
+
+  # Deployment-env upsert (spec §6) — tenant grouping deliberately NOT
+  # enabled by default (high cardinality; see spec §1).
+  attributes/tenant:
+    actions:
+      - action: upsert
+        key: deployment.environment
+        value: production
+
+  filter/drop_health:
+    traces:
+      span:
+        - 'attributes["http.route"] == "/health"'
+        - 'attributes["http.route"] == "/api/health"'
 
 exporters:
-  # Jaeger (traces)
-  otlp/jaeger:
-    endpoint: jaeger:4317
+  otlp/tempo:
+    endpoint: tempo:4317
     tls:
       insecure: true
 
-  # Prometheus (metrics)
   prometheus:
     endpoint: 0.0.0.0:8889
-    namespace: paygate_otel
+    namespace: paygate
 
-  # Logging (debug)
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    tls:
+      insecure: true
+
   logging:
-    verbosity: normal
+    loglevel: warn
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
 
 service:
+  extensions: [health_check, pprof, zpages]
   pipelines:
     traces:
-      receivers: [otlp, zipkin]
-      processors: [memory_limiter, batch, resource]
-      exporters: [otlp/jaeger, logging]
-    metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [prometheus]
+      processors: [memory_limiter, filter/drop_health, resource, attributes/tenant, batch]
+      exporters: [otlp/tempo, logging]
+    metrics:
+      receivers: [otlp, prometheus, kafkametrics, postgresql, redis]
+      processors: [memory_limiter, resource, attributes/tenant, batch]
+      exporters: [prometheus, logging]
+    logs:
+      receivers: [filelog, otlp]
+      processors: [memory_limiter, resource, attributes/tenant, batch]
+      exporters: [loki, logging]

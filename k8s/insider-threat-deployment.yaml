@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: insider-threat-engine
-          image: paygate/insider-threat-engine:latest
+          image: paygate/insider-threat-engine:1.0.0
           ports:
             - containerPort: 8300
               name: http
@@ -114,7 +114,7 @@ spec:
     spec:
       containers:
         - name: ueba-service
-          image: paygate/ueba-service:latest
+          image: paygate/ueba-service:1.0.0
           ports:
             - containerPort: 8301
               name: http

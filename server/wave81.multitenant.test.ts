@@ -50,6 +50,61 @@ const SEED_TENANT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const SEED_TENANT_2  = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
 const SEED_TENANT_3  = "c3d4e5f6-a7b8-9012-cdef-123456789012";
 
+// ─── Seed fixtures (idempotent, deterministic ids) ───────────────────────────
+// The partner-tenant seed data these tests verify. Uses fixed ids + ON CONFLICT
+// so repeated runs and shared databases stay consistent.
+beforeAll(async () => {
+  if (!PG_AVAILABLE) return;
+  await q(`
+    INSERT INTO partner_tenants (id, slug, name, email, country, plan, status)
+    VALUES
+      ($1, 'acme-fintech',   'Acme Fintech Ltd', 'ops@acmefintech.com',  'NG', 'growth',  'active'),
+      ($2, 'globex-pay',     'Globex Pay',       'ops@globexpay.com',    'NG', 'starter', 'active'),
+      ($3, 'initech-remit',  'Initech Remit',    'ops@initechremit.com', 'GH', 'scale',   'active')
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_ID, SEED_TENANT_2, SEED_TENANT_3]);
+
+  await q(`
+    INSERT INTO tenant_users (id, tenant_id, name, email, role, is_active, created_at)
+    VALUES
+      ('w81-user-alice', $1, 'Alice Acme',  'alice@acmefintech.com', 'owner',  TRUE, NOW() - INTERVAL '3 days'),
+      ('w81-user-bob',   $1, 'Bob Acme',    'bob@acmefintech.com',   'admin',  TRUE, NOW() - INTERVAL '2 days'),
+      ('w81-user-chidi', $1, 'Chidi Acme',  'chidi@acmefintech.com', 'member', TRUE, NOW() - INTERVAL '1 day')
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_ID]);
+  await q(`
+    INSERT INTO tenant_users (id, tenant_id, name, email, role, is_active, created_at)
+    VALUES
+      ('w81-user-gb1', $1, 'Gloria Globex', 'gloria@globexpay.com', 'owner', TRUE, NOW() - INTERVAL '2 days')
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_2]);
+
+  await q(`
+    INSERT INTO tenant_corridors (id, tenant_id, source_currency, dest_currency, is_enabled, fx_markup_pct)
+    VALUES
+      ('w81-corr-t1-usd', $1, 'NGN', 'USD', TRUE, 1.5),
+      ('w81-corr-t1-eur', $1, 'NGN', 'EUR', TRUE, 1.8),
+      ('w81-corr-t1-gbp', $1, 'NGN', 'GBP', TRUE, 2.0)
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_ID]);
+  await q(`
+    INSERT INTO tenant_corridors (id, tenant_id, source_currency, dest_currency, is_enabled, fx_markup_pct)
+    VALUES
+      ('w81-corr-t3-ghs', $1, 'NGN', 'GHS', TRUE, 1.2),
+      ('w81-corr-t3-usd', $1, 'USD', 'GHS', TRUE, 0.9)
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_3]);
+
+  await q(`
+    INSERT INTO tenant_fee_overrides (id, tenant_id, transaction_type, flat_fee_ngn, percentage_fee, is_active)
+    VALUES
+      ('w81-fee-t1-transfer', $1, 'transfer',     50,  1.2, TRUE),
+      ('w81-fee-t1-payout',   $1, 'payout',       100, 0.8, TRUE),
+      ('w81-fee-t1-plink',    $1, 'payment_link', 0,   2.0, TRUE)
+    ON CONFLICT (id) DO NOTHING
+  `, [SEED_TENANT_ID]);
+});
+
 afterAll(async () => {
   await pool.end();
 });
@@ -197,12 +252,24 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-D: Invite Code System", () => {
   const testCode = `PG-T81-${Date.now().toString().slice(-6)}`;
 
   beforeAll(async () => {
+    // Seed-style invite codes the suite expects (plan carried in metadata per
+    // the current invite_codes schema: uses_total/uses_remaining/is_revoked/metadata).
+    await q(`
+      INSERT INTO invite_codes (code, type, uses_total, uses_remaining, expires_at, created_by, metadata, is_revoked)
+      VALUES
+        ('PG-DEMO-STRT', 'partner', 100, 100, NOW() + INTERVAL '365 days', 'seed', '{"plan":"starter"}', FALSE),
+        ('PG-GROW-2026', 'partner', 50, 50, NOW() + INTERVAL '365 days', 'seed', '{"plan":"growth"}', FALSE),
+        ('PG-ENTP-VIP1', 'partner', 10, 10, NOW() + INTERVAL '365 days', 'seed', '{"plan":"enterprise"}', FALSE)
+      ON CONFLICT (code) DO NOTHING
+    `);
     const { rows } = await q(`
-      INSERT INTO invite_codes (code, type, max_uses, uses_remaining, uses_total, plan, is_active, expires_at, notes, created_by, created_at)
-      VALUES ($1, 'multi_use', 10, 10, 0, 'starter', TRUE, NOW() + INTERVAL '30 days', 'Wave81 test code', 'system', NOW())
+      INSERT INTO invite_codes (code, type, uses_total, uses_remaining, expires_at, created_by, metadata, is_revoked, created_at)
+      VALUES ($1, 'partner', 10, 10, NOW() + INTERVAL '30 days', 'system', '{"plan":"starter","notes":"Wave81 test code"}', FALSE, NOW())
+      ON CONFLICT (code) DO NOTHING
       RETURNING id
     `, [testCode]);
-    testCodeId = rows[0]?.id;
+    testCodeId = rows[0]?.id
+      ?? (await q("SELECT id FROM invite_codes WHERE code = $1", [testCode])).rows[0]?.id;
   });
 
   afterAll(async () => {
@@ -216,31 +283,31 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-D: Invite Code System", () => {
 
   it("should find the seeded invite codes", async () => {
     const { rows } = await q(
-      "SELECT code, plan, type FROM invite_codes WHERE code IN ('PG-DEMO-STRT', 'PG-GROW-2026', 'PG-ENTP-VIP1')"
+      "SELECT code, metadata::jsonb->>'plan' as plan, type FROM invite_codes WHERE code IN ('PG-DEMO-STRT', 'PG-GROW-2026', 'PG-ENTP-VIP1')"
     );
     expect(rows.length).toBeGreaterThanOrEqual(1);
   });
 
   it("should validate an active invite code", async () => {
     const { rows } = await q(
-      "SELECT id, code, plan, is_active FROM invite_codes WHERE code = $1",
+      "SELECT id, code, metadata::jsonb->>'plan' as plan, is_revoked FROM invite_codes WHERE code = $1",
       [testCode]
     );
     expect(rows.length).toBe(1);
-    expect(rows[0].is_active).toBe(true);
+    expect(rows[0].is_revoked).toBe(false);
     expect(rows[0].plan).toBe("starter");
   });
 
   it("should revoke an invite code", async () => {
-    await q("UPDATE invite_codes SET is_active = FALSE WHERE id = $1", [testCodeId]);
-    const { rows } = await q("SELECT is_active FROM invite_codes WHERE id = $1", [testCodeId]);
-    expect(rows[0].is_active).toBe(false);
+    await q("UPDATE invite_codes SET is_revoked = TRUE WHERE id = $1", [testCodeId]);
+    const { rows } = await q("SELECT is_revoked FROM invite_codes WHERE id = $1", [testCodeId]);
+    expect(rows[0].is_revoked).toBe(true);
   });
 
   it("should reactivate a revoked invite code", async () => {
-    await q("UPDATE invite_codes SET is_active = TRUE WHERE id = $1", [testCodeId]);
-    const { rows } = await q("SELECT is_active FROM invite_codes WHERE id = $1", [testCodeId]);
-    expect(rows[0].is_active).toBe(true);
+    await q("UPDATE invite_codes SET is_revoked = FALSE WHERE id = $1", [testCodeId]);
+    const { rows } = await q("SELECT is_revoked FROM invite_codes WHERE id = $1", [testCodeId]);
+    expect(rows[0].is_revoked).toBe(false);
   });
 
   it("should detect expired invite codes", async () => {
@@ -266,10 +333,11 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-E: Partner Onboarding Wizard", () => {
 
   beforeAll(async () => {
     sessionId = `sess-wave81-${Date.now()}`;
-    // Use an existing invite code from seed data
+    // Use an existing invite code from seed data.
+    // Current schema: current_step enum + is_completed instead of a status column.
     await q(`
-      INSERT INTO partner_onboarding_sessions (id, invite_code, status, created_at, updated_at)
-      VALUES ($1, 'PG-DEMO-STRT', 'in_progress', NOW(), NOW())
+      INSERT INTO partner_onboarding_sessions (id, invite_code, current_step, created_at, updated_at)
+      VALUES ($1, 'PG-DEMO-STRT', 'invite_code', NOW(), NOW())
       ON CONFLICT DO NOTHING
     `, [sessionId]);
   });
@@ -280,51 +348,52 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-E: Partner Onboarding Wizard", () => {
 
   it("should create an onboarding session", async () => {
     const { rows } = await q(
-      "SELECT id, invite_code, status FROM partner_onboarding_sessions WHERE id = $1",
+      "SELECT id, invite_code, current_step, is_completed FROM partner_onboarding_sessions WHERE id = $1",
       [sessionId]
     );
     expect(rows.length).toBe(1);
     expect(rows[0].invite_code).toBe("PG-DEMO-STRT");
-    expect(rows[0].status).toBe("in_progress");
+    expect(rows[0].is_completed).toBe(false);
   });
 
   it("should save company details to session", async () => {
     await q(
-      "UPDATE partner_onboarding_sessions SET company_name = $1, company_email = $2, step = 2, updated_at = NOW() WHERE id = $3",
+      "UPDATE partner_onboarding_sessions SET company_name = $1, company_email = $2, current_step = 'company_info', updated_at = NOW() WHERE id = $3",
       ["Wave81 Corp", "test@wave81.com", sessionId]
     );
     const { rows } = await q(
-      "SELECT company_name, company_email, step FROM partner_onboarding_sessions WHERE id = $1",
+      "SELECT company_name, company_email, current_step FROM partner_onboarding_sessions WHERE id = $1",
       [sessionId]
     );
     expect(rows[0].company_name).toBe("Wave81 Corp");
     expect(rows[0].company_email).toBe("test@wave81.com");
+    expect(rows[0].current_step).toBe("company_info");
   });
 
   it("should save branding to session", async () => {
     await q(
-      "UPDATE partner_onboarding_sessions SET primary_color = $1, accent_color = $2, font_family = $3, step = 3, updated_at = NOW() WHERE id = $4",
+      "UPDATE partner_onboarding_sessions SET branding_primary_color = $1, branding_secondary_color = $2, branding_font_family = $3, current_step = 'branding', updated_at = NOW() WHERE id = $4",
       ["#ff5733", "#c70039", "Poppins", sessionId]
     );
     const { rows } = await q(
-      "SELECT primary_color, accent_color, font_family FROM partner_onboarding_sessions WHERE id = $1",
+      "SELECT branding_primary_color, branding_secondary_color, branding_font_family FROM partner_onboarding_sessions WHERE id = $1",
       [sessionId]
     );
-    expect(rows[0].primary_color).toBe("#ff5733");
-    expect(rows[0].accent_color).toBe("#c70039");
+    expect(rows[0].branding_primary_color).toBe("#ff5733");
+    expect(rows[0].branding_secondary_color).toBe("#c70039");
   });
 
   it("should save fee structure to session", async () => {
     const feeStructure = { transferFeePct: 1.5, paymentLinkFeePct: 2.0 };
     await q(
-      "UPDATE partner_onboarding_sessions SET fee_structure = $1::jsonb, step = 4, updated_at = NOW() WHERE id = $2",
+      "UPDATE partner_onboarding_sessions SET fee_structure = $1, current_step = 'fee_structure', updated_at = NOW() WHERE id = $2",
       [JSON.stringify(feeStructure), sessionId]
     );
     const { rows } = await q(
       "SELECT fee_structure FROM partner_onboarding_sessions WHERE id = $1",
       [sessionId]
     );
-    expect(Number(rows[0].fee_structure.transferFeePct)).toBe(1.5);
+    expect(Number(JSON.parse(rows[0].fee_structure).transferFeePct)).toBe(1.5);
   });
 
   it("should complete onboarding and create partner tenant", async () => {
@@ -367,7 +436,7 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-F: Tenant Admin Dashboard", () => {
 
   it("should list corridors for Acme Fintech", async () => {
     const { rows } = await q(
-      "SELECT source_currency, dest_currency, fee_pct, is_enabled FROM tenant_corridors WHERE tenant_id = $1",
+      "SELECT source_currency, dest_currency, fx_markup_pct, is_enabled FROM tenant_corridors WHERE tenant_id = $1",
       [SEED_TENANT_ID]
     );
     expect(rows.length).toBeGreaterThanOrEqual(3);
@@ -377,7 +446,7 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-F: Tenant Admin Dashboard", () => {
 
   it("should list fee overrides for Acme Fintech", async () => {
     const { rows } = await q(
-      "SELECT transaction_type, fee_type, fee_value, is_active FROM tenant_fee_overrides WHERE tenant_id = $1",
+      "SELECT transaction_type, percentage_fee, flat_fee_ngn, is_active FROM tenant_fee_overrides WHERE tenant_id = $1",
       [SEED_TENANT_ID]
     );
     expect(rows.length).toBeGreaterThanOrEqual(3);
@@ -401,8 +470,8 @@ describe.skipIf(!PG_AVAILABLE)("Wave 28-F: Tenant Admin Dashboard", () => {
   it("should invite a new user to a tenant", async () => {
     const testEmail = `wave81-invite-${Date.now()}@example.com`;
     await q(`
-      INSERT INTO tenant_users (tenant_id, name, email, role, is_active)
-      VALUES ($1, 'Wave81 Invitee', $2, 'member', TRUE)
+      INSERT INTO tenant_users (id, tenant_id, name, email, role, is_active)
+      VALUES (gen_random_uuid()::text, $1, 'Wave81 Invitee', $2, 'member', TRUE)
     `, [SEED_TENANT_ID, testEmail]);
     const { rows } = await q(
       "SELECT email, role FROM tenant_users WHERE tenant_id = $1 AND email = $2",

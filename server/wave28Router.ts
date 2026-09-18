@@ -12,10 +12,40 @@
  */
 
 import { z } from "zod";
-import { sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
-import { getDb, execRaw } from "./db";
+import { getDb, execRaw, getUserByOpenId, getMerchantByOwnerId } from "./db";
 import crypto from "crypto";
+
+// ─── Platform-admin gate (DB re-check of users.role; fail closed) ────────────
+// Cross-tenant administration (tenant users, roles, fee overrides) is a
+// platform-level operation: the caller's session role is NOT trusted — the
+// role is re-read from the users table on every call.
+async function requirePlatformAdmin(ctx: any): Promise<void> {
+  const openId = ctx?.user?.openId;
+  if (!openId) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
+  }
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const rows = await execRaw(db, `SELECT role FROM users WHERE open_id = $1 LIMIT 1`, [openId]);
+  if (!rows.length || (rows[0] as any).role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Platform admin access required" });
+  }
+}
+
+// ─── Merchant scope resolver (getUserByOpenId → getMerchantByOwnerId) ───────
+// BNPL repayment writes are merchant-side operations: the caller must be an
+// onboarded merchant. Fail closed otherwise.
+async function requireMerchantScope(ctx: any): Promise<string> {
+  const user = await getUserByOpenId(ctx?.user?.openId);
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  const merchant = await getMerchantByOwnerId(user.id);
+  if (!merchant) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Merchant account required" });
+  }
+  return merchant.id;
+}
 
 // ─── A: Webhook Retry Bulk Replay ────────────────────────────────────────────
 const webhookRetryEnhancedRouter = router({
@@ -26,7 +56,10 @@ const webhookRetryEnhancedRouter = router({
       status: z.string().optional(),
       limit: z.number().min(1).max(200).default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Global webhook_deliveries read (endpoint URLs, event payloads metadata)
+      // across all merchants/tenants — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       let whereClause = "WHERE 1=1";
@@ -61,21 +94,21 @@ const webhookRetryEnhancedRouter = router({
         FROM webhook_deliveries wd
         ${whereClause}
         ORDER BY wd.created_at DESC
-        LIMIT ${input.limit}
-      `);
+        LIMIT $${paramIdx}
+      `, [...params, input.limit]);
 
-      const statsResult = await db.execute(sql.raw(`
+      const statsRows = await execRaw(db, `
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'failed') as failed_count,
           COUNT(*) FILTER (WHERE status = 'abandoned' OR status = 'dead_letter') as abandoned_count,
           COUNT(*) FILTER (WHERE status = 'success' AND delivered_at > NOW() - INTERVAL '24 hours') as succeeded_today
         FROM webhook_deliveries
-      `));
+      `);
 
-      const stats = (statsResult as any).rows[0];
+      const stats = statsRows[0];
       return {
-        deliveries: (result as any).rows,
+        deliveries: result,
         stats: {
           pendingCount: Number(stats?.pending_count ?? 0),
           failedCount: Number(stats?.failed_count ?? 0),
@@ -91,7 +124,9 @@ const webhookRetryEnhancedRouter = router({
       deliveryId: z.string(),
       delayMinutes: z.number().min(0).max(1440).default(0),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Ops action mutating global webhook_deliveries — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const retryAt = input.delayMinutes > 0
@@ -115,7 +150,9 @@ const webhookRetryEnhancedRouter = router({
       statuses: z.array(z.string()).default(["failed", "abandoned", "dead_letter"]),
       delayMinutes: z.number().min(0).max(60).default(0),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Ops action mutating global webhook_deliveries — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const retryAt = input.delayMinutes > 0
@@ -130,8 +167,11 @@ const webhookRetryEnhancedRouter = router({
           updated_at = NOW()
         WHERE status IN (${statusList})
         AND (max_attempts IS NULL OR attempt_count < max_attempts)
+        RETURNING id
       `, [retryAt, ...input.statuses]);
-      const count = (result as any).rowCount ?? 0;
+      // execRaw returns the ROW ARRAY (no .rowCount) — RETURNING id above
+      // makes result.length the true affected-row count.
+      const count = result.length;
       return { success: true, count, retryAt };
     }),
 
@@ -142,7 +182,9 @@ const webhookRetryEnhancedRouter = router({
       resetAttemptCount: z.boolean().default(true),
       maxBatch: z.number().min(1).max(500).default(100),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Ops action mutating global webhook_deliveries — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const retryAt = new Date(Date.now() + input.delaySeconds * 1000).toISOString();
@@ -161,15 +203,20 @@ const webhookRetryEnhancedRouter = router({
           ORDER BY created_at ASC
           LIMIT $2
         )
+        RETURNING id
       `, [retryAt, input.maxBatch]);
-      const count = (result as any).rowCount ?? 0;
+      // execRaw returns the ROW ARRAY (no .rowCount) — RETURNING id above
+      // makes result.length the true affected-row count.
+      const count = result.length;
       return { success: true, count, retryAt, resetAttemptCount: input.resetAttemptCount };
     }),
 
   // Abandon a delivery (move to dead-letter)
   abandon: protectedProcedure
     .input(z.object({ deliveryId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Ops action mutating global webhook_deliveries — platform-admin only (DB re-check).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -182,7 +229,9 @@ const webhookRetryEnhancedRouter = router({
     }),
 
   // Get dead-letter queue stats
-  getDeadLetterStats: protectedProcedure.query(async () => {
+  getDeadLetterStats: protectedProcedure.query(async ({ ctx }) => {
+    // Global dead-letter stats across all merchants/tenants — platform-admin only.
+    await requirePlatformAdmin(ctx);
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`
@@ -525,16 +574,29 @@ const bnplRepaymentRouter = router({
     .input(z.object({
       scheduleId: z.number(),
       paidAt: z.string().optional(),
+      // Required evidence of an external payment — repayments may never be
+      // marked paid without a traceable payment reference.
+      paymentReference: z.string().min(3),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      await execRaw(db, `
+      // Merchant-scoped: only an onboarded merchant may record repayments.
+      await requireMerchantScope(ctx);
+      // Status guard: only scheduled/pending/overdue instalments may flip to
+      // paid (never re-mark an already-paid/cancelled row). Atomic via
+      // RETURNING — empty result means the guard rejected the transition.
+      const updated = await execRaw(db, `
         UPDATE bnpl_repayment_schedules SET
           status = 'paid',
-          paid_at = $1
-        WHERE id = $2
-      `, [input.paidAt ?? new Date().toISOString(), input.scheduleId]);
+          paid_at = $1,
+          payment_reference = $2
+        WHERE id = $3 AND status IN ('scheduled', 'pending', 'overdue')
+        RETURNING id
+      `, [input.paidAt ?? new Date().toISOString(), input.paymentReference, input.scheduleId]);
+      if (!updated.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "Instalment not found or not in a payable state" });
+      }
       return { success: true };
     }),
 
@@ -663,10 +725,9 @@ const inviteCodeRouter = router({
         where += " AND is_active = $2";
         params.push(input.isActive);
       }
-      const result = await db.execute(sql.raw(`
+      return await execRaw(db, `
         SELECT * FROM invite_codes ${where} ORDER BY created_at DESC LIMIT $1
-      `));
-      return (result as any).rows;
+      `, params);
     }),
 
   // Revoke an invite code
@@ -975,6 +1036,8 @@ const tenantAdminRouter = router({
       role: z.enum(["admin", "member", "viewer"]).default("member"),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Cross-tenant user invitation is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -992,7 +1055,9 @@ const tenantAdminRouter = router({
       email: z.string().email(),
       role: z.enum(["owner", "admin", "member", "viewer"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant role management is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -1004,7 +1069,9 @@ const tenantAdminRouter = router({
   // Remove user from tenant
   removeUser: protectedProcedure
     .input(z.object({ tenantId: z.string(), email: z.string().email() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant user removal is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -1036,7 +1103,9 @@ const tenantAdminRouter = router({
       minAmount: z.number().min(0).optional(),
       maxAmount: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant corridor/fee configuration is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -1076,7 +1145,9 @@ const tenantAdminRouter = router({
       minFee: z.number().min(0).optional(),
       maxFee: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant fee overrides are a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -1106,7 +1177,9 @@ const tenantAdminRouter = router({
       supportEmail: z.string().email().optional(),
       customDomain: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Cross-tenant branding/white-label config is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const updates: string[] = [];
@@ -1125,7 +1198,8 @@ const tenantAdminRouter = router({
       updates.push(`updated_at = NOW()`);
       params.push(input.tenantId);
 
-      await db.execute(sql.raw(`UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`));
+      // Column names above are hardcoded literals; values are bound params.
+      await execRaw(db, `UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`, params);
       return { success: true };
     }),
 
@@ -1178,7 +1252,7 @@ const tenantIsolationRouter = router({
       if (input.status) { where += ` AND status = $${idx++}`; params.push(input.status); }
       if (input.plan) { where += ` AND plan = $${idx++}`; params.push(input.plan); }
 
-      const result = await db.execute(sql.raw(`
+      return await execRaw(db, `
         SELECT
           t.*,
           COUNT(DISTINCT tu.id) as user_count,
@@ -1190,14 +1264,15 @@ const tenantIsolationRouter = router({
         GROUP BY t.id
         ORDER BY t.created_at DESC
         LIMIT $1
-      `));
-      return (result as any).rows;
+      `, params);
     }),
 
   // Suspend a tenant
   suspend: protectedProcedure
     .input(z.object({ tenantId: z.string(), reason: z.string().min(5) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Suspending an arbitrary tenant is a platform-admin operation.
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `
@@ -1210,7 +1285,10 @@ const tenantIsolationRouter = router({
   // Reactivate a tenant
   activate: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Reactivating an arbitrary tenant is a platform-admin operation
+      // (same flaw class as suspend).
+      await requirePlatformAdmin(ctx);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await execRaw(db, `

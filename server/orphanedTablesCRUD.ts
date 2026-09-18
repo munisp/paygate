@@ -6,7 +6,10 @@
 import { z } from "zod";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { router, protectedProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from "./db";
+import { createHash } from "node:crypto";
+import { blockPrivateWebhookUrl } from "./securityUtils";
 import {
   bulkPaymentSchedules,
   complianceReports,
@@ -67,6 +70,9 @@ export const webhookEndpointsCRUD = router({
       const db = await getDb();
       if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
+      // SSRF guard: webhook delivery fetches this URL server-side, so
+      // private/loopback/metadata targets must be rejected at registration.
+      await blockPrivateWebhookUrl(input.url);
       const secret = `whsec_${crypto.randomUUID().replace(/-/g, "")}`;
       const endpointId = nanoid("we_");
       await db.insert(webhookEndpoints).values({
@@ -92,6 +98,8 @@ export const webhookEndpointsCRUD = router({
       const db = await getDb();
       if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
+      // SSRF guard: re-validate whenever the delivery URL changes.
+      if (input.url !== undefined) await blockPrivateWebhookUrl(input.url);
       const upd: Record<string, unknown> = {};
       if (input.url !== undefined) upd.url = input.url;
       if (input.events !== undefined) upd.events = input.events;
@@ -149,7 +157,10 @@ export const sdkTokensCRUD = router({
       if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rawToken = `pg_sdk_${crypto.randomUUID().replace(/-/g, "")}`;
-      const tokenHash = Buffer.from(rawToken).toString("base64");
+      // One-way hash at rest (sha256, matching crud120/wave88) — a base64
+      // "hash" is reversible and would hand out live tokens on any DB read.
+      // The raw token is returned to the caller exactly once below.
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
       const tokenId = nanoid("sdk_");
       const expiresAt = new Date(Date.now() + input.expiresInDays * 86400_000);
       await db.insert(sdkTokens).values({
@@ -571,8 +582,8 @@ export const bulkSchedulesCRUD = router({
   create: protectedProcedure
     .input(z.object({
       scheduleName: z.string().min(2),
-      recipients: z.array(z.object({ accountId: z.string(), amountKobo: z.number(), name: z.string().min(1).max(500) })),
-      totalAmountKobo: z.number(),
+      recipients: z.array(z.object({ accountId: z.string(), amountKobo: z.number().int().positive(), name: z.string().min(1).max(500) })),
+      totalAmountKobo: z.number().int().positive(),
       scheduledAt: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -657,7 +668,8 @@ export const loanRepaymentsCRUD = router({
   record: protectedProcedure
     .input(z.object({
       loanId: z.string(),
-      amountKobo: z.number(),
+      // Positive whole-kobo only — a negative repayment would fabricate value.
+      amountKobo: z.number().int().positive(),
       method: z.string().optional(),
       transferId: z.string().optional(),
     }))
@@ -842,7 +854,20 @@ export const escrowContractsCRUD = router({
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.execute(sql`UPDATE escrow_contracts SET status = 'released', released_at = NOW() WHERE id = ${input.id} AND merchant_id = ${merchant.id}`);
+      // Status guard: only a FUNDED escrow can be released (terminal states
+      // are not re-enterable) — same transition rule as crud120 escrow.release.
+      // S15b: checked row count — a no-op (wrong id, not funded, not owned)
+      // must NOT return success.
+      const released = await db.execute(sql`UPDATE escrow_contracts SET status = 'released', released_at = NOW() WHERE id = ${input.id} AND merchant_id = ${merchant.id} AND status = 'funded' RETURNING id`);
+      const releasedRows = (released as any)?.rows ?? (released as any[]);
+      if (!Array.isArray(releasedRows) || releasedRows.length === 0) {
+        const existing = await db.execute(sql`SELECT status FROM escrow_contracts WHERE id = ${input.id} AND merchant_id = ${merchant.id} LIMIT 1`);
+        const existingRows = (existing as any)?.rows ?? (existing as any[]);
+        if (!Array.isArray(existingRows) || existingRows.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Escrow contract not found" });
+        }
+        throw new TRPCError({ code: "CONFLICT", message: `Escrow contract is '${(existingRows[0] as any).status}' — only funded escrows can be released` });
+      }
       return { success: true };
     }),
   dispute: protectedProcedure
@@ -852,7 +877,19 @@ export const escrowContractsCRUD = router({
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.execute(sql`UPDATE escrow_contracts SET status = 'disputed', dispute_reason = ${input.reason} WHERE id = ${input.id} AND merchant_id = ${merchant.id}`);
+      // Status guard: only a FUNDED escrow can be disputed — a released
+      // escrow is terminal and must not be reopened.
+      // S15b: checked row count — a no-op must NOT return success.
+      const disputed = await db.execute(sql`UPDATE escrow_contracts SET status = 'disputed', dispute_reason = ${input.reason} WHERE id = ${input.id} AND merchant_id = ${merchant.id} AND status = 'funded' RETURNING id`);
+      const disputedRows = (disputed as any)?.rows ?? (disputed as any[]);
+      if (!Array.isArray(disputedRows) || disputedRows.length === 0) {
+        const existing = await db.execute(sql`SELECT status FROM escrow_contracts WHERE id = ${input.id} AND merchant_id = ${merchant.id} LIMIT 1`);
+        const existingRows = (existing as any)?.rows ?? (existing as any[]);
+        if (!Array.isArray(existingRows) || existingRows.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Escrow contract not found" });
+        }
+        throw new TRPCError({ code: "CONFLICT", message: `Escrow contract is '${(existingRows[0] as any).status}' — only funded escrows can be disputed` });
+      }
       return { success: true };
     }),
 });

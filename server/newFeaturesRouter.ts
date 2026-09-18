@@ -22,10 +22,16 @@ import {
   onRemittanceInitiated, onSubscriptionV2Created, onReportReady,
 } from "./webhookEventHooks";
 
-const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
-const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
+const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+// R4 spec #16: no default/shared secret. When MIDDLEWARE_INTERNAL_KEY is
+// unset we fail closed instead of sending a well-known dev key.
+const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY;
 
 async function bridgeFetch(path: string, method: string, body?: unknown): Promise<unknown> {
+  if (!BRIDGE_KEY) {
+    logger.warn("[NewFeaturesBridge] MIDDLEWARE_INTERNAL_KEY is not configured — refusing bridge call (fail closed)");
+    return {};
+  }
   try {
     const res = await fetch(`${BRIDGE_URL}${path}`, {
       method,
@@ -134,14 +140,10 @@ export const digitalGoldRouter = router({
           ))
           .groupBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`)
           .orderBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`);
-        // If no DB data, generate placeholder months
+        // If no DB data, return an honest empty series — never fabricate
+        // zero-filled months for a merchant with no real transactions.
         if (rows.length === 0) {
-          const placeholder = [];
-          for (let i = input.months - 1; i >= 0; i--) {
-            const d = new Date(); d.setMonth(d.getMonth() - i);
-            placeholder.push({ month: d.toLocaleDateString('en-NG', { month: 'short', year: 'numeric' }), totalInvestedKobo: 0, totalGoldGrams: 0 });
-          }
-          return { history: placeholder, source: 'placeholder' as const };
+          return { history: [], source: 'live' as const };
         }
         return { history: rows.map(r => ({ month: r.month, totalInvestedKobo: Number(r.totalInvestedKobo), totalGoldGrams: Number(r.totalGoldGrams) })), source: 'db' as const };
       } catch {

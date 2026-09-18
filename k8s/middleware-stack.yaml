@@ -35,6 +35,13 @@ data:
   LOG_LEVEL: "info"
 ---
 # ─── Secret — credentials ─────────────────────────────────────────────────────
+# ⚠️  WARNING: TEMPLATE ONLY — no real secret values may be committed here.
+# Every value below is a <CHANGE_ME: ...> placeholder. In real deployments,
+# provision these via sealed-secrets / external-secrets (or a cloud secret
+# manager) and NEVER commit plaintext credentials. Applying this file with
+# placeholder values left in place will fail closed (services refuse to start
+# or authenticate with a non-functional placeholder).
+# Generate strong values with: openssl rand -hex 32
 apiVersion: v1
 kind: Secret
 metadata:
@@ -42,13 +49,14 @@ metadata:
   namespace: paygate-middleware
 type: Opaque
 stringData:
-  POSTGRES_PASSWORD: "paygate_secret"
-  REDIS_PASSWORD: "redis_secret"
-  KEYCLOAK_ADMIN_PASSWORD: "admin_secret"
-  KEYCLOAK_CLIENT_SECRET: "keycloak_client_secret"
-  PERMIFY_API_KEY: "permify_api_key"
-  MIDDLEWARE_INTERNAL_KEY: "paygate-internal-key"
-  JWT_SECRET: "paygate-jwt-secret-change-in-production"
+  POSTGRES_PASSWORD: "<CHANGE_ME: postgres password — generate with: openssl rand -hex 32>"
+  REDIS_PASSWORD: "<CHANGE_ME: redis password — generate with: openssl rand -hex 32>"
+  KEYCLOAK_ADMIN_PASSWORD: "<CHANGE_ME: keycloak admin password — generate with: openssl rand -hex 32>"
+  KEYCLOAK_CLIENT_SECRET: "<CHANGE_ME: keycloak client secret — from Keycloak client config>"
+  PERMIFY_API_KEY: "<CHANGE_ME: permify API key — generate with: openssl rand -hex 32>"
+  MIDDLEWARE_INTERNAL_KEY: "<CHANGE_ME: shared portal↔bridge HMAC key — generate with: openssl rand -hex 32>"
+  BRIDGE_INTERNAL_KEY: "<CHANGE_ME: portal→bridge bearer token — generate with: openssl rand -hex 32>"
+  JWT_SECRET: "<CHANGE_ME: JWT signing secret, min 32 chars — generate with: openssl rand -base64 48>"
 ---
 # ─── 1. Kafka ─────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
@@ -524,7 +532,7 @@ spec:
     spec:
       containers:
         - name: tigerbeetle-ledger
-          image: paygate/tigerbeetle-ledger:latest
+          image: paygate/tigerbeetle-ledger:1.0.0
           ports:
             - containerPort: 8200
           env:
@@ -570,7 +578,7 @@ spec:
     spec:
       containers:
         - name: lakehouse
-          image: paygate/lakehouse-v2:latest
+          image: paygate/lakehouse-v2:1.0.0
           ports:
             - containerPort: 8125
           envFrom:
@@ -618,7 +626,7 @@ spec:
     spec:
       containers:
         - name: go-bridge
-          image: paygate/go-bridge:latest
+          image: paygate/go-bridge:1.0.0
           ports:
             - containerPort: 8080
           envFrom:
@@ -635,12 +643,15 @@ spec:
               cpu: "1000m"
           livenessProbe:
             httpGet:
-              path: /health
+              # Liveness on always-200 /healthz; /health is dependency-sensitive
+              # (503 on TigerBeetle/Postgres blips) and would crash-loop pods.
+              path: /healthz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
             httpGet:
+              # Readiness stays on /health: only route traffic when deps are up.
               path: /health
               port: 8080
             initialDelaySeconds: 5

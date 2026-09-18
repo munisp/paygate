@@ -60,7 +60,12 @@ func SubmitDispute(w http.ResponseWriter, r *http.Request) {
 
 	// Idempotency
 	rdb := redis.Get()
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "dispute.submit", req.DisputeID)
+	// H26: money path (funds reservation) fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "dispute.submit", req.DisputeID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to submit dispute (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.SubmitDisputeResponse{
 			DisputeID:     req.DisputeID,
@@ -235,7 +240,12 @@ func ResolveDispute(w http.ResponseWriter, r *http.Request) {
 
 	// Idempotency
 	rdb := redis.Get()
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "dispute.resolve", req.DisputeID)
+	// H26: money path (escrow commit/void) fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "dispute.resolve", req.DisputeID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to resolve dispute (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.ResolveDisputeResponse{
 			DisputeID:     req.DisputeID,

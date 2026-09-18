@@ -18,6 +18,8 @@ from pathlib import Path
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
+# Fallback targets the LOCAL embedded dev DB (127.0.0.1) only — safe for local reports.
+# For any non-localhost database set PG_DATABASE_URL explicitly.
 DB_URL = os.environ.get(
     "PG_DATABASE_URL",
     "postgresql://paygate_user:paygate_dev_2026@127.0.0.1:5432/paygate_db"

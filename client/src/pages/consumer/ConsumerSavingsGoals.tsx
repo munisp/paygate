@@ -29,7 +29,7 @@ export default function ConsumerSavingsGoals() {
   });
 
   const utils = trpc.useUtils();
-  const { data: goals, isLoading } = trpc.wave24.savingsGoals.list.useQuery();
+  const { data: goals, isLoading } = trpc.wave24.savingsGoals.list.useQuery({});
 
   const createMutation = trpc.wave24.savingsGoals.create.useMutation({
     onSuccess: () => {
@@ -267,6 +267,9 @@ export default function ConsumerSavingsGoals() {
               onClick={() => depositGoalId && depositMutation.mutate({
                 id: depositGoalId,
                 amountKobo: Math.round(parseFloat(depositAmount) * 100),
+                // Generated per user-initiated deposit (not per render) so
+                // retries of the same action stay replay-safe.
+                idempotencyKey: crypto.randomUUID(),
               })}
               disabled={!depositAmount || parseFloat(depositAmount) <= 0 || depositMutation.isPending}
             >

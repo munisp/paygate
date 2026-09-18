@@ -54,13 +54,17 @@ describe("Wave 142: No Sensitive Data Exposure", () => {
     const routers = read("server/routers.ts");
     // Should not have passwordHash in return objects (only in internal comparisons)
     const lines = routers.split('\n');
-    const violations = lines.filter(line => 
-      line.includes('passwordHash') && 
+    const violations = lines.filter(line =>
+      line.includes('passwordHash') &&
       (line.includes('return') || line.includes(': user.')) &&
       !line.includes('//') &&
       !line.includes('newHash') &&
       !line.includes('hashPassword') &&
-      !line.includes('verifyPassword')
+      !line.includes('verifyPassword') &&
+      // Contract change (consumerPin/password current-password gate): the
+      // `if (!user.passwordHash) return;` early-return guard is an internal
+      // comparison that returns NOTHING — it is not a response payload leak.
+      !line.includes('!user.passwordHash')
     );
     expect(violations).toHaveLength(0);
   });

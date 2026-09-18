@@ -41,8 +41,8 @@ pub fn increment_and_get(
     let member = format!("{}:{}", now_ms, uuid::Uuid::new_v4());
     let _: () = con.zadd(&count_key, &member, now_ms)?;
     let _: () = con.zadd(&amount_key, format!("{}:{}", amount_kobo, member), now_ms)?;
-    let _: () = con.expire(&count_key, (window_seconds + 60) as usize)?;
-    let _: () = con.expire(&amount_key, (window_seconds + 60) as usize)?;
+    let _: () = con.expire(&count_key, (window_seconds + 60) as i64)?;
+    let _: () = con.expire(&amount_key, (window_seconds + 60) as i64)?;
 
     // Count entries in window
     let count: u64 = redis::cmd("ZCOUNT")

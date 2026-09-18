@@ -90,46 +90,58 @@ describe("Wave 144 — Flutter Screen Coverage", () => {
 });
 
 // ─── 2. Security Headers ─────────────────────────────────────────────────────
+// STALE CONTRACT: the helmet/cors/express-rate-limit npm packages were
+// replaced by first-party middleware — server/securityHeaders.ts
+// (securityHeaders + corsMiddleware with ALLOWED_ORIGINS) and
+// server/rateLimit.ts (expressRateLimit / trpcApiRateLimit). Assertions below
+// target the current implementation.
 describe("Wave 144 — Security Headers", () => {
-  it("helmet is imported and used in server core", () => {
+  it("security headers middleware is imported and used in server core", () => {
     const index = readFile("server/_core/index.ts");
-    expect(index).toContain("import helmet from");
-    expect(index).toContain("app.use(helmet(");
+    expect(index).toContain("securityHeaders");
+    expect(index).toContain("app.use(securityHeaders)");
   });
 
-  it("CORS is configured with allowedOrigins", () => {
+  it("CORS is configured with ALLOWED_ORIGINS", () => {
     const index = readFile("server/_core/index.ts");
-    expect(index).toContain("allowedOrigins");
-    expect(index).toContain("ALLOWED_ORIGINS");
-    expect(index).toContain("app.use(cors(");
+    const headers = readFile("server/securityHeaders.ts");
+    expect(index).toContain("app.use(corsMiddleware)");
+    expect(headers).toContain("ALLOWED_ORIGINS");
+    expect(headers).toContain("process.env.ALLOWED_ORIGINS");
   });
 
   it("rate limiting is configured for auth and global routes", () => {
     const index = readFile("server/_core/index.ts");
-    expect(index).toContain("express-rate-limit");
-    expect(index).toContain("globalLimiter");
-    expect(index).toContain("authLimiter");
+    expect(index).toContain("expressRateLimit");
+    expect(index).toContain('keyPrefix: "auth:oauth"');
+    expect(index).toContain("trpcApiRateLimit");
   });
 });
 
 // ─── 3. Webhook Signature Verification ───────────────────────────────────────
+// STALE CONTRACT: the Stripe webhook moved from /api/stripe/webhook to
+// /api/webhooks/stripe (still raw-body verified); NIBSS/Keycloak express
+// webhook routes were replaced by the shared HMAC verifier
+// verifyWebhookSignature in server/pbac.ts (X-NIBSS-Signature /
+// X-Hub-Signature-256, HMAC-SHA256 + timingSafeEqual).
 describe("Wave 144 — Webhook Security", () => {
   it("Stripe webhook route has raw body parser", () => {
     const index = readFile("server/_core/index.ts");
-    expect(index).toContain("/api/stripe/webhook");
+    expect(index).toContain("/api/webhooks/stripe");
     expect(index).toContain("express.raw");
   });
 
   it("NIBSS webhook has signature verification", () => {
-    const index = readFile("server/_core/index.ts");
-    expect(index).toContain("/api/nibss/webhook");
-    expect(index).toContain("X-NIBSS-Signature");
+    const pbac = readFile("server/pbac.ts");
+    expect(pbac).toContain("verifyWebhookSignature");
+    expect(pbac).toContain("X-NIBSS-Signature");
   });
 
-  it("Keycloak webhook has HMAC verification", () => {
-    const oauth = readFile("server/_core/oauth.ts");
-    expect(oauth).toContain("HMAC");
-    expect(oauth).toContain("webhookSecret");
+  it("external webhooks have HMAC verification", () => {
+    const pbac = readFile("server/pbac.ts");
+    expect(pbac).toContain("createHmac");
+    expect(pbac).toContain("timingSafeEqual");
+    expect(pbac).toContain("secret");
   });
 });
 

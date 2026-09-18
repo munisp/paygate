@@ -5,7 +5,8 @@ import pg from 'pg';
 const { Pool } = pg;
 
 const rawUrl = process.env.DATABASE_URL ?? '';
-const dbUrl = (rawUrl.startsWith('postgresql://') || rawUrl.startsWith('postgres://')) ? rawUrl : (process.env.PG_DATABASE_URL ?? 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev');
+const dbUrl = (rawUrl.startsWith('postgresql://') || rawUrl.startsWith('postgres://')) ? rawUrl : // NOTE: fallback targets the LOCAL embedded dev DB (localhost) only — safe for dev/test seeds.
+(process.env.PG_DATABASE_URL ?? 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev');
 const pool = new Pool({ connectionString: dbUrl, ssl: false });
 
 async function main() {

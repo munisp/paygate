@@ -24,7 +24,7 @@ export default function VirtualCards() {
   const [form, setForm] = useState({ label: "", currency: "USD", spendLimit: "", brand: "visa" as "visa" | "mastercard" });
   const utils = trpc.useUtils();
 
-  const { data, isLoading } = trpc.virtualCards.list.useQuery(undefined, { staleTime: 60_000 });
+  const { data, isLoading } = trpc.virtualCards.list.useQuery({}, { staleTime: 60_000 });
   const createCard = trpc.virtualCards.create.useMutation({
     onSuccess: () => { toast.success("Virtual card issued"); setShowCreate(false); setForm({ label: "", currency: "USD", spendLimit: "", brand: "visa" }); utils.virtualCards.list.invalidate(); },
     onError: (e: any) => toast.error(e.message),
@@ -42,13 +42,13 @@ export default function VirtualCards() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const cards = (data ?? []).filter((c: any) =>
+  const cards = (data?.rows ?? []).filter((c: any) =>
     !search || c.label?.toLowerCase().includes(search.toLowerCase()) || c.maskedPan?.includes(search)
   );
 
-  const activeCount = (data ?? []).filter((c: any) => c.status === "active").length;
-  const frozenCount = (data ?? []).filter((c: any) => c.status === "frozen").length;
-  const totalBalance = (data ?? []).reduce((s: number, c: any) => s + Number(c.balance ?? 0), 0);
+  const activeCount = (data?.rows ?? []).filter((c: any) => c.status === "active").length;
+  const frozenCount = (data?.rows ?? []).filter((c: any) => c.status === "frozen").length;
+  const totalBalance = (data?.rows ?? []).reduce((s: number, c: any) => s + Number(c.balance ?? 0), 0);
 
   return (
     <div className="p-6 space-y-6" role="main" aria-label="Virtual cards management">
@@ -56,7 +56,7 @@ export default function VirtualCards() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Virtual Cards</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{(data ?? []).length} cards issued</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{(data?.rows ?? []).length} cards issued</p>
         </div>
         <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-1.5" />Issue Card</Button>
       </div>

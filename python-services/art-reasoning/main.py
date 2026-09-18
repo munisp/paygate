@@ -78,13 +78,26 @@ LLM_API_URL = os.getenv("LLM_API_URL", "http://ollama:11434")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 VECTOR_STORE_URL = os.getenv("VECTOR_STORE_URL", "http://vector-store:8130")
 KNOWLEDGE_GRAPH_URL = os.getenv("KNOWLEDGE_GRAPH_URL", "http://knowledge-graph:8132")
-FRAUD_SCORING_URL = os.getenv("FRAUD_SCORING_URL", "http://fraud-scoring:8120")
+FRAUD_SCORING_URL = os.getenv("FRAUD_SCORING_URL", "http://fraud-scoring:8083")  # POST /v1/score
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
 PORT = int(os.getenv("PORT", "8133"))
 
 # ─── In-memory trace store (use DB in production) ────────────────────────────
 _traces: Dict[str, Dict] = {}
+
+
+class UpstreamServiceUnavailable(Exception):
+    """A required upstream dependency could not provide real data.
+
+    Raised instead of returning fabricated scores/profiles/transactions;
+    mapped to HTTP 503 at the API layer.
+    """
+
+
+def _simulation_mode() -> bool:
+    """Explicit simulation switch — simulated data is only served when opted in."""
+    return os.getenv("PAYGATE_SIMULATION_MODE", "").strip().lower() in ("1", "true", "yes")
 
 # ─── Tool Definitions ─────────────────────────────────────────────────────────
 TOOLS = {
@@ -93,8 +106,8 @@ TOOLS = {
         "schema": {"merchant_id": "str", "limit": "int"},
     },
     "get_fraud_score": {
-        "description": "Get fraud score and risk signals for a transaction. Args: transaction_id (str)",
-        "schema": {"transaction_id": "str"},
+        "description": "Get fraud score and risk signals for a transaction from the fraud-scoring service. Args: transaction_id (str), merchant_id (str), amount_kobo (int), channel (str). Fails with an error when the scoring service is unavailable — never invent a score.",
+        "schema": {"transaction_id": "str", "merchant_id": "str", "amount_kobo": "int", "channel": "str"},
     },
     "query_knowledge_graph": {
         "description": "Execute a Cypher query on the knowledge graph. Args: cypher (str)",
@@ -136,7 +149,12 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> str:
         if tool_name == "search_transactions":
             merchant_id = args.get("merchant_id", "")
             limit = args.get("limit", 10)
-            # Simulate DB query (replace with real DB call in production)
+            if not _simulation_mode():
+                raise UpstreamServiceUnavailable(
+                    "search_transactions has no live transaction data source wired; "
+                    "set PAYGATE_SIMULATION_MODE=true to use simulated data explicitly"
+                )
+            # Simulated data — served only under PAYGATE_SIMULATION_MODE=true
             return json.dumps({
                 "merchant_id": merchant_id,
                 "transactions": [
@@ -144,22 +162,38 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> str:
                     for i in range(min(limit, 5))
                 ],
                 "total": limit,
+                "simulated": True,
             })
 
         elif tool_name == "get_fraud_score":
             transaction_id = args.get("transaction_id", "")
+            if not transaction_id:
+                raise UpstreamServiceUnavailable("get_fraud_score requires transaction_id")
+            payload = {
+                "tx_id": transaction_id,
+                "merchant_id": args.get("merchant_id", ""),
+                "amount_kobo": int(args.get("amount_kobo", 0) or 0),
+                "currency": args.get("currency", "NGN"),
+                "channel": args.get("channel", "api"),
+            }
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.get(
-                        f"{FRAUD_SCORING_URL}/score/{transaction_id}",
+                    async with session.post(
+                        f"{FRAUD_SCORING_URL}/v1/score",
+                        json=payload,
+                        headers={"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")},
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as resp:
-                        if resp.status == 200:
-                            return await resp.text()
-                except Exception:
-                    pass
-            # Fallback
-            return json.dumps({"transaction_id": transaction_id, "fraud_score": 45, "risk_level": "medium", "signals": ["unusual_amount", "new_device"]})
+                        if resp.status != 200:
+                            raise UpstreamServiceUnavailable(
+                                f"fraud-scoring returned HTTP {resp.status}"
+                            )
+                        return await resp.text()
+                except UpstreamServiceUnavailable:
+                    raise
+                except Exception as e:
+                    raise UpstreamServiceUnavailable(f"fraud-scoring unreachable: {e}") from e
+            # No fallback: a fabricated fraud score must never be returned.
 
         elif tool_name == "query_knowledge_graph":
             cypher = args.get("cypher", "RETURN 1")
@@ -193,6 +227,12 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> str:
 
         elif tool_name == "get_merchant_profile":
             merchant_id = args.get("merchant_id", "")
+            if not _simulation_mode():
+                raise UpstreamServiceUnavailable(
+                    "get_merchant_profile has no live merchant data source wired; "
+                    "set PAYGATE_SIMULATION_MODE=true to use simulated data explicitly"
+                )
+            # Simulated data — served only under PAYGATE_SIMULATION_MODE=true
             return json.dumps({
                 "merchant_id": merchant_id,
                 "name": f"Merchant {merchant_id[:8]}",
@@ -201,6 +241,7 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> str:
                 "risk_score": 35,
                 "account_age_days": 180,
                 "monthly_volume_ngn": 5000000,
+                "simulated": True,
             })
 
         elif tool_name == "calculate_risk_score":
@@ -239,6 +280,8 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> str:
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
+    except UpstreamServiceUnavailable:
+        raise  # fail loud — mapped to HTTP 503 at the API layer
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -420,12 +463,23 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] ART Reasoning service stopping...")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+import sys, os as _os_telemetry
+sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
+from shared.telemetry import setup_telemetry
 app = FastAPI(
     title="PayGate ART Reasoning",
     description="Adaptive Reasoning and Thinking engine for fintech decisions",
     version="1.0.0",
     lifespan=lifespan,
 )
+setup_telemetry("art-reasoning", app)
+
+
+@app.exception_handler(UpstreamServiceUnavailable)
+async def _upstream_unavailable_handler(request, exc):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 @app.get("/health")
 async def health():
@@ -512,6 +566,34 @@ async def resolve_dispute(req: DisputeResolutionRequest):
     result["workflow"] = "dispute_resolution"
     result["dispute_id"] = req.dispute_id
     return result
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False, workers=4, log_level="warning")

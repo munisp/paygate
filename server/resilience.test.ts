@@ -1,266 +1,155 @@
 /**
  * resilience.test.ts
- * Wave 109 — Offline-first resilience layer tests
- * Tests: networkQuality, offlineQueueV2, resilientSSE, resilientWS, bandwidth probe
+ * Wave 109 — Offline-first resilience layer tests.
+ *
+ * REWRITE (de-theatered): the previous version asserted on inline
+ * re-implementations (a fabricated 5-tier classifier, invented priority maps,
+ * an invented USSD state machine) that tested nothing. This version imports
+ * and exercises the REAL modules:
+ *   - client/src/lib/networkQuality.ts  (adaptiveInterval, monitor)
+ *   - client/src/lib/resilientWS.ts     (reconnect backoff, transport fallback)
+ * Fabricated describes with no real counterpart (USSD state machine, Go
+ * bandwidth-probe mirror, service-worker route tables) were removed.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ── networkQuality ────────────────────────────────────────────────────────────
-describe("networkQuality", () => {
-  it("classifies connection tiers correctly", () => {
-    // Test the tier classification logic directly
-    const classify = (rttMs: number, downlinkMbps: number) => {
-      if (rttMs > 2000 || downlinkMbps < 0.05) return "offline";
-      if (rttMs > 600 || downlinkMbps < 0.1) return "2g";
-      if (rttMs > 200 || downlinkMbps < 1.5) return "3g";
-      if (rttMs > 80 || downlinkMbps < 10) return "4g";
-      return "5g";
-    };
+// ── Browser-global stubs (the real modules touch navigator/window at load) ──
+vi.stubGlobal("navigator", { onLine: true, connection: undefined });
+vi.stubGlobal("window", {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+});
 
-    expect(classify(3000, 0)).toBe("offline");
-    expect(classify(800, 0.05)).toBe("2g");
-    expect(classify(300, 0.5)).toBe("3g");
-    expect(classify(100, 5)).toBe("4g");
-    expect(classify(20, 50)).toBe("5g");
+// Dynamic import: the real module touches navigator/window at load time, so it
+// must be imported only after the browser-global stubs above are installed.
+const { adaptiveInterval, networkQuality } = await import("../client/src/lib/networkQuality");
+
+// ── networkQuality (real module) ────────────────────────────────────────────
+describe("networkQuality — real adaptiveInterval", () => {
+  it("scales the ideal interval by the REAL tier multipliers", () => {
+    expect(adaptiveInterval(10_000, "4g")).toBe(10_000);   // 1×
+    expect(adaptiveInterval(10_000, "3g")).toBe(20_000);   // 2×
+    expect(adaptiveInterval(10_000, "2g")).toBe(50_000);   // 5×
+    expect(adaptiveInterval(10_000, "offline")).toBe(false); // polling disabled
   });
 
-  it("computes adaptive poll intervals by tier", () => {
-    const adaptiveInterval = (baseMsFor4G: number, tier: string): number => {
-      const multipliers: Record<string, number> = {
-        "5g": 0.5,
-        "4g": 1,
-        "3g": 2,
-        "2g": 4,
-        "offline": 8,
-      };
-      return Math.round(baseMsFor4G * (multipliers[tier] ?? 1));
-    };
-
-    expect(adaptiveInterval(10_000, "5g")).toBe(5_000);
-    expect(adaptiveInterval(10_000, "4g")).toBe(10_000);
-    expect(adaptiveInterval(10_000, "3g")).toBe(20_000);
-    expect(adaptiveInterval(10_000, "2g")).toBe(40_000);
-    expect(adaptiveInterval(10_000, "offline")).toBe(80_000);
+  it("monitor singleton reflects navigator.onLine at load", () => {
+    const q = networkQuality.get();
+    expect(q.navigatorOnline).toBe(true);
+    expect(q.tier).toBe("3g"); // default tier until the first probe runs
   });
 
-  it("jittered backoff stays within expected range", () => {
-    const jitteredBackoff = (attempt: number, baseMs = 1000, maxMs = 60_000): number => {
-      const exp = Math.min(baseMs * Math.pow(2, attempt), maxMs);
-      return Math.round(exp * (0.7 + 0.6 * Math.random()));
-    };
-
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const delay = jitteredBackoff(attempt);
-      const exp = Math.min(1000 * Math.pow(2, attempt), 60_000);
-      expect(delay).toBeGreaterThanOrEqual(Math.round(exp * 0.7));
-      expect(delay).toBeLessThanOrEqual(Math.round(exp * 1.3));
-    }
+  it("notifies subscribers on manual update via probe subscription API", () => {
+    const seen: string[] = [];
+    const unsub = networkQuality.subscribe((q) => seen.push(q.tier));
+    expect(typeof unsub).toBe("function");
+    unsub();
   });
 });
 
-// ── offlineQueueV2 ────────────────────────────────────────────────────────────
-describe("offlineQueueV2", () => {
-  it("assigns correct priority levels", () => {
-    const PRIORITY = { CRITICAL: 0, HIGH: 1, NORMAL: 2, LOW: 3 } as const;
-    type Priority = typeof PRIORITY[keyof typeof PRIORITY];
-
-    const getPriority = (type: string): Priority => {
-      if (["payout.approve", "transfer.initiate", "escrow.release"].includes(type)) return PRIORITY.CRITICAL;
-      if (["transaction.create", "payment.confirm"].includes(type)) return PRIORITY.HIGH;
-      if (["customer.update", "webhook.retry"].includes(type)) return PRIORITY.NORMAL;
-      return PRIORITY.LOW;
-    };
-
-    expect(getPriority("payout.approve")).toBe(0);
-    expect(getPriority("transfer.initiate")).toBe(0);
-    expect(getPriority("transaction.create")).toBe(1);
-    expect(getPriority("customer.update")).toBe(2);
-    expect(getPriority("analytics.track")).toBe(3);
-  });
-
-  it("sorts queue by priority then timestamp", () => {
-    type QueueItem = { id: string; priority: number; ts: number };
-    const queue: QueueItem[] = [
-      { id: "c", priority: 2, ts: 100 },
-      { id: "a", priority: 0, ts: 200 },
-      { id: "b", priority: 0, ts: 100 },
-      { id: "d", priority: 1, ts: 150 },
-    ];
-
-    queue.sort((a, b) => a.priority - b.priority || a.ts - b.ts);
-
-    expect(queue.map(q => q.id)).toEqual(["b", "a", "d", "c"]);
-  });
-
-  it("respects max retry limit", () => {
-    const MAX_RETRIES = 5;
-    const shouldDrop = (retries: number) => retries >= MAX_RETRIES;
-
-    expect(shouldDrop(4)).toBe(false);
-    expect(shouldDrop(5)).toBe(true);
-    expect(shouldDrop(10)).toBe(true);
-  });
-
-  it("computes exponential retry delay with cap", () => {
-    const retryDelay = (attempt: number, baseMs = 2000, maxMs = 300_000): number => {
-      return Math.min(baseMs * Math.pow(2, attempt), maxMs);
-    };
-
-    expect(retryDelay(0)).toBe(2_000);
-    expect(retryDelay(1)).toBe(4_000);
-    expect(retryDelay(2)).toBe(8_000);
-    expect(retryDelay(7)).toBe(256_000);
-    expect(retryDelay(8)).toBe(300_000); // capped
-    expect(retryDelay(20)).toBe(300_000); // still capped
-  });
-
-  it("detects conflict by idempotency key", () => {
-    const queue = [
-      { id: "1", idempotencyKey: "pay-abc-001", type: "payment.confirm" },
-      { id: "2", idempotencyKey: "pay-abc-002", type: "payment.confirm" },
-    ];
-
-    const isDuplicate = (key: string) => queue.some(q => q.idempotencyKey === key);
-
-    expect(isDuplicate("pay-abc-001")).toBe(true);
-    expect(isDuplicate("pay-abc-999")).toBe(false);
-  });
-});
-
-// ── USSD fallback ─────────────────────────────────────────────────────────────
-describe("USSD fallback session state machine", () => {
-  type State = "idle" | "menu" | "balance" | "transfer_amount" | "transfer_confirm" | "freeze_confirm" | "done";
-
-  const transition = (state: State, input: string): State => {
-    if (state === "idle") return "menu";
-    if (state === "menu") {
-      if (input === "1") return "balance";
-      if (input === "2") return "transfer_amount";
-      if (input === "3") return "freeze_confirm";
-      return "menu";
+// ── resilientWS (real module) ────────────────────────────────────────────────
+describe("ResilientWS — real reconnect/backoff behavior", () => {
+  type Handler = ((ev?: any) => void) | null;
+  class FakeWebSocket {
+    static instances: FakeWebSocket[] = [];
+    static OPEN = 1;
+    readyState = 0;
+    onopen: Handler = null;
+    onerror: Handler = null;
+    onclose: Handler = null;
+    onmessage: Handler = null;
+    constructor(public url: string) {
+      FakeWebSocket.instances.push(this);
+      // Immediately fail (error then normal close) — drives reconnect/backoff.
+      queueMicrotask(() => {
+        this.onerror?.(new Event("error"));
+        this.onclose?.({ code: 1000 });
+      });
     }
-    if (state === "transfer_amount") return "transfer_confirm";
-    if (state === "transfer_confirm") {
-      if (input.toUpperCase() === "YES") return "done";
-      return "menu";
+    close() {}
+    send() {}
+  }
+  class FakeEventSource {
+    static instances: FakeEventSource[] = [];
+    onopen: Handler = null;
+    onerror: Handler = null;
+    onmessage: Handler = null;
+    constructor(public url: string) {
+      FakeEventSource.instances.push(this);
+      queueMicrotask(() => this.onerror?.(new Event("error")));
     }
-    if (state === "freeze_confirm") {
-      if (input.toUpperCase() === "YES") return "done";
-      return "menu";
+    close() {}
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances = [];
+    FakeEventSource.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.stubGlobal("navigator", { onLine: true, connection: undefined });
+    vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {} });
+  });
+
+  it("retries with exponentially growing backoff bands, then falls back to offline", async () => {
+    const { ResilientWS } = await import("../client/src/lib/resilientWS");
+    const modes: string[] = [];
+    const ws = new ResilientWS("wss://example.test/ws/stream", { onModeChange: (m) => modes.push(m) });
+    ws.connect();
+    await vi.advanceTimersByTimeAsync(0); // first ws fails (error + close)
+    expect(FakeWebSocket.instances.length).toBe(1);
+
+    // scheduleReconnect: delay = min(500 * 2^attempt, 60_000) + up to 30% jitter.
+    // Measure the actual inter-reconnect delays in 50ms steps (overshoot-free).
+    const delays: number[] = [];
+    let prevCount = FakeWebSocket.instances.length;
+    let elapsed = 0;
+    while (delays.length < 3 && elapsed < 120_000) {
+      await vi.advanceTimersByTimeAsync(50);
+      elapsed += 50;
+      if (FakeWebSocket.instances.length > prevCount) {
+        delays.push(elapsed);
+        elapsed = 0;
+        prevCount = FakeWebSocket.instances.length;
+      }
     }
-    return state;
-  };
-
-  it("navigates from idle to menu", () => {
-    expect(transition("idle", "*347#")).toBe("menu");
+    expect(delays).toHaveLength(3);
+    delays.forEach((d, attempt) => {
+      const exp = 500 * Math.pow(2, attempt);
+      expect(d).toBeGreaterThanOrEqual(exp - 50);          // never reconnects early
+      expect(d).toBeLessThanOrEqual(Math.round(exp * 1.3) + 50); // within jitter band
+    });
+    // After 3 failed attempts the transport escalates WS → SSE (real fallback
+    // chain) and then stops — no endless reconnection loop.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeEventSource.instances.length).toBeGreaterThanOrEqual(1); // SSE fallback tried
+    const settled = FakeWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(FakeWebSocket.instances.length).toBe(settled);
+    expect(modes.filter((m) => m === "websocket")).toHaveLength(0); // never connected
+    ws.close();
   });
 
-  it("navigates to balance from menu option 1", () => {
-    expect(transition("menu", "1")).toBe("balance");
-  });
-
-  it("navigates to transfer flow from menu option 2", () => {
-    expect(transition("menu", "2")).toBe("transfer_amount");
-    expect(transition("transfer_amount", "5000")).toBe("transfer_confirm");
-    expect(transition("transfer_confirm", "YES")).toBe("done");
-  });
-
-  it("cancels transfer on NO confirmation", () => {
-    expect(transition("transfer_confirm", "NO")).toBe("menu");
-  });
-
-  it("handles invalid menu input gracefully", () => {
-    expect(transition("menu", "9")).toBe("menu");
-  });
-});
-
-// ── Go bandwidth probe ────────────────────────────────────────────────────────
-describe("bandwidth probe tier classification", () => {
-  // Mirror the Go logic in TypeScript for unit testing
-  const classifyTier = (rttMs: number, throughputKbps: number): string => {
-    if (rttMs > 2000 || throughputKbps < 10) return "offline";
-    if (rttMs > 600 || throughputKbps < 100) return "2g";
-    if (rttMs > 200 || throughputKbps < 1500) return "3g";
-    if (rttMs > 80 || throughputKbps < 10000) return "4g";
-    return "5g";
-  };
-
-  const recommendCompression = (tier: string): string => {
-    const map: Record<string, string> = {
-      "offline": "none",
-      "2g": "br",
-      "3g": "br",
-      "4g": "gzip",
-      "5g": "none",
-    };
-    return map[tier] ?? "gzip";
-  };
-
-  const recommendPayloadSize = (tier: string): string => {
-    const map: Record<string, string> = {
-      "offline": "minimal",
-      "2g": "minimal",
-      "3g": "compact",
-      "4g": "standard",
-      "5g": "full",
-    };
-    return map[tier] ?? "standard";
-  };
-
-  it("classifies 2G correctly (high RTT, low throughput)", () => {
-    expect(classifyTier(700, 50)).toBe("2g");
-  });
-
-  it("classifies 3G correctly", () => {
-    expect(classifyTier(250, 800)).toBe("3g");
-  });
-
-  it("classifies 4G correctly", () => {
-    expect(classifyTier(90, 5000)).toBe("4g");
-  });
-
-  it("recommends brotli compression for 2G/3G", () => {
-    expect(recommendCompression("2g")).toBe("br");
-    expect(recommendCompression("3g")).toBe("br");
-  });
-
-  it("recommends minimal payload for 2G", () => {
-    expect(recommendPayloadSize("2g")).toBe("minimal");
-    expect(recommendPayloadSize("4g")).toBe("standard");
-    expect(recommendPayloadSize("5g")).toBe("full");
-  });
-});
-
-// ── Service Worker cache strategy ────────────────────────────────────────────
-describe("Service Worker cache strategy", () => {
-  it("identifies cacheable API routes", () => {
-    const CACHEABLE_API_PATTERNS = [
-      /^\/api\/trpc\/transactions\.list/,
-      /^\/api\/trpc\/dashboard\.summary/,
-      /^\/api\/trpc\/customers\.list/,
-    ];
-
-    const isCacheable = (url: string) => CACHEABLE_API_PATTERNS.some(p => p.test(url));
-
-    expect(isCacheable("/api/trpc/transactions.list?input={}")).toBe(true);
-    expect(isCacheable("/api/trpc/dashboard.summary")).toBe(true);
-    expect(isCacheable("/api/trpc/payouts.approve")).toBe(false); // mutations not cached
-    expect(isCacheable("/api/stripe/webhook")).toBe(false);
-  });
-
-  it("identifies critical offline-queue routes", () => {
-    const QUEUE_ROUTES = [
-      "/api/trpc/payouts.approve",
-      "/api/trpc/transactions.create",
-      "/api/trpc/transfers.initiate",
-    ];
-
-    const shouldQueue = (url: string, method: string) => {
-      return method === "POST" && QUEUE_ROUTES.some(r => url.startsWith(r));
-    };
-
-    expect(shouldQueue("/api/trpc/payouts.approve", "POST")).toBe(true);
-    expect(shouldQueue("/api/trpc/transactions.create", "POST")).toBe(true);
-    expect(shouldQueue("/api/trpc/dashboard.summary", "GET")).toBe(false);
+  it("stops reconnecting after maxReconnectAttempts and ends offline", async () => {
+    const { ResilientWS } = await import("../client/src/lib/resilientWS");
+    const modes: string[] = [];
+    const ws = new ResilientWS("wss://example.test/ws/stream", {
+      maxReconnectAttempts: 2,
+      onModeChange: (m) => modes.push(m),
+    });
+    ws.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+    // No endless reconnection loop: attempts are bounded by maxReconnectAttempts
+    // (the SSE fallback is also tried and fails).
+    expect(FakeEventSource.instances.length).toBeGreaterThanOrEqual(1);
+    const n = FakeWebSocket.instances.length;
+    expect(n).toBeLessThanOrEqual(4); // initial + bounded retries
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(FakeWebSocket.instances.length).toBe(n);
+    ws.close();
   });
 });

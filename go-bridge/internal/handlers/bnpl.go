@@ -47,8 +47,12 @@ func CreateBNPLLoan(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rdb := redis.Get()
 
-	// Idempotency
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "bnpl.create", req.LoanID)
+	// Idempotency — H26: money path fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "bnpl.create", req.LoanID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to process loan creation (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.CreateBNPLLoanResponse{
 			LoanID:        req.LoanID,
@@ -209,7 +213,12 @@ func ProcessBNPLInstalment(w http.ResponseWriter, r *http.Request) {
 
 	// Idempotency per instalment
 	instalmentRef := fmt.Sprintf("%s-inst-%d", loanID, req.InstalmentNumber)
-	isDuplicate, _ := rdb.CheckAndSetIdempotency(ctx, "bnpl.instalment", instalmentRef)
+	// H26: money path fails closed (503) when Redis is down.
+	isDuplicate, err := rdb.CheckAndSetIdempotency(ctx, "bnpl.instalment", instalmentRef)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "idempotency store unavailable — refusing to process instalment (fail closed)")
+		return
+	}
 	if isDuplicate {
 		writeJSON(w, http.StatusOK, types.ProcessBNPLInstalmentResponse{
 			Success:       true,

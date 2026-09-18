@@ -38,14 +38,14 @@ async function resolveTenantByHost(host: string): Promise<any | null> {
     if (slug && slug !== "www" && slug !== "api") {
       const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
          FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
-      rows = result.rows ?? [];
+      rows = result;
     }
 
     // Fall back to custom domain lookup
     if (rows.length === 0) {
       const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
          FROM partner_tenants WHERE custom_domain = $1 AND status = 'active'`, [hostname]);
-      rows = result.rows ?? [];
+      rows = result;
     }
 
     const tenant = rows[0] ?? null;
@@ -119,7 +119,7 @@ export async function tenantBrandingHandler(req: Request, res: Response) {
     if (!db) throw new Error("Database unavailable");
     const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family
        FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
-    const rows = result.rows ?? [];
+    const rows = result;
 
     if (!rows[0]) {
       return res.status(404).json({ error: "Tenant not found" });
@@ -148,7 +148,7 @@ export async function tenantBrandingJsonHandler(req: Request, res: Response) {
     if (!db) throw new Error("Database unavailable");
     const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain
        FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
-    const rows = result.rows ?? [];
+    const rows = result;
 
     if (!rows[0]) {
       return res.status(404).json({ error: "Tenant not found" });
