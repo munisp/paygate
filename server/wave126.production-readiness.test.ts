@@ -113,9 +113,12 @@ describe("digitalGold.getPortfolioHistory", () => {
     expect(content).toContain("totalGoldGrams");
   });
 
-  it("returns placeholder months when no DB data exists", () => {
+  it("returns honest empty history (source 'live') when no DB data exists", () => {
+    // W8a: fabricated zero-filled placeholder months were removed — an empty
+    // DB result must return an empty series, not invented data.
     const content = fs.readFileSync(routerPath, "utf-8");
-    expect(content).toContain("source: 'placeholder'");
+    expect(content).not.toContain("source: 'placeholder'");
+    expect(content).toContain("source: 'live'");
   });
 
   it("falls back to bridge when DB is unavailable", () => {
