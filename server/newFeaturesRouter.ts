@@ -140,14 +140,10 @@ export const digitalGoldRouter = router({
           ))
           .groupBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`)
           .orderBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`);
-        // If no DB data, generate placeholder months
+        // If no DB data, return an honest empty series — never fabricate
+        // zero-filled months for a merchant with no real transactions.
         if (rows.length === 0) {
-          const placeholder = [];
-          for (let i = input.months - 1; i >= 0; i--) {
-            const d = new Date(); d.setMonth(d.getMonth() - i);
-            placeholder.push({ month: d.toLocaleDateString('en-NG', { month: 'short', year: 'numeric' }), totalInvestedKobo: 0, totalGoldGrams: 0 });
-          }
-          return { history: placeholder, source: 'placeholder' as const };
+          return { history: [], source: 'live' as const };
         }
         return { history: rows.map(r => ({ month: r.month, totalInvestedKobo: Number(r.totalInvestedKobo), totalGoldGrams: Number(r.totalGoldGrams) })), source: 'db' as const };
       } catch {
