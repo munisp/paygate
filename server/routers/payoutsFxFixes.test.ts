@@ -283,6 +283,13 @@ const conn: any = {
   },
 };
 
+// G7 KYC gate: payouts.create/createBulk now require an approved KYC row.
+// The KYC gate is NOT the contract under test in this file — stub it allowed.
+vi.mock("./kyc", async (importOriginal) => {
+  const orig = await importOriginal<any>();
+  return { ...orig, assertApprovedKyc: vi.fn(async () => {}) };
+});
+
 vi.mock("../db", async (importOriginal) => {
   const orig = await importOriginal<any>();
   return {
