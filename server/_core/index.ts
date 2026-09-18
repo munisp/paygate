@@ -11,6 +11,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { securityAuditJobHandler } from "../jobs/securityAuditJob";
 import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
+import { scumlExpiryJobHandler } from "../jobs/scumlExpiryJob";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -159,6 +160,56 @@ async function startServer() {
   app.use(corsMiddleware);
   app.use(metricsMiddleware);
 
+  // ── Wave-security orphan wiring (W8a) ─────────────────────────────────────
+  // Previously-exported middleware with zero call sites, now mounted. Each is
+  // dynamically imported and applied under its own guard: a throw at
+  // import/apply time is logged LOUDLY and boot continues (enforcement is not
+  // weakened — a module that fails to load just keeps its prior unmounted
+  // behaviour, with an explicit boot error).
+  const mountGuarded = async (label: string, mount: () => void | Promise<void>): Promise<void> => {
+    try {
+      await mount();
+      console.info(`[boot] orphan middleware mounted: ${label}`);
+    } catch (err) {
+      console.error(`[boot] FAILED to mount orphan middleware '${label}':`, err instanceof Error ? err.message : err);
+    }
+  };
+
+  await mountGuarded("cspNonce (security27)", async () => {
+    const m = await import("../security27");
+    app.use(m.cspNonceMiddleware);
+  });
+  await mountGuarded("wave32Security (security32)", async () => {
+    const m = await import("../security32");
+    app.use(m.wave32SecurityMiddleware);
+  });
+  await mountGuarded("openAppSecHeader (security120)", async () => {
+    const m = await import("../security120");
+    app.use(m.openAppSecHeaderMiddleware);
+  });
+  await mountGuarded("ddosMitigation (security124)", async () => {
+    const m = await import("../security124");
+    app.use(m.ddosMitigationMiddleware());
+  });
+  await mountGuarded("burstWindow (security120)", async () => {
+    const m = await import("../security120");
+    app.use(m.burstWindowMiddleware());
+  });
+  // security116.cspMiddleware is intentionally NOT mounted: securityHeaders
+  // (mounted above) already owns the Content-Security-Policy header, and
+  // cspMiddleware would overwrite it with a divergent static policy on every
+  // response. cspNonceMiddleware (above) sets no headers — nonce only — so
+  // there is no conflict with it.
+  console.warn("[boot] security116.cspMiddleware SKIPPED: CSP already owned by securityHeaders middleware; cspNonceMiddleware handles per-request nonces");
+  await mountGuarded("ransomwareDetection (security124)", async () => {
+    const m = await import("../security124");
+    app.use("/api/trpc", m.ransomwareDetectionMiddleware);
+  });
+  await mountGuarded("subdomainTenantBranding (subdomainMiddleware)", async () => {
+    const m = await import("../subdomainMiddleware");
+    app.use(m.subdomainMiddleware);
+  });
+
   // ── Rate limiting (fail-closed: Redis sliding window when REDIS_URL is set,
   //    in-process store with a loud WARN otherwise) ───────────────────────────
   // Inbound webhooks: signature verification already bounds abuse, but cap
@@ -192,11 +243,82 @@ async function startServer() {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
+  // Payload scanner inspects parsed bodies — must run after the body parsers.
+  await mountGuarded("payloadScan (security116)", async () => {
+    const m = await import("../security116");
+    app.use(m.payloadScanMiddleware);
+  });
+
   // WAF inspects parsed bodies — must run after the body parsers.
   app.use(wafMiddleware);
 
+  // Strict WAF (content-type + smuggling checks) composes with wafMiddleware —
+  // it delegates to it internally — and is scoped to the financial mutation
+  // surface only, so JSON parsing of webhooks etc. is unaffected.
+  await mountGuarded("strictWaf (wafMiddleware, /api/trpc)", async () => {
+    const m = await import("../wafMiddleware");
+    app.use("/api/trpc", m.strictWafMiddleware);
+  });
+
   // ── Prometheus scrape endpoint (k8s pod annotations target /api/metrics) ──
   app.get("/api/metrics", (req, res) => { void metricsHandler(req, res); });
+
+  // ── Tenant-aggregated Prometheus metrics (subdomainMiddleware.ts) ─────────
+  // Tenant usage / chargeback / SLA gauges. Exposes tenant-level aggregates, so
+  // it is served only when PROMETHEUS_ENABLED=true (scrape job in the cluster)
+  // or to loopback/private-network clients; everyone else gets a loud 404.
+  const isInternalMetricsClient = (req: express.Request): boolean => {
+    const ip = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    return (
+      ip === "127.0.0.1" || ip === "::1" ||
+      ip.startsWith("10.") || ip.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+    );
+  };
+  await mountGuarded("prometheusMetrics /metrics (subdomainMiddleware)", async () => {
+    const m = await import("../subdomainMiddleware");
+    app.get(
+      "/metrics",
+      (req, res, next) => {
+        if (process.env.PROMETHEUS_ENABLED === "true" || isInternalMetricsClient(req)) return next();
+        console.warn(`[metrics] /metrics request from non-internal client ${req.socket.remoteAddress ?? "unknown"} rejected (set PROMETHEUS_ENABLED=true to expose)`);
+        res.status(404).json({ error: "Not Found" });
+      },
+      (req, res) => { void m.prometheusMetricsHandler(req, res); },
+    );
+  });
+
+  // ── Tenant branding (white-label) — public CSS/JSON per slug ───────────────
+  await mountGuarded("tenantBranding routes (subdomainMiddleware)", async () => {
+    const m = await import("../subdomainMiddleware");
+    app.get("/api/tenant-branding/:slug/json", (req, res) => { void m.tenantBrandingJsonHandler(req, res); });
+    app.get("/api/tenant-branding/:slug", (req, res) => { void m.tenantBrandingHandler(req, res); });
+  });
+
+  // ── Saga progress SSE stream (sagaStream.ts — previously unmounted) ────────
+  await mountGuarded("sagaStream /api/saga/stream (SSE)", async () => {
+    const m = await import("../sagaStream");
+    app.get(
+      "/api/saga/stream/:sagaId",
+      (req, _res, next) => {
+        // cookie-parser is not a global dependency; the handler needs
+        // req.cookies for its session check, so parse the header minimally.
+        if (!req.cookies) {
+          const out: Record<string, string> = {};
+          const header = req.headers.cookie;
+          if (header) {
+            for (const pair of header.split(";")) {
+              const idx = pair.indexOf("=");
+              if (idx > 0) out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+            }
+          }
+          (req as any).cookies = out;
+        }
+        next();
+      },
+      (req, res) => { void m.sagaStreamHandler(req, res); },
+    );
+  });
 
   // ── Lightweight liveness probe: ALWAYS 200 while the Node process is up.
   // k8s livenessProbe targets this — /api/health (dependency-aware, 503s when
@@ -325,6 +447,7 @@ async function startServer() {
   // ── Heartbeat: nightly security audit (02:00 UTC) + compliance scorecard (01:00 UTC) ──
   app.post("/api/scheduled/security-audit", securityAuditJobHandler);
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
+  app.post("/api/scheduled/scuml-expiry-check", (req, res) => { void scumlExpiryJobHandler(req, res); });
 
   // ── Public REST v1 API (Paystack-parity) — secret-key auth, mounted next to
   //    /api/trpc. JSON body (1 MB cap) is already parsed above; the Stripe raw
