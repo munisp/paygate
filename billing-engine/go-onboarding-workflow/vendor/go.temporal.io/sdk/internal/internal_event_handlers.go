@@ -5,6 +5,7 @@ package internal
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"time"
@@ -28,7 +29,6 @@ import (
 )
 
 const (
-	queryResultSizeLimit             = 2000000 // 2MB
 	changeVersionSearchAttrSizeLimit = 2048
 )
 
@@ -72,6 +72,7 @@ type (
 		endpoint          string
 		service           string
 		operation         string
+		failureConverter  converter.FailureConverter
 	}
 
 	scheduledChildWorkflow struct {
@@ -141,6 +142,9 @@ type (
 
 		sideEffectCounterID int64
 
+		// randoms holds deterministic PRNGs keyed by name and scoped to a run.
+		randoms map[string]*workflowRandomStream
+
 		currentReplayTime time.Time // Indicates current replay time of the command.
 		currentLocalTime  time.Time // Local time when currentReplayTime was updated.
 
@@ -158,8 +162,11 @@ type (
 		registry                 *registry
 		dataConverter            converter.DataConverter
 		failureConverter         converter.FailureConverter
+		rootDataConverter        converter.DataConverter
+		rootFailureConverter     converter.FailureConverter
 		contextPropagators       []ContextPropagator
 		deadlockDetectionTimeout time.Duration
+		preferredVersionProvider PreferredVersionProvider
 		sdkFlags                 *sdkFlags
 		sdkVersionUpdated        bool
 		sdkVersion               string
@@ -175,6 +182,8 @@ type (
 
 	localActivityTask struct {
 		sync.Mutex
+		// Owned by localActivityTunnel while the task is queued.
+		nextQueuedTask  *localActivityTask
 		workflowTask    *workflowTask
 		activityID      string
 		params          *ExecuteLocalActivityParams
@@ -223,15 +232,20 @@ func newWorkflowExecutionEventHandler(
 	contextPropagators []ContextPropagator,
 	deadlockDetectionTimeout time.Duration,
 	capabilities *workflowservice.GetSystemInfoResponse_Capabilities,
+	preferredVersionProvider PreferredVersionProvider,
 ) workflowExecutionEventHandler {
 	wfCtx := converter.WorkflowSerializationContext{
 		Namespace:  workflowInfo.Namespace,
 		WorkflowID: workflowInfo.WorkflowExecution.ID,
 	}
+	rootDataConverter := dataConverter
+	rootFailureConverter := failureConverter
 	dataConverter = converter.WithDataConverterSerializationContext(dataConverter, wfCtx)
 	failureConverter = converter.WithFailureConverterSerializationContext(failureConverter, wfCtx)
 
 	context := &workflowEnvironmentImpl{
+		rootDataConverter:            rootDataConverter,
+		rootFailureConverter:         rootFailureConverter,
 		workflowInfo:                 workflowInfo,
 		commandsHelper:               newCommandsHelper(),
 		sideEffectResult:             make(map[int64]*commonpb.Payloads),
@@ -247,8 +261,10 @@ func newWorkflowExecutionEventHandler(
 		failureConverter:             failureConverter,
 		contextPropagators:           contextPropagators,
 		deadlockDetectionTimeout:     deadlockDetectionTimeout,
+		preferredVersionProvider:     preferredVersionProvider,
 		protocols:                    protocol.NewRegistry(),
 		mutableSideEffectCallCounter: make(map[string]int),
+		randoms:                      make(map[string]*workflowRandomStream),
 		sdkFlags:                     newSDKFlagSet(capabilities),
 		bufferedUpdateRequests:       make(map[string][]func()),
 	}
@@ -419,7 +435,7 @@ func (wc *workflowEnvironmentImpl) SignalExternalWorkflow(
 	runID string,
 	signalName string,
 	input *commonpb.Payloads,
-	_ /* THIS IS FOR TEST FRAMEWORK. DO NOT USE HERE. */ interface{},
+	_ /* THIS IS FOR TEST FRAMEWORK. DO NOT USE HERE. */ any,
 	header *commonpb.Header,
 	childWorkflowOnly bool,
 	callback ResultHandler,
@@ -430,7 +446,7 @@ func (wc *workflowEnvironmentImpl) SignalExternalWorkflow(
 	command.setData(&scheduledSignal{callback: callback})
 }
 
-func (wc *workflowEnvironmentImpl) UpsertSearchAttributes(attributes map[string]interface{}) error {
+func (wc *workflowEnvironmentImpl) UpsertSearchAttributes(attributes map[string]any) error {
 	// This has to be used in WorkflowEnvironment implementations instead of in Workflow for testsuite mock purpose.
 	attr, err := validateAndSerializeSearchAttributes(attributes)
 	if err != nil {
@@ -460,7 +476,7 @@ func (wc *workflowEnvironmentImpl) UpsertTypedSearchAttributes(attributes Search
 		return errors.New("TemporalChangeVersion is a reserved key that cannot be set, please use other key")
 	}
 
-	attr := make(map[string]interface{})
+	attr := make(map[string]any)
 	for k, v := range rawSearchAttributes.GetIndexedFields() {
 		attr[k] = v
 	}
@@ -482,13 +498,11 @@ func mergeSearchAttributes(current, upsert *commonpb.SearchAttributes) *commonpb
 	}
 
 	fields := current.IndexedFields
-	for k, v := range upsert.IndexedFields {
-		fields[k] = v
-	}
+	maps.Copy(fields, upsert.IndexedFields)
 	return current
 }
 
-func validateAndSerializeSearchAttributes(attributes map[string]interface{}) (*commonpb.SearchAttributes, error) {
+func validateAndSerializeSearchAttributes(attributes map[string]any) (*commonpb.SearchAttributes, error) {
 	if len(attributes) == 0 {
 		return nil, errSearchAttributesNotSet
 	}
@@ -499,7 +513,7 @@ func validateAndSerializeSearchAttributes(attributes map[string]interface{}) (*c
 	return attr, nil
 }
 
-func (wc *workflowEnvironmentImpl) UpsertMemo(memoMap map[string]interface{}) error {
+func (wc *workflowEnvironmentImpl) UpsertMemo(memoMap map[string]any) error {
 	// This has to be used in WorkflowEnvironment implementations instead of in Workflow for testsuite mock purpose.
 	memo, err := validateAndSerializeMemo(memoMap, wc.dataConverter, wc.TryUse(SDKFlagMemoUserDCEncode))
 	if err != nil {
@@ -537,11 +551,11 @@ func mergeMemo(current, upsert *commonpb.Memo) *commonpb.Memo {
 	return current
 }
 
-func validateAndSerializeMemo(memoMap map[string]interface{}, dc converter.DataConverter, useUserDC bool) (*commonpb.Memo, error) {
+func validateAndSerializeMemo(memoMap map[string]any, dc converter.DataConverter, useUserDC bool) (*commonpb.Memo, error) {
 	if len(memoMap) == 0 {
 		return nil, errMemoNotSet
 	}
-	return getWorkflowMemo(memoMap, dc, useUserDC)
+	return GetWorkflowMemo(memoMap, dc, useUserDC)
 }
 
 func (wc *workflowEnvironmentImpl) RegisterCancelHandler(handler func()) {
@@ -560,7 +574,7 @@ func (wc *workflowEnvironmentImpl) ExecuteChildWorkflow(
 	if params.WorkflowID == "" {
 		params.WorkflowID = wc.workflowInfo.currentRunID + "_" + wc.GenerateSequenceID()
 	}
-	memo, err := getWorkflowMemo(params.Memo, wc.dataConverter, wc.TryUse(SDKFlagMemoUserDCEncode))
+	memo, err := GetWorkflowMemo(params.Memo, wc.dataConverter, wc.TryUse(SDKFlagMemoUserDCEncode))
 	if err != nil {
 		if wc.sdkFlags.tryUse(SDKFlagChildWorkflowErrorExecution, !wc.isReplay) {
 			startedHandler(WorkflowExecution{}, &ChildWorkflowExecutionAlreadyStartedError{})
@@ -568,7 +582,7 @@ func (wc *workflowEnvironmentImpl) ExecuteChildWorkflow(
 		callback(nil, err)
 		return
 	}
-	searchAttr, err := serializeSearchAttributes(params.SearchAttributes, params.TypedSearchAttributes)
+	searchAttr, err := SerializeSearchAttributes(params.SearchAttributes, params.TypedSearchAttributes)
 	if err != nil {
 		if wc.sdkFlags.tryUse(SDKFlagChildWorkflowErrorExecution, !wc.isReplay) {
 			startedHandler(WorkflowExecution{}, &ChildWorkflowExecutionAlreadyStartedError{})
@@ -601,7 +615,7 @@ func (wc *workflowEnvironmentImpl) ExecuteChildWorkflow(
 	attributes.InheritBuildId = determineInheritBuildIdFlagForCommand(
 		params.VersioningIntent, wc.workflowInfo.TaskQueueName, params.TaskQueueName)
 
-	startMetadata, err := buildUserMetadata(params.StaticSummary, params.StaticDetails, wc.dataConverter)
+	startMetadata, err := BuildUserMetadata(params.StaticSummary, params.StaticDetails, wc.dataConverter)
 	if err != nil {
 		callback(nil, err)
 		return
@@ -649,13 +663,17 @@ func (wc *workflowEnvironmentImpl) ExecuteNexusOperation(params ExecuteNexusOper
 		NexusHeader:            params.nexusHeader,
 	}
 
-	startMetadata, err := buildUserMetadata(params.options.Summary, "", wc.dataConverter)
+	startMetadata, err := BuildUserMetadata(params.options.Summary, "", wc.dataConverter)
 	if err != nil {
 		callback(nil, err)
 		return 0
 	}
 
 	command := wc.commandsHelper.scheduleNexusOperation(seq, scheduleTaskAttr, startMetadata)
+	failureConverter := params.failureConverter
+	if failureConverter == nil {
+		failureConverter = wc.failureConverter
+	}
 	command.setData(&scheduledNexusOperation{
 		startedCallback:   startedHandler,
 		completedCallback: callback,
@@ -663,6 +681,7 @@ func (wc *workflowEnvironmentImpl) ExecuteNexusOperation(params ExecuteNexusOper
 		endpoint:          params.client.Endpoint(),
 		service:           params.client.Service(),
 		operation:         params.operation,
+		failureConverter:  failureConverter,
 	})
 
 	wc.logger.Debug("ScheduleNexusOperation",
@@ -690,6 +709,20 @@ func (wc *workflowEnvironmentImpl) RequestCancelNexusOperation(seq int64) {
 		}
 	}
 	wc.logger.Debug("RequestCancelNexusOperation",
+		tagNexusEndpoint, data.endpoint,
+		tagNexusService, data.service,
+		tagNexusOperation, data.operation,
+	)
+}
+
+func (wc *workflowEnvironmentImpl) AbandonNexusOperation(seq int64) {
+	command := wc.commandsHelper.getNexusOperationCommand(seq)
+	data := command.getData().(*scheduledNexusOperation)
+
+	data.startedCallback = nil
+	data.completedCallback = nil
+
+	wc.logger.Debug("AbandonNexusOperation",
 		tagNexusEndpoint, data.endpoint,
 		tagNexusService, data.service,
 		tagNexusOperation, data.operation,
@@ -730,6 +763,14 @@ func (wc *workflowEnvironmentImpl) GetFailureConverter() converter.FailureConver
 	return wc.failureConverter
 }
 
+func (wc *workflowEnvironmentImpl) GetRootDataConverter() converter.DataConverter {
+	return wc.rootDataConverter
+}
+
+func (wc *workflowEnvironmentImpl) GetRootFailureConverter() converter.FailureConverter {
+	return wc.rootFailureConverter
+}
+
 func (wc *workflowEnvironmentImpl) GetContextPropagators() []ContextPropagator {
 	return wc.contextPropagators
 }
@@ -744,6 +785,10 @@ func (wc *workflowEnvironmentImpl) GenerateSequenceID() string {
 
 func (wc *workflowEnvironmentImpl) GenerateSequence() int64 {
 	return wc.commandsHelper.getNextID()
+}
+
+func (wc *workflowEnvironmentImpl) GetRandomStream(name string) WorkflowRandomStream {
+	return getRandomStream(wc.randoms, wc.workflowInfo.currentRunID, name)
 }
 
 func (wc *workflowEnvironmentImpl) CreateNewCommand(commandType enumspb.CommandType) *commandpb.Command {
@@ -781,7 +826,7 @@ func (wc *workflowEnvironmentImpl) ExecuteActivity(parameters ExecuteActivityPar
 		parameters.VersioningIntent, wc.workflowInfo.TaskQueueName, parameters.TaskQueueName)
 	scheduleTaskAttr.Priority = parameters.Priority
 
-	startMetadata, err := buildUserMetadata(parameters.Summary, "", wc.dataConverter)
+	startMetadata, err := BuildUserMetadata(parameters.Summary, "", wc.dataConverter)
 	if err != nil {
 		callback(nil, err)
 		return ActivityID{}
@@ -931,7 +976,12 @@ func (wc *workflowEnvironmentImpl) GetVersion(changeID string, minSupported, max
 	} else {
 		// GetVersion for changeID is called first time (non-replay mode), generate a marker command for it.
 		// Also upsert search attributes to enable ability to search by changeVersion.
-		version = maxSupported
+		version = resolvePreferredVersion(wc.preferredVersionProvider, PreferredVersionProviderInput{
+			WorkflowInfo: wc.workflowInfo,
+			ChangeID:     changeID,
+			MinSupported: minSupported,
+			MaxSupported: maxSupported,
+		})
 		changeVersionSA := createSearchAttributesForChangeVersion(changeID, version, wc.changeVersions)
 		attr, err := validateAndSerializeSearchAttributes(changeVersionSA)
 		if err != nil {
@@ -959,8 +1009,40 @@ func (wc *workflowEnvironmentImpl) GetVersion(changeID string, minSupported, max
 	return version
 }
 
-func createSearchAttributesForChangeVersion(changeID string, version Version, existingChangeVersions map[string]Version) map[string]interface{} {
-	return map[string]interface{}{
+func resolvePreferredVersion(
+	preferredVersionProvider PreferredVersionProvider,
+	input PreferredVersionProviderInput,
+) Version {
+	if preferredVersionProvider == nil {
+		return input.MaxSupported
+	}
+
+	preference := preferredVersionProvider(input)
+	if preference == nil {
+		return input.MaxSupported
+	}
+	if preference.Version >= input.MinSupported && preference.Version <= input.MaxSupported {
+		return preference.Version
+	}
+	if preference.ClampToSupportedRange {
+		if preference.Version < input.MinSupported {
+			return input.MinSupported
+		}
+		return input.MaxSupported
+	}
+
+	panicIllegalState(fmt.Sprintf(
+		"[TMPRL1100] Preferred version %v for %q change ID is not supported. Supported versions are between %v and %v.",
+		preference.Version,
+		input.ChangeID,
+		input.MinSupported,
+		input.MaxSupported,
+	))
+	return input.MaxSupported
+}
+
+func createSearchAttributesForChangeVersion(changeID string, version Version, existingChangeVersions map[string]Version) map[string]any {
+	return map[string]any{
 		TemporalChangeVersion: getChangeVersions(changeID, version, existingChangeVersions),
 	}
 }
@@ -1006,7 +1088,7 @@ func (wc *workflowEnvironmentImpl) SideEffect(f func() (*commonpb.Payloads, erro
 		}
 	}
 
-	userMetadata, err := buildUserMetadata(summary, "", wc.dataConverter)
+	userMetadata, err := BuildUserMetadata(summary, "", wc.dataConverter)
 	if err != nil {
 		panic(fmt.Sprintf("failed to build user metadata for side effect: %v", err))
 	}
@@ -1078,7 +1160,7 @@ func (wc *workflowEnvironmentImpl) lookupMutableSideEffect(id string) *commonpb.
 	return payloads
 }
 
-func (wc *workflowEnvironmentImpl) MutableSideEffect(id string, f func() interface{}, equals func(a, b interface{}) bool, summary string) converter.EncodedValue {
+func (wc *workflowEnvironmentImpl) MutableSideEffect(id string, f func() any, equals func(a, b any) bool, summary string) converter.EncodedValue {
 	wc.mutableSideEffectCallCounter[id]++
 	callCount := wc.mutableSideEffectCallCounter[id]
 
@@ -1110,18 +1192,29 @@ func (wc *workflowEnvironmentImpl) MutableSideEffect(id string, f func() interfa
 	return wc.recordMutableSideEffect(id, callCount, wc.encodeValue(f()), summary)
 }
 
-func (wc *workflowEnvironmentImpl) isEqualValue(newValue interface{}, encodedOldValue *commonpb.Payloads, equals func(a, b interface{}) bool) bool {
+func (wc *workflowEnvironmentImpl) isEqualValue(newValue any, encodedOldValue *commonpb.Payloads, equals func(a, b any) bool) bool {
+	return isEqualMutableSideEffectValue(wc.GetDataConverter(), newValue, encodedOldValue, equals)
+}
+
+// isEqualMutableSideEffectValue reports whether newValue is equal to the
+// previously recorded (encoded) value for a MutableSideEffect, using the
+// user-supplied equals function. It is shared by the real worker and the test
+// environment so both honor equals identically. A nil newValue is compared by
+// its encoded form to avoid invoking equals with a nil.
+func isEqualMutableSideEffectValue(dc converter.DataConverter, newValue any, encodedOldValue *commonpb.Payloads, equals func(a, b any) bool) bool {
 	if newValue == nil {
-		// new value is nil
-		newEncodedValue := wc.encodeValue(nil)
+		newEncodedValue, err := dc.ToPayloads(nil)
+		if err != nil {
+			panic(err)
+		}
 		return proto.Equal(newEncodedValue, encodedOldValue)
 	}
 
-	oldValue := decodeValue(newEncodedValue(encodedOldValue, wc.GetDataConverter()), newValue)
+	oldValue := decodeValue(newEncodedValue(encodedOldValue, dc), newValue)
 	return equals(newValue, oldValue)
 }
 
-func decodeValue(encodedValue converter.EncodedValue, value interface{}) interface{} {
+func decodeValue(encodedValue converter.EncodedValue, value any) any {
 	// We need to decode oldValue out of encodedValue, first we need to prepare valuePtr as the same type as value
 	valuePtr := reflect.New(reflect.TypeOf(value)).Interface()
 	if err := encodedValue.Get(valuePtr); err != nil {
@@ -1131,7 +1224,7 @@ func decodeValue(encodedValue converter.EncodedValue, value interface{}) interfa
 	return decodedValue
 }
 
-func (wc *workflowEnvironmentImpl) encodeValue(value interface{}) *commonpb.Payloads {
+func (wc *workflowEnvironmentImpl) encodeValue(value any) *commonpb.Payloads {
 	payload, err := wc.encodeArg(value)
 	if err != nil {
 		panic(err)
@@ -1139,16 +1232,16 @@ func (wc *workflowEnvironmentImpl) encodeValue(value interface{}) *commonpb.Payl
 	return payload
 }
 
-func (wc *workflowEnvironmentImpl) encodeArg(arg interface{}) (*commonpb.Payloads, error) {
+func (wc *workflowEnvironmentImpl) encodeArg(arg any) (*commonpb.Payloads, error) {
 	return wc.GetDataConverter().ToPayloads(arg)
 }
 
 func (wc *workflowEnvironmentImpl) recordMutableSideEffect(id string, callCountHint int, data *commonpb.Payloads, summary string) converter.EncodedValue {
-	details, err := encodeArgs(wc.GetDataConverter(), []interface{}{id, data})
+	details, err := encodeArgs(wc.GetDataConverter(), []any{id, data})
 	if err != nil {
 		panic(err)
 	}
-	userMetadata, err := buildUserMetadata(summary, "", wc.dataConverter)
+	userMetadata, err := BuildUserMetadata(summary, "", wc.dataConverter)
 	if err != nil {
 		panic(fmt.Sprintf("failed to build user metadata for mutable side effect: %v", err))
 	}
@@ -1216,7 +1309,7 @@ func (weh *workflowExecutionEventHandlerImpl) ProcessEvent(
 	}
 	defer func() {
 		if p := recover(); p != nil {
-			incrementWorkflowTaskFailureCounter(weh.metricsHandler, "NonDeterminismError")
+			incrementWorkflowTaskFailureCounter(weh.metricsHandler, metrics.FailureReasonNonDeterminismError)
 			topLine := fmt.Sprintf("process event for %s [panic]:", weh.workflowInfo.TaskQueueName)
 			st := getStackTraceRaw(topLine, 7, 0)
 			weh.Complete(nil, newWorkflowPanicError(p, st))
@@ -1264,6 +1357,7 @@ func (weh *workflowExecutionEventHandlerImpl) ProcessEvent(
 		attr := event.GetWorkflowTaskFailedEventAttributes()
 		if attr.GetCause() == enumspb.WORKFLOW_TASK_FAILED_CAUSE_RESET_WORKFLOW {
 			weh.workflowInfo.currentRunID = attr.GetNewRunId()
+			reseedRandoms(weh.randoms, weh.workflowInfo.currentRunID)
 		}
 	case enumspb.EVENT_TYPE_WORKFLOW_TASK_COMPLETED:
 		// No Operation
@@ -1431,7 +1525,7 @@ func (weh *workflowExecutionEventHandlerImpl) ProcessMessage(
 ) error {
 	defer func() {
 		if p := recover(); p != nil {
-			incrementWorkflowTaskFailureCounter(weh.metricsHandler, "NonDeterminismError")
+			incrementWorkflowTaskFailureCounter(weh.metricsHandler, metrics.FailureReasonNonDeterminismError)
 			topLine := fmt.Sprintf("process message for %s [panic]:", weh.workflowInfo.TaskQueueName)
 			st := getStackTraceRaw(topLine, 7, 0)
 			weh.Complete(nil, newWorkflowPanicError(p, st))
@@ -1465,14 +1559,6 @@ func (weh *workflowExecutionEventHandlerImpl) ProcessQuery(
 		result, err := weh.queryHandler(queryType, queryArgs, header)
 		if err != nil {
 			return nil, err
-		}
-
-		if result.Size() > queryResultSizeLimit {
-			weh.logger.Error("Query result size exceeds limit.",
-				tagQueryType, queryType,
-				tagWorkflowID, weh.workflowInfo.WorkflowExecution.ID,
-				tagRunID, weh.workflowInfo.WorkflowExecution.RunID)
-			return nil, fmt.Errorf("query result size (%v) exceeds limit (%v)", result.Size(), queryResultSizeLimit)
 		}
 
 		return result, nil
@@ -1733,7 +1819,7 @@ func (weh *workflowExecutionEventHandlerImpl) handleLocalActivityMarker(details 
 			panicMsg := fmt.Sprintf("[TMPRL1100] code executed local activity %v, but history event found %v, markerData: %v", la.params.ActivityType, lamd.ActivityType, markerData)
 			panicIllegalState(panicMsg)
 		}
-		startMetadata, err := buildUserMetadata(la.params.Summary, "", weh.dataConverter)
+		startMetadata, err := BuildUserMetadata(la.params.Summary, "", weh.dataConverter)
 		if err != nil {
 			return err
 		}
@@ -1968,14 +2054,14 @@ func (weh *workflowExecutionEventHandlerImpl) handleChildWorkflowExecutionTermin
 func (weh *workflowExecutionEventHandlerImpl) handleNexusOperationStarted(event *historypb.HistoryEvent) error {
 	attributes := event.GetNexusOperationStartedEventAttributes()
 	command := weh.commandsHelper.handleNexusOperationStarted(attributes.ScheduledEventId)
-	state := command.getData().(*scheduledNexusOperation)
-	if state.startedCallback != nil {
+	scheduledOperation := command.getData().(*scheduledNexusOperation)
+	if scheduledOperation.startedCallback != nil {
 		token := attributes.OperationToken
 		if token == "" {
 			token = attributes.OperationId //lint:ignore SA1019 this field is sent by servers older than 1.27.0.
 		}
-		state.startedCallback(token, nil)
-		state.startedCallback = nil
+		scheduledOperation.startedCallback(token, nil)
+		scheduledOperation.startedCallback = nil
 	}
 	return nil
 }
@@ -2007,19 +2093,19 @@ func (weh *workflowExecutionEventHandlerImpl) handleNexusOperationCompleted(even
 		panic(fmt.Errorf("invalid event type, not a Nexus Operation resolution: %v", event.EventType))
 	}
 	command := weh.commandsHelper.handleNexusOperationCompleted(scheduledEventId)
-	state := command.getData().(*scheduledNexusOperation)
+	scheduledOperation := command.getData().(*scheduledNexusOperation)
 	var err error
 	if failure != nil {
-		err = weh.failureConverter.FailureToError(failure)
+		err = scheduledOperation.failureConverter.FailureToError(failure)
 	}
 	// Also unblock the start future
-	if state.startedCallback != nil {
-		state.startedCallback("", err) // We didn't get a started event, the operation completed synchronously.
-		state.startedCallback = nil
+	if scheduledOperation.startedCallback != nil {
+		scheduledOperation.startedCallback("", err) // We didn't get a started event, the operation completed synchronously.
+		scheduledOperation.startedCallback = nil
 	}
-	if state.completedCallback != nil {
-		state.completedCallback(result, err)
-		state.completedCallback = nil
+	if scheduledOperation.completedCallback != nil {
+		scheduledOperation.completedCallback(result, err)
+		scheduledOperation.completedCallback = nil
 	}
 	return nil
 }
@@ -2029,16 +2115,16 @@ func (weh *workflowExecutionEventHandlerImpl) handleNexusOperationCancelRequeste
 	scheduledEventId := attrs.GetScheduledEventId()
 
 	command := weh.commandsHelper.handleNexusOperationCancelRequested(scheduledEventId)
-	state := command.getData().(*scheduledNexusOperation)
+	scheduledOperation := command.getData().(*scheduledNexusOperation)
 	err := ErrCanceled
-	if state.cancellationType == NexusOperationCancellationTypeTryCancel {
-		if state.startedCallback != nil {
-			state.startedCallback("", err)
-			state.startedCallback = nil
+	if scheduledOperation.cancellationType == NexusOperationCancellationTypeTryCancel {
+		if scheduledOperation.startedCallback != nil {
+			scheduledOperation.startedCallback("", err)
+			scheduledOperation.startedCallback = nil
 		}
-		if state.completedCallback != nil {
-			state.completedCallback(nil, err)
-			state.completedCallback = nil
+		if scheduledOperation.completedCallback != nil {
+			scheduledOperation.completedCallback(nil, err)
+			scheduledOperation.completedCallback = nil
 		}
 	}
 	return nil
@@ -2068,20 +2154,20 @@ func (weh *workflowExecutionEventHandlerImpl) handleNexusOperationCancelRequestD
 	}
 
 	command := weh.commandsHelper.handleNexusOperationCancelRequestDelivered(scheduledEventID)
-	state := command.getData().(*scheduledNexusOperation)
+	scheduledOperation := command.getData().(*scheduledNexusOperation)
 	err := ErrCanceled
 	if failure != nil {
-		err = weh.failureConverter.FailureToError(failure)
+		err = scheduledOperation.failureConverter.FailureToError(failure)
 	}
 
-	if state.cancellationType == NexusOperationCancellationTypeWaitRequested {
-		if state.startedCallback != nil {
-			state.startedCallback("", err)
-			state.startedCallback = nil
+	if scheduledOperation.cancellationType == NexusOperationCancellationTypeWaitRequested {
+		if scheduledOperation.startedCallback != nil {
+			scheduledOperation.startedCallback("", err)
+			scheduledOperation.startedCallback = nil
 		}
-		if state.completedCallback != nil {
-			state.completedCallback(nil, err)
-			state.completedCallback = nil
+		if scheduledOperation.completedCallback != nil {
+			scheduledOperation.completedCallback(nil, err)
+			scheduledOperation.completedCallback = nil
 		}
 	}
 
