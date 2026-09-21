@@ -73,12 +73,12 @@ func (w *workflowClientInterceptor) CreateSchedule(ctx context.Context, in *Sche
 		return nil, err
 	}
 
-	memo, err := getWorkflowMemo(in.Options.Memo, dataConverter, sdkFlagsAllowed[SDKFlagMemoUserDCEncode])
+	memo, err := GetWorkflowMemo(in.Options.Memo, dataConverter, sdkFlagsAllowed[SDKFlagMemoUserDCEncode])
 	if err != nil {
 		return nil, err
 	}
 
-	searchAttr, err := serializeSearchAttributes(in.Options.SearchAttributes, in.Options.TypedSearchAttributes)
+	searchAttr, err := SerializeSearchAttributes(in.Options.SearchAttributes, in.Options.TypedSearchAttributes)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +103,7 @@ func (w *workflowClientInterceptor) CreateSchedule(ctx context.Context, in *Sche
 
 	var catchupWindow *durationpb.Duration
 	if in.Options.CatchupWindow != 0 {
-		// Convert to nil so the server uses the default
-		// catchup window,otherwise it will use the minimum (10s).
+		// Leave zero unset so the server applies its default catchup window.
 		catchupWindow = durationpb.New(in.Options.CatchupWindow)
 	}
 
@@ -622,7 +621,7 @@ func convertToPBScheduleAction(
 		if err := validateFunctionArgs(action.Workflow, action.Args, true); err != nil {
 			return nil, err
 		}
-		workflowType, err := getWorkflowFunctionName(client.registry, action.Workflow)
+		workflowType, err := GetWorkflowFunctionName(client.registry, action.Workflow)
 		if err != nil {
 			return nil, err
 		}
@@ -637,7 +636,7 @@ func convertToPBScheduleAction(
 			return nil, err
 		}
 
-		searchAttrs, err := serializeSearchAttributes(nil, action.TypedSearchAttributes)
+		searchAttrs, err := SerializeSearchAttributes(nil, action.TypedSearchAttributes)
 		if err != nil {
 			return nil, err
 		}
@@ -657,7 +656,7 @@ func convertToPBScheduleAction(
 			return nil, err
 		}
 
-		userMetadata, err := buildUserMetadata(action.StaticSummary, action.StaticDetails, dataConverter)
+		userMetadata, err := BuildUserMetadata(action.StaticSummary, action.StaticDetails, dataConverter)
 		if err != nil {
 			return nil, err
 		}
@@ -672,13 +671,13 @@ func convertToPBScheduleAction(
 					WorkflowExecutionTimeout: durationpb.New(action.WorkflowExecutionTimeout),
 					WorkflowRunTimeout:       durationpb.New(action.WorkflowRunTimeout),
 					WorkflowTaskTimeout:      durationpb.New(action.WorkflowTaskTimeout),
-					RetryPolicy:              convertToPBRetryPolicy(action.RetryPolicy),
+					RetryPolicy:              ConvertToPBRetryPolicy(action.RetryPolicy),
 					Memo:                     memo,
 					SearchAttributes:         searchAttrs,
 					Header:                   header,
 					UserMetadata:             userMetadata,
-					VersioningOverride:       versioningOverrideToProto(action.VersioningOverride),
-					Priority:                 convertToPBPriority(action.Priority),
+					VersioningOverride:       VersioningOverrideToProto(action.VersioningOverride),
+					Priority:                 ConvertToPBPriority(action.Priority),
 				},
 			},
 		}, nil
@@ -704,12 +703,12 @@ func convertFromPBScheduleAction(
 			})
 		}
 
-		args := make([]interface{}, len(workflow.GetInput().GetPayloads()))
+		args := make([]any, len(workflow.GetInput().GetPayloads()))
 		for i, p := range workflow.GetInput().GetPayloads() {
 			args[i] = p
 		}
 
-		memos := make(map[string]interface{})
+		memos := make(map[string]any)
 		for key, element := range workflow.GetMemo().GetFields() {
 			memos[key] = element
 		}
@@ -890,7 +889,7 @@ func convertFromPBScheduleActionResultList(aa []*schedulepb.ScheduleActionResult
 	return recentActions
 }
 
-func encodeScheduleWorklowArgs(dc converter.DataConverter, args []interface{}) (*commonpb.Payloads, error) {
+func encodeScheduleWorklowArgs(dc converter.DataConverter, args []any) (*commonpb.Payloads, error) {
 	payloads := make([]*commonpb.Payload, len(args))
 	for i, arg := range args {
 		// arg is already encoded
@@ -909,7 +908,7 @@ func encodeScheduleWorklowArgs(dc converter.DataConverter, args []interface{}) (
 	}, nil
 }
 
-func encodeScheduleWorkflowMemo(dc converter.DataConverter, input map[string]interface{}) (*commonpb.Memo, error) {
+func encodeScheduleWorkflowMemo(dc converter.DataConverter, input map[string]any) (*commonpb.Memo, error) {
 	if input == nil {
 		return nil, nil
 	}
