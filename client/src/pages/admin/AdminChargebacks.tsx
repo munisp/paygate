@@ -355,6 +355,8 @@ function ChargebackDetail({
                   <img
                     src={evidenceData.evidenceUrl!}
                     alt="Chargeback Evidence"
+                    loading="lazy"
+                    decoding="async"
                     className="max-w-full max-h-96 mx-auto object-contain p-4"
                   />
                 )}

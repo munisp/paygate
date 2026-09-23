@@ -6,7 +6,7 @@ import { Server, ChevronDown, ChevronRight, RefreshCcw } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import MetricCard from "@/components/MetricCard";
 import { useKafka, useRedis } from "@/hooks/usePaygateData";
-import { useRefresh } from "@/contexts/RefreshContext";
+import { useRefreshTick } from "@/contexts/RefreshContext";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, Line } from "recharts";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -635,7 +635,7 @@ function ConsumerGroupDetailModal({ groupName, onClose }: { groupName: string | 
 }
 
 export default function InfraPage() {
-  const { tick } = useRefresh();
+  const tick = useRefreshTick();
   const { lagSeverity: ctxLagSev, memSeverity: ctxMemSev } = useThresholds();
   const utils = trpc.useUtils();
   const [selectedTopic, setSelectedTopic] = useState<TopicRow | null>(null);

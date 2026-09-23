@@ -12,7 +12,7 @@ export default function BulkCollections() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [items, setItems] = useState<CollectionItem[]>([{ customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
+  const [items, setItems] = useState<CollectionItem[]>(() => [{ customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
   const {isLoading, data: collections, refetch} = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" }, { staleTime: 30_000 });

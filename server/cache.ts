@@ -29,6 +29,8 @@ export const TTL = {
   IDEMPOTENCY: 86_400,
   /** Fraud score cache — 5 minutes */
   FRAUD_SCORE: 300,
+  /** Merchant analytics bundle (8-aggregate dashboard read) — 45s */
+  ANALYTICS_BUNDLE: 45,
 } as const;
 
 // ─── Cache namespace keys ─────────────────────────────────────────────────────
@@ -38,7 +40,8 @@ export type CacheNamespace =
   | "nip:account"
   | "merchant:profile"
   | "idempotency"
-  | "fraud:score";
+  | "fraud:score"
+  | "analytics:bundle";
 
 // ─── Cache interface ──────────────────────────────────────────────────────────
 interface CacheStore {

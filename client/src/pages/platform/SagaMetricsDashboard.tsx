@@ -18,7 +18,7 @@ function MiniBar({ value, max, color = "bg-primary" }: { value: number; max: num
 }
 
 export default function SagaMetricsDashboard() {
-  const { data: metrics, isError, error} = trpc.wave221.sagas.getMetrics.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: metrics, isError, error} = trpc.wave221.sagas.getMetrics.useQuery(undefined, { refetchInterval: 15_000 });
   const { data: recent, isLoading } = trpc.wave221.sagas.getRecent.useQuery({ limit: 20 });
 
   const allMetrics = metrics ?? [];

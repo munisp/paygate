@@ -29,7 +29,7 @@ export default function NFTBadges() {
         {collections?.collections.map(c => (
           <Card key={c.id} className="border-2 border-purple-100">
             <CardHeader>
-              <img src={c.imageUrl} alt={c.name} className="w-full h-32 object-cover rounded-md mb-2" onError={e => { (e.target as HTMLImageElement).src = "https://placehold.co/300x128?text=NFT"; }} />
+              <img src={c.imageUrl} alt={c.name} loading="lazy" decoding="async" className="w-full h-32 object-cover rounded-md mb-2" onError={e => { (e.target as HTMLImageElement).src = "https://placehold.co/300x128?text=NFT"; }} />
               <CardTitle className="text-base">{c.name}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">

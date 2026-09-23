@@ -291,7 +291,10 @@ func (p *Producer) Close() {
 func newSaramaClient(brokers []string) (kafkaClient, error) {
 	cfg := sarama.NewConfig()
 	cfg.Producer.Return.Successes = true
-	cfg.Producer.RequiredAcks = sarama.WaitForAll
+	// PC3: WaitForLocal (leader ack) instead of WaitForAll — one ISR ack
+	// round trip instead of waiting for every replica. Combined with
+	// SendMessages batching below this removes the per-message stall.
+	cfg.Producer.RequiredAcks = sarama.WaitForLocal
 	cfg.Producer.Retry.Max = 3
 	cfg.Net.DialTimeout = 10 * time.Second
 	cfg.Metadata.Timeout = 10 * time.Second
@@ -318,16 +321,37 @@ type saramaClient struct {
 	sp sarama.SyncProducer
 }
 
+// ProduceSync sends all records as ONE batched SendMessages call (PC3)
+// instead of one SendMessage per record. Any broker-side failure is returned
+// to the caller — errors are never dropped silently.
 func (c *saramaClient) ProduceSync(_ context.Context, records ...*Record) ProduceResults {
-	results := make(ProduceResults, len(records))
+	msgs := make([]*sarama.ProducerMessage, len(records))
 	for i, r := range records {
-		msg := &sarama.ProducerMessage{
+		msgs[i] = &sarama.ProducerMessage{
 			Topic: r.Topic,
 			Key:   sarama.ByteEncoder(r.Key),
 			Value: sarama.ByteEncoder(r.Value),
 		}
-		_, _, err := c.sp.SendMessage(msg)
-		results[i] = ProduceResult{Err: err}
+	}
+	results := make(ProduceResults, len(records))
+	if err := c.sp.SendMessages(msgs); err != nil {
+		// Fail loud: attribute the batch error to every record. When sarama
+		// returns a ProduceErrors slice, map per-message errors precisely.
+		var perrs sarama.ProducerErrors
+		if errors.As(err, &perrs) {
+			for i := range results {
+				results[i] = ProduceResult{Err: err}
+			}
+			for _, pe := range perrs {
+				slog.Error("[kafka] message rejected by broker",
+					"topic", pe.Msg.Topic, "err", pe.Err)
+			}
+			return results
+		}
+		for i := range results {
+			results[i] = ProduceResult{Err: err}
+		}
+		return results
 	}
 	return results
 }

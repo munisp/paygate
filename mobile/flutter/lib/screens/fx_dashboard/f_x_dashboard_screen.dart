@@ -143,11 +143,13 @@ class _FXDashboardScreenState extends ConsumerState<FXDashboardScreen> {
                 ),
               );
             }
-            return ListView(
+            return ListView.builder(
               padding: const EdgeInsets.all(16.0),
-              children: [
-                // Total FX Balance Card
-                Card(
+              itemCount: 3 + data.recentTransactions.length,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  // Total FX Balance Card
+                  return Card(
                   color: _cardColor,
                   margin: const EdgeInsets.only(bottom: 16.0),
                   child: Padding(
@@ -167,16 +169,21 @@ class _FXDashboardScreenState extends ConsumerState<FXDashboardScreen> {
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Recent Transactions',
-                  style: TextStyle(color: _textColor, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
+                );
+                }
+                if (index == 1) return const SizedBox(height: 16);
+                if (index == 2) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      'Recent Transactions',
+                      style: TextStyle(color: _textColor, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  );
+                }
                 // Recent Transactions List
-                ...data.recentTransactions.map((transaction) {
-                  return Card(
+                final transaction = data.recentTransactions[index - 3];
+                return Card(
                     color: _cardColor,
                     margin: const EdgeInsets.only(bottom: 8.0),
                     child: ListTile(
@@ -210,8 +217,7 @@ class _FXDashboardScreenState extends ConsumerState<FXDashboardScreen> {
                       },
                     ),
                   );
-                }).toList(),
-              ],
+              },
             );
           },
         ),

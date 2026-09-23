@@ -266,6 +266,8 @@ function VendorQRDialog({ vendor, onClose }: { vendor: Vendor | null; onClose: (
               alt={`${vendor.name} contact QR code`}
               width={200}
               height={200}
+              loading="lazy"
+              decoding="async"
             />
           </div>
           <p className="text-xs text-center text-muted-foreground px-2">

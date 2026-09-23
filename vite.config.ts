@@ -167,6 +167,20 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Split heavy vendor deps out of the entry bundle so first paint
+        // only downloads the core runtime; lazy routes pull their own chunks.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "vendor-react";
+          if (/[\\/]node_modules[\\/]@(trpc|tanstack)[\\/]/.test(id)) return "vendor-trpc";
+          if (/[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor|chart\.js)[\\/]/.test(id)) return "vendor-charts";
+          if (/[\\/]node_modules[\\/]@radix-ui[\\/]/.test(id)) return "vendor-radix";
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     host: true,

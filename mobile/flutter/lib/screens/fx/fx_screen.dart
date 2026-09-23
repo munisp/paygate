@@ -86,11 +86,15 @@ class _FXScreenState extends ConsumerState<FXScreen> {
                 ElevatedButton(onPressed: _loadRates, child: const Text('Retry')),
               ],
             ))
-          : ListView(
+          : Builder(builder: (context) {
+              final rates = rateMap.entries.toList();
+              return ListView.builder(
               padding: const EdgeInsets.all(16),
-              children: [
+              itemCount: 3 + rates.length,
+              itemBuilder: (context, index) {
+                if (index == 0) {
                 // Converter card
-                Card(
+                return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -133,8 +137,13 @@ class _FXScreenState extends ConsumerState<FXScreen> {
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                );
+                }
+                if (index == 1) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                  const SizedBox(height: 16),
                 // Base currency selector
                 Row(children: [
                   const Text('Base: ', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -145,13 +154,17 @@ class _FXScreenState extends ConsumerState<FXScreen> {
                   ),
                 ]),
                 const SizedBox(height: 8),
-                ...rateMap.entries.map((e) => ListTile(
+                ]);
+                }
+                final e = rates[index - 3];
+                return ListTile(
                   leading: const CircleAvatar(child: Icon(Icons.currency_exchange, size: 16)),
                   title: Text(e.key),
                   trailing: Text((e.value as num).toStringAsFixed(4), style: const TextStyle(fontWeight: FontWeight.bold)),
-                )),
-              ],
-            ),
+                );
+              },
+            );
+            }),
     );
   }
 }

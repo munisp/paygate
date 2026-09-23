@@ -153,27 +153,26 @@ impl MemStore {
         // Create escrow/settlement/fee accounts on first use — zero balance.
         // NO fabricated funds: the escrow must be funded by real inbound
         // transfers before cross-border debits will clear.
+        //
+        // PC12: borrow the plan fields in the loop; clone only on the rare
+        // first-use creation path instead of unconditionally per iteration.
         for (id, acct_type, currency) in [
+            (&plan.escrow_id, &plan.escrow_type, &plan.source_currency),
             (
-                plan.escrow_id.clone(),
-                plan.escrow_type.clone(),
-                plan.source_currency.clone(),
+                &plan.settlement_id,
+                &AccountType::Settlement,
+                &plan.settlement_currency,
             ),
-            (
-                plan.settlement_id.clone(),
-                AccountType::Settlement,
-                plan.settlement_currency.clone(),
-            ),
-            (plan.fee_id.clone(), AccountType::Fee, plan.source_currency.clone()),
+            (&plan.fee_id, &AccountType::Fee, &plan.source_currency),
         ] {
-            if !s.accounts.contains_key(&id) {
+            if !s.accounts.contains_key(id) {
                 s.accounts.insert(
                     id.clone(),
                     Account {
                         id: id.clone(),
                         merchant_id: req.merchant_id.clone(),
-                        account_type: acct_type,
-                        ledger_code: currency_to_ledger_code(&currency),
+                        account_type: acct_type.clone(),
+                        ledger_code: currency_to_ledger_code(currency),
                         currency: currency.to_uppercase(),
                         debits_posted: 0,
                         credits_posted: 0,
@@ -186,7 +185,7 @@ impl MemStore {
                 s.account_index
                     .entry(req.merchant_id.clone())
                     .or_default()
-                    .push(id);
+                    .push(id.clone());
             }
         }
 
@@ -227,6 +226,8 @@ impl MemStore {
             timestamp: ts,
             settled_at: Some(ts),
         };
+        // PC12: build the fee reference once — it was formatted twice.
+        let fee_reference = format!("fee-{}", reference);
         let t2 = Transfer {
             id: plan.t2_id.clone(),
             debit_account_id: plan.escrow_id.clone(),
@@ -236,7 +237,7 @@ impl MemStore {
             currency: plan.source_currency.clone(),
             rail: req.rail.clone(),
             transfer_type: TransferType::FeeDebit,
-            reference: format!("fee-{}", reference),
+            reference: fee_reference.clone(),
             merchant_id: req.merchant_id.clone(),
             flags: 0,
             timestamp: ts,
@@ -245,8 +246,7 @@ impl MemStore {
 
         let base = s.transfers.len();
         s.reference_index.insert(reference.clone(), base);
-        s.reference_index
-            .insert(format!("fee-{}", reference), base + 1);
+        s.reference_index.insert(fee_reference, base + 1);
         s.transfers.push(t1);
         s.transfers.push(t2);
 

@@ -23,6 +23,7 @@ import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransac
 import { usePWA } from "@/hooks/usePWA";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
+import { downsampleSeries } from "@/lib/downsample";
 // ─── Default widget layout ────────────────────────────────────────────────────
 const DEFAULT_LAYOUTS = {
   lg: [
@@ -655,7 +656,11 @@ export default function Dashboard() {
   };
 
   const overview = data?.overview;
-  const timeSeries = data?.timeSeries ?? [];
+  // Downsample long series before rendering (LTTB, <=500 points) — memoized.
+  const timeSeries = useMemo(
+    () => downsampleSeries(data?.timeSeries ?? [], 500, { x: (_p: any, i: number) => i, y: (p: any) => Number(p.volume ?? p.value ?? 0) }),
+    [data?.timeSeries]
+  );
   const merchant = data?.merchant;
 
   // Live transaction stream via SSE

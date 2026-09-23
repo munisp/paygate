@@ -34,3 +34,9 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 dashmap = "6"         # concurrent hash map for actor baselines
 statrs = "0.17"       # statistical distributions for Z-score
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

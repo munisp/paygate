@@ -337,14 +337,37 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // PS1: lastSignedIn is login telemetry, not authorization state. Throttle
+    // to at most one write per 5 minutes per user and fire-and-forget so the
+    // auth chain never blocks on (or fails because of) this DB write.
+    const lastWrite = lastSignedInWrites.get(user.openId) ?? 0;
+    if (signedInAt.getTime() - lastWrite >= LAST_SIGNED_IN_THROTTLE_MS) {
+      lastSignedInWrites.set(user.openId, signedInAt.getTime());
+      if (lastSignedInWrites.size > LAST_SIGNED_IN_MAX_ENTRIES) {
+        // Bound memory: drop the oldest half of the throttle map.
+        const cutoff = signedInAt.getTime() - LAST_SIGNED_IN_THROTTLE_MS;
+        for (const [k, v] of lastSignedInWrites) {
+          if (v < cutoff) lastSignedInWrites.delete(k);
+        }
+        if (lastSignedInWrites.size > LAST_SIGNED_IN_MAX_ENTRIES) {
+          lastSignedInWrites.clear();
+        }
+      }
+      void db
+        .upsertUser({ openId: user.openId, lastSignedIn: signedInAt })
+        .catch((err) =>
+          console.error("[Auth] lastSignedIn update failed (non-fatal):", err)
+        );
+    }
 
     return user;
   }
 }
+
+// PS1: per-user throttle state for the fire-and-forget lastSignedIn write.
+const LAST_SIGNED_IN_THROTTLE_MS = 5 * 60 * 1000;
+const LAST_SIGNED_IN_MAX_ENTRIES = 10_000;
+const lastSignedInWrites = new Map<string, number>();
 
 const CRON_OPEN_ID_PREFIX = "cron_";
 

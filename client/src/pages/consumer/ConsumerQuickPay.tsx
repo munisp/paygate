@@ -237,6 +237,8 @@ export default function ConsumerQuickPay() {
                     alt="Payment QR code"
                     width={180}
                     height={180}
+                    loading="lazy"
+                    decoding="async"
                   />
                 </div>
                 <div className="text-center">

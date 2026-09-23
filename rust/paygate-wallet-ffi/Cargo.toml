@@ -38,3 +38,8 @@ mock = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "test-util"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

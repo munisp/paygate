@@ -25,16 +25,25 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Hive
-  await Hive.initFlutter();
+  // Bootstrap runs in the background so the first frame is never blocked on
+  // local storage or network-adjacent initialization.
+  final bootstrapFuture = _bootstrap();
 
-  // Firebase (graceful fallback if not configured)
-  try {
-    await Firebase.initializeApp();
-    await NotificationService.initialize(flutterLocalNotificationsPlugin);
-  } catch (e) {
-    debugPrint('[Firebase] Not configured: $e');
-  }
+  runApp(ProviderScope(child: PayGateApp(bootstrapFuture: bootstrapFuture)));
+}
 
-  runApp(const ProviderScope(child: PayGateApp()));
+/// Initializes local storage and push notifications off the critical path.
+Future<void> _bootstrap() async {
+  await Future.wait([
+    Hive.initFlutter(),
+    () async {
+      // Firebase (graceful fallback if not configured)
+      try {
+        await Firebase.initializeApp();
+        await NotificationService.initialize(flutterLocalNotificationsPlugin);
+      } catch (e) {
+        debugPrint('[Firebase] Not configured: $e');
+      }
+    }(),
+  ]);
 }

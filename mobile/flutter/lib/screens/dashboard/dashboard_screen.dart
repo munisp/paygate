@@ -172,7 +172,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  // Each data-driven section is wrapped in its own Consumer so a change to
+  // one provider only rebuilds that section, not the whole screen.
   Widget _buildStatCardsSection() {
+    return Consumer(builder: (context, ref, _) {
     final statsAsync = ref.watch(dashboardStatsProvider);
 
     return statsAsync.when(
@@ -211,6 +214,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       loading: () => _buildShimmerStats(),
       error: (err, stack) => _buildErrorState('Failed to load dashboard stats'),
     );
+    });
   }
 
   Widget _buildShimmerStats() {
@@ -247,6 +251,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildRevenueChartSection() {
+    return Consumer(builder: (context, ref, _) {
     final chartAsync = ref.watch(revenueChartProvider('7d'));
 
     return Container(
@@ -313,9 +318,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildRecentTransactionsSection() {
+    return Consumer(builder: (context, ref, _) {
     final transactionsAsync = ref.watch(recentTransactionsProvider);
 
     return Column(
@@ -403,6 +410,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
       ],
     );
+    });
   }
 
   Widget _buildShimmerTransactions() {

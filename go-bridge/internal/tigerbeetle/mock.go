@@ -55,6 +55,27 @@ func (m *mockClient) GetBalance(id tb_types.Uint128) (uint64, error) {
 	return acc.creditsPosted - acc.debitsPosted, nil
 }
 
+// GetBalances mirrors the real client's batched lookup: slices parallel to
+// ids, found[i]=false when the account does not exist.
+func (m *mockClient) GetBalances(ids []tb_types.Uint128) ([]uint64, []bool, error) {
+	mockStoreMu.Lock()
+	defer mockStoreMu.Unlock()
+	balances := make([]uint64, len(ids))
+	found := make([]bool, len(ids))
+	for i, id := range ids {
+		acc, ok := mockStore[uint128Key(id)]
+		if !ok {
+			continue
+		}
+		if acc.debitsPosted > acc.creditsPosted {
+			continue
+		}
+		balances[i] = acc.creditsPosted - acc.debitsPosted
+		found[i] = true
+	}
+	return balances, found, nil
+}
+
 func (m *mockClient) Transfer(
 	transferID tb_types.Uint128,
 	debitAccountID tb_types.Uint128,
@@ -118,6 +139,9 @@ func (m *mockClient) BatchTransfers(transfers []tb_types.Transfer) error {
 type clientInterface interface {
 	EnsureAccount(id tb_types.Uint128, ledger uint32, code uint16) error
 	GetBalance(id tb_types.Uint128) (uint64, error)
+	// GetBalances batch-looks up many accounts in chunked LookupAccounts
+	// calls (PC6) — slices parallel to ids, found[i]=false when missing.
+	GetBalances(ids []tb_types.Uint128) (balances []uint64, found []bool, err error)
 	Transfer(
 		transferID tb_types.Uint128,
 		debitAccountID tb_types.Uint128,

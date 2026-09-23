@@ -17,7 +17,7 @@ class _SettlementsScreenState extends State<SettlementsScreen> {
   Future<void> _load() async {
     try {
       final r = await http.get(Uri.parse('https://api.paygate.africa/api/trpc/settlements.list?input={"limit":50}'));
-      final d = jsonDecode(r.body);
+      final d = await decodeJsonBody(r.body);
       setState(() { _settlements = d['result']?['data']?['items'] ?? []; _loading = false; });
     } catch (_) { setState(() => _loading = false); }
   }

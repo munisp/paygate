@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy,
@@ -366,6 +366,31 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 }
 
 // ─── Main Transactions Page ───────────────────────────────────────────────────
+
+// Memoized row — long tables re-render only the rows whose data changed.
+const TransactionRow = memo(function TransactionRow({ txn, onView }: { txn: any; onView: (id: string) => void }) {
+  return (
+    <tr className="hover:bg-muted/30 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{txn.reference}</td>
+      <td className="px-4 py-3 font-medium">{txn.customerName ?? txn.customerEmail ?? "—"}</td>
+      <td className="px-4 py-3 font-mono font-semibold">{txn.currency} {Number(txn.amount / 100).toLocaleString()}</td>
+      <td className="px-4 py-3 text-muted-foreground capitalize">{txn.channel.replace(/_/g, " ")}</td>
+      <td className="px-4 py-3"><StatusBadge status={txn.status} /></td>
+      <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+        {new Date(txn.createdAt).toLocaleString()}
+      </td>
+      <td className="px-4 py-3">
+        <button
+          onClick={() => onView(txn.id)}
+          className="p-1.5 rounded hover:bg-muted transition-colors"
+          title="View details"
+        >
+          <Eye className="w-4 h-4 text-muted-foreground" />
+        </button>
+      </td>
+    </tr>
+  );
+});
 
 export default function Transactions() {
   const [page, setPage] = useState(0);
@@ -803,25 +828,7 @@ export default function Transactions() {
                     </tr>
                   )
                   : rows.map((txn) => (
-                    <tr key={txn.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{txn.reference}</td>
-                      <td className="px-4 py-3 font-medium">{txn.customerName ?? txn.customerEmail ?? "—"}</td>
-                      <td className="px-4 py-3 font-mono font-semibold">{txn.currency} {Number(txn.amount / 100).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-muted-foreground capitalize">{txn.channel.replace(/_/g, " ")}</td>
-                      <td className="px-4 py-3"><StatusBadge status={txn.status} /></td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                        {new Date(txn.createdAt).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setSelectedTxId(txn.id)}
-                          className="p-1.5 rounded hover:bg-muted transition-colors"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4 text-muted-foreground" />
-                        </button>
-                      </td>
-                    </tr>
+                    <TransactionRow key={txn.id} txn={txn} onView={setSelectedTxId} />
                   ))
               }
             </tbody>

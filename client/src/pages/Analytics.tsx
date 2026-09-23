@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, LineChart, Line, ComposedChart, Legend, PieChart, Pie, Cell,
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { downsampleSeries } from "@/lib/downsample";
 import { toast } from "sonner";
 
 function fmt(n: number | null | undefined) {
@@ -115,8 +116,16 @@ export default function Analytics() {
   }));
 
   const isLoading = oLoading || tsLoading;
-  const series = (timeSeries ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) }));
-  const fraudSeries = (fraudTrend ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) }));
+  // Downsample long series before handing them to recharts (<=500 points,
+  // LTTB preserves visual shape) — memoized so it only runs when data changes.
+  const series = useMemo(
+    () => downsampleSeries((timeSeries ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) })), 500, { x: (_p, i) => i, y: (p: any) => Number(p.volume ?? 0) }),
+    [timeSeries]
+  );
+  const fraudSeries = useMemo(
+    () => downsampleSeries((fraudTrend ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) })), 500, { x: (_p, i) => i, y: (p: any) => Number(p.count ?? p.attempts ?? 0) }),
+    [fraudTrend]
+  );
 
   const totalVolume = Number(overview?.transactions?.totalVolume ?? 0);
   const totalCount = Number(overview?.transactions?.totalCount ?? 0);

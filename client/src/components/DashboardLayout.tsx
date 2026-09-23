@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Settings, Bell, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
+import { useRefreshConfig, useRefreshCountdown, type RefreshInterval } from "@/contexts/RefreshContext";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -92,11 +92,21 @@ function NavItem({
   );
 }
 
+/** Isolated countdown badge — the only component subscribed to the 1s countdown slice. */
+function RefreshCountdownBadge() {
+  const secondsUntilRefresh = useRefreshCountdown();
+  return (
+    <span className="text-[11px] text-muted-foreground font-mono hidden md:block tabular-nums w-6 text-right">
+      {secondsUntilRefresh}s
+    </span>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showIntervalMenu, setShowIntervalMenu] = useState(false);
-  const { interval, setInterval, secondsUntilRefresh, triggerRefresh } = useRefresh();
+  const { interval, setInterval, triggerRefresh } = useRefreshConfig();
   const pingQuery = trpc.paygate.ping.useQuery(undefined, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
   const simulated = (pingQuery.data as { simulation?: boolean } | undefined)?.simulation === true;
@@ -391,12 +401,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {simulated ? "SIMULATION" : connected ? "LIVE" : "OFFLINE"}
             </div>
 
-            {/* Countdown */}
-            {interval > 0 && (
-              <span className="text-[11px] text-muted-foreground font-mono hidden md:block tabular-nums w-6 text-right">
-                {secondsUntilRefresh}s
-              </span>
-            )}
+            {/* Countdown — isolated so only this badge re-renders per second */}
+            {interval > 0 && <RefreshCountdownBadge />}
 
             {/* Interval selector */}
             <div className="relative">

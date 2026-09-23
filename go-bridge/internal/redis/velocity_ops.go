@@ -1,7 +1,7 @@
 package redis
 
 // velocity_ops.go — Redis operations for velocity limit counters and chargeback timelines.
-// Uses raw RESP protocol via the existing Client.dial() pattern.
+// Uses raw RESP protocol via the pooled Client.exec / Client.Pipeline paths.
 
 import (
 	"context"
@@ -36,101 +36,83 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 
 // IncrWithTTL atomically increments a counter and sets TTL if the key is new.
 // Returns the new counter value.
+// INCR + EXPIRE ... NX are pipelined in a single round trip; EXPIRE NX only
+// applies the TTL when the key has no expiry yet (i.e. the key was just
+// created by this INCR window).
 func (c *Client) IncrWithTTL(ctx context.Context, key string, ttl time.Duration) (int64, error) {
-	conn, err := c.dial()
-	if err != nil {
-		return 0, fmt.Errorf("redis dial: %w", err)
+	if !c.enabled {
+		return 0, nil
 	}
-	defer conn.Close()
-
-	// INCR key
-	incrResp, err := sendCommand(conn, "INCR", key)
-	if err != nil {
-		return 0, fmt.Errorf("INCR: %w", err)
+	ttlSeconds := int(ttl.Seconds())
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
 	}
-
-	val, err := parseIntResp(incrResp)
+	resps, err := c.Pipeline(ctx, [][]string{
+		{"INCR", key},
+		{"EXPIRE", key, strconv.Itoa(ttlSeconds), "NX"},
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	// Set TTL only on first increment (val == 1)
-	if val == 1 {
-		ttlSeconds := int(ttl.Seconds())
-		if ttlSeconds < 1 {
-			ttlSeconds = 1
-		}
-		_, err = sendCommand(conn, "EXPIRE", key, strconv.Itoa(ttlSeconds))
-		if err != nil {
-			slog.Warn("[redis] IncrWithTTL: EXPIRE failed", "key", key, "err", err)
-		}
+	val, err := parseIntResp(resps[0])
+	if err != nil {
+		return 0, err
 	}
-
+	if len(resps) > 1 && len(resps[1]) > 0 && resps[1][0] == '-' {
+		// EXPIRE failure (e.g. NX unsupported) is non-fatal but logged.
+		slog.Warn("[redis] IncrWithTTL: EXPIRE NX failed", "key", key, "resp", resps[1])
+	}
 	return val, nil
 }
 
 // IncrByWithTTL atomically increments a counter by delta and sets TTL if the key is new.
-// Returns the new counter value.
+// Returns the new counter value. Pipelined: one round trip (PC4).
 func (c *Client) IncrByWithTTL(ctx context.Context, key string, delta int64, ttl time.Duration) (int64, error) {
-	conn, err := c.dial()
-	if err != nil {
-		return 0, fmt.Errorf("redis dial: %w", err)
+	if !c.enabled {
+		return 0, nil
 	}
-	defer conn.Close()
-
-	// INCRBY key delta
-	incrResp, err := sendCommand(conn, "INCRBY", key, strconv.FormatInt(delta, 10))
-	if err != nil {
-		return 0, fmt.Errorf("INCRBY: %w", err)
+	ttlSeconds := int(ttl.Seconds())
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
 	}
-
-	val, err := parseIntResp(incrResp)
+	resps, err := c.Pipeline(ctx, [][]string{
+		{"INCRBY", key, strconv.FormatInt(delta, 10)},
+		{"EXPIRE", key, strconv.Itoa(ttlSeconds), "NX"},
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	// Set TTL only on first increment (val == delta)
-	if val == delta {
-		ttlSeconds := int(ttl.Seconds())
-		if ttlSeconds < 1 {
-			ttlSeconds = 1
-		}
-		_, err = sendCommand(conn, "EXPIRE", key, strconv.Itoa(ttlSeconds))
-		if err != nil {
-			slog.Warn("[redis] IncrByWithTTL: EXPIRE failed", "key", key, "err", err)
-		}
+	val, err := parseIntResp(resps[0])
+	if err != nil {
+		return 0, err
 	}
-
+	if len(resps) > 1 && len(resps[1]) > 0 && resps[1][0] == '-' {
+		slog.Warn("[redis] IncrByWithTTL: EXPIRE NX failed", "key", key, "resp", resps[1])
+	}
 	return val, nil
 }
 
 // LPush prepends a value to a Redis list.
 func (c *Client) LPush(ctx context.Context, key, value string) error {
-	conn, err := c.dial()
-	if err != nil {
-		return fmt.Errorf("redis dial: %w", err)
-	}
-	defer conn.Close()
-
-	_, err = sendCommand(conn, "LPUSH", key, value)
+	_, err := c.exec("LPUSH", key, value)
 	return err
 }
 
 // LRange returns a range of elements from a Redis list.
 func (c *Client) LRange(ctx context.Context, key string, start, stop int) ([]string, error) {
-	conn, err := c.dial()
-	if err != nil {
-		return nil, fmt.Errorf("redis dial: %w", err)
-	}
-	defer conn.Close()
-
-	resp, err := sendCommand(conn, "LRANGE", key,
+	resp, err := c.exec("LRANGE", key,
 		strconv.Itoa(start), strconv.Itoa(stop))
 	if err != nil {
 		return nil, fmt.Errorf("LRANGE: %w", err)
 	}
 
 	return parseArrayResp(resp), nil
+}
+
+// ParseIntReply parses a raw Redis integer/bulk reply (e.g. ":42\r\n") into
+// an int64. Exported for pipelined callers (e.g. velocity checks).
+func ParseIntReply(resp string) (int64, error) {
+	return parseIntResp(resp)
 }
 
 // parseIntResp parses a Redis integer response like ":42\r\n".

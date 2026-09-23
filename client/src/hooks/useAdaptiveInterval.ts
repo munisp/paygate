@@ -6,11 +6,11 @@
  * falls back to a sensible default for browsers that don't support it.
  *
  * Network tier → interval mapping:
- *   slow-2g  → 60 000 ms  (1 min)   — very low bandwidth, poll rarely
- *   2g       → 30 000 ms  (30 s)
- *   3g       → 15 000 ms  (15 s)
- *   4g / wifi → 5 000 ms  (5 s)     — fast connection, poll frequently
- *   unknown  → 10 000 ms  (10 s)    — safe default
+ *   slow-2g  → 120 000 ms (2 min)   — very low bandwidth, poll rarely
+ *   2g       → 60 000 ms  (1 min)
+ *   3g       → 30 000 ms  (30 s)
+ *   4g / wifi → 15 000 ms  (15 s)    — fast connection floor (raised from 5s)
+ *   unknown  → 15 000 ms  (15 s)    — safe default
  *
  * The hook also listens for `change` events on the connection object so the
  * interval updates automatically when the user switches networks (e.g. from
@@ -22,13 +22,14 @@ import { useEffect, useState } from "react";
 type NetworkEffectiveType = "slow-2g" | "2g" | "3g" | "4g";
 
 const INTERVAL_MAP: Record<NetworkEffectiveType, number> = {
-  "slow-2g": 60_000,
-  "2g": 30_000,
-  "3g": 15_000,
-  "4g": 5_000,
+  "slow-2g": 120_000,
+  "2g": 60_000,
+  "3g": 30_000,
+  // Floor raised to 15s even on fast connections to cut redundant polling.
+  "4g": 15_000,
 };
 
-const DEFAULT_INTERVAL = 10_000;
+const DEFAULT_INTERVAL = 15_000;
 
 function getNetworkInterval(): number {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

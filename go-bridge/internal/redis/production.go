@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,7 +85,7 @@ func (c *Client) Eval(ctx context.Context, script *LuaScript, keys []string, arg
 	// Build EVAL command: EVAL <script> <numkeys> [key ...] [arg ...]
 	parts := []string{
 		"EVAL", script.src,
-		fmt.Sprintf("%d", len(keys)),
+		strconv.Itoa(len(keys)),
 	}
 	parts = append(parts, keys...)
 	parts = append(parts, args...)
@@ -264,7 +265,7 @@ func (c *Client) NewPipeline() *Pipeline {
 // Set adds a SET command to the pipeline.
 func (p *Pipeline) Set(key, value string, ttl time.Duration) *Pipeline {
 	if ttl > 0 {
-		p.commands = append(p.commands, []string{"SET", key, value, "EX", fmt.Sprintf("%d", int(ttl.Seconds()))})
+		p.commands = append(p.commands, []string{"SET", key, value, "EX", strconv.Itoa(int(ttl.Seconds()))})
 	} else {
 		p.commands = append(p.commands, []string{"SET", key, value})
 	}
@@ -277,30 +278,13 @@ func (p *Pipeline) Del(keys ...string) *Pipeline {
 	return p
 }
 
-// Exec executes all pipelined commands.
+// Exec executes all pipelined commands in a single round trip.
 func (p *Pipeline) Exec(ctx context.Context) error {
 	if !p.client.enabled || len(p.commands) == 0 {
 		return nil
 	}
-	var sb strings.Builder
-	for _, cmd := range p.commands {
-		sb.WriteString(buildRESP(cmd...))
-	}
-	conn, err := net.DialTimeout("tcp", p.client.addr, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("redis pipeline: dial: %w", err)
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if _, err := fmt.Fprint(conn, sb.String()); err != nil {
-		return fmt.Errorf("redis pipeline: write: %w", err)
-	}
-	// Read all responses (one per command).
-	buf := make([]byte, 4096*len(p.commands))
-	if _, err := conn.Read(buf); err != nil {
-		return fmt.Errorf("redis pipeline: read: %w", err)
-	}
-	return nil
+	_, err := p.client.Pipeline(ctx, p.commands)
+	return err
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────
@@ -334,13 +318,9 @@ func (c *Client) HealthInfo(ctx context.Context) map[string]string {
 
 // ─── RESP helpers ─────────────────────────────────────────────────────────────
 
+// buildRESP encodes args as a RESP array (strconv-based, no fmt.Fprintf).
 func buildRESP(args ...string) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "*%d\r\n", len(args))
-	for _, a := range args {
-		fmt.Fprintf(&sb, "$%d\r\n%s\r\n", len(a), a)
-	}
-	return sb.String()
+	return string(appendCommand(make([]byte, 0, 16*(len(args)+1)), args...))
 }
 
 func parseRESPArray(data []byte) []string {
@@ -358,31 +338,33 @@ func parseRESPArray(data []byte) []string {
 	return parts
 }
 
-// sendCommand sends a single Redis command and returns the response.
+// sendCommand sends a single Redis command via the connection pool and
+// returns the parsed response.
 func (c *Client) sendCommand(ctx context.Context, args ...string) (interface{}, error) {
 	if !c.enabled {
 		return nil, nil
 	}
-	conn, err := net.DialTimeout("tcp", c.addr, 5*time.Second)
+	pc, err := c.getConn()
 	if err != nil {
-		return nil, fmt.Errorf("redis: dial: %w", err)
+		return nil, fmt.Errorf("redis: get conn: %w", err)
 	}
-	defer conn.Close()
 	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetDeadline(deadline)
-	} else {
-		conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if !ok {
+		deadline = time.Now().Add(10 * time.Second)
 	}
-	if _, err := fmt.Fprint(conn, buildRESP(args...)); err != nil {
+	pc.conn.SetDeadline(deadline)
+	buf := appendCommand(make([]byte, 0, 16*(len(args)+1)), args...)
+	if _, err := pc.conn.Write(buf); err != nil {
+		c.discardConn(pc)
 		return nil, fmt.Errorf("redis: write: %w", err)
 	}
-	buf := make([]byte, 65536)
-	n, err := conn.Read(buf)
+	resp, err := readReply(pc.br)
 	if err != nil {
+		c.discardConn(pc)
 		return nil, fmt.Errorf("redis: read: %w", err)
 	}
-	return parseRESPResponse(buf[:n]), nil
+	c.putConn(pc)
+	return parseRESPResponse([]byte(resp)), nil
 }
 
 func parseRESPResponse(data []byte) interface{} {

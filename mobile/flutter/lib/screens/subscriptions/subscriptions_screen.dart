@@ -40,8 +40,8 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
       );
       final statsRes = await http.get(Uri.parse('/api/trpc/subscriptions.stats'), headers: {'Content-Type': 'application/json'});
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final statsData = statsRes.statusCode == 200 ? jsonDecode(statsRes.body) : null;
+        final data = await decodeJsonBody(res.body);
+        final statsData = statsRes.statusCode == 200 ? await decodeJsonBody(statsRes.body) : null;
         setState(() {
           _items = data['result']?['data']?['rows'] ?? [];
           _stats = statsData?['result']?['data'];

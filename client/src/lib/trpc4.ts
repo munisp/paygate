@@ -1,8 +1,9 @@
 /**
- * trpc4.ts — tRPC client for Wave 76 new features router (/api/trpc4)
+ * tRPC client for the Wave 76 new-features router (served at /api/trpc4).
+ * Built via the shared factory in trpc.ts.
  */
-import { createTRPCReact } from "@trpc/react-query";
-import React from "react";
 import type { newFeaturesRouter } from "../../../server/newFeaturesRouter";
-export const TrpcContext4 = React.createContext<null>(null);
-export const trpc4 = createTRPCReact<typeof newFeaturesRouter>({ context: TrpcContext4 as any });
+import { createPaygateTrpc } from "./trpc";
+
+const { trpc: trpc4, TrpcContext: TrpcContext4 } = createPaygateTrpc<typeof newFeaturesRouter>();
+export { trpc4, TrpcContext4 };

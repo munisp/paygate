@@ -20,11 +20,15 @@ export default function LoginScreen() {
       return;
     }
     setIsLoading(true);
+    // 30s timeout so a hung network doesn't leave the spinner forever.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch(`${API_BASE_URL}/api/trpc/auth.login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ json: { email, password } }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data.result?.data?.json) {
@@ -38,6 +42,7 @@ export default function LoginScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Login Failed", err.message ?? "Invalid credentials");
     } finally {
+      clearTimeout(timeout);
       setIsLoading(false);
     }
   }

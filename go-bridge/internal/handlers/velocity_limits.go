@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/paygate/go-bridge/internal/kafka"
@@ -227,9 +228,37 @@ func CheckVelocity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check per-minute count
+	// PC4: all four window counters are incremented in ONE pipelined round
+	// trip (4 × INCR/INCRBY + 4 × EXPIRE ... NX) instead of 6+ sequential
+	// round trips. Limits are then evaluated in the same order as before.
 	minKey := fmt.Sprintf("velocity:count:%s:1m:%s", req.MerchantID, now.Format("2006-01-02T15:04"))
-	minCount, _ := rdb.IncrWithTTL(ctx, minKey, time.Minute)
+	hourKey := fmt.Sprintf("velocity:count:%s:1h:%s", req.MerchantID, now.Format("2006-01-02T15"))
+	dayKey := fmt.Sprintf("velocity:count:%s:24h:%s", req.MerchantID, now.Format("2006-01-02"))
+	dayAmtKey := fmt.Sprintf("velocity:amount:%s:24h:%s", req.MerchantID, now.Format("2006-01-02"))
+
+	resps, pipeErr := rdb.Pipeline(ctx, [][]string{
+		{"INCR", minKey},
+		{"EXPIRE", minKey, "60", "NX"},
+		{"INCR", hourKey},
+		{"EXPIRE", hourKey, "3600", "NX"},
+		{"INCR", dayKey},
+		{"EXPIRE", dayKey, "86400", "NX"},
+		{"INCRBY", dayAmtKey, strconv.FormatInt(req.AmountKobo, 10)},
+		{"EXPIRE", dayAmtKey, "86400", "NX"},
+	})
+	var minCount, hourCount, dayCount, dayAmt int64
+	if pipeErr != nil {
+		// Fail open with a warning — velocity checks must not block payments
+		// when Redis is briefly unreachable.
+		slog.Warn("[velocity] counter pipeline failed — allowing with zero counters", "merchant_id", req.MerchantID, "err", pipeErr)
+	} else {
+		minCount, _ = redis.ParseIntReply(resps[0])
+		hourCount, _ = redis.ParseIntReply(resps[2])
+		dayCount, _ = redis.ParseIntReply(resps[4])
+		dayAmt, _ = redis.ParseIntReply(resps[6])
+	}
+
+	// Check per-minute count
 	counters["per_minute"] = minCount
 	limits["per_minute"] = int64(cfg.MaxTxPerMinute)
 	if minCount > int64(cfg.MaxTxPerMinute) {
@@ -245,8 +274,6 @@ func CheckVelocity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-hour count
-	hourKey := fmt.Sprintf("velocity:count:%s:1h:%s", req.MerchantID, now.Format("2006-01-02T15"))
-	hourCount, _ := rdb.IncrWithTTL(ctx, hourKey, time.Hour)
 	counters["per_hour"] = hourCount
 	limits["per_hour"] = int64(cfg.MaxTxPerHour)
 	if hourCount > int64(cfg.MaxTxPerHour) {
@@ -262,8 +289,6 @@ func CheckVelocity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-day count
-	dayKey := fmt.Sprintf("velocity:count:%s:24h:%s", req.MerchantID, now.Format("2006-01-02"))
-	dayCount, _ := rdb.IncrWithTTL(ctx, dayKey, 24*time.Hour)
 	counters["per_day"] = dayCount
 	limits["per_day"] = int64(cfg.MaxTxPerDay)
 	if dayCount > int64(cfg.MaxTxPerDay) {
@@ -279,8 +304,6 @@ func CheckVelocity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-day cumulative amount
-	dayAmtKey := fmt.Sprintf("velocity:amount:%s:24h:%s", req.MerchantID, now.Format("2006-01-02"))
-	dayAmt, _ := rdb.IncrByWithTTL(ctx, dayAmtKey, req.AmountKobo, 24*time.Hour)
 	counters["day_amount_kobo"] = dayAmt
 	limits["day_amount_kobo"] = cfg.MaxAmountKoboPerDay
 	if dayAmt > cfg.MaxAmountKoboPerDay {

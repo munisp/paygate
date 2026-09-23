@@ -179,7 +179,7 @@ export default function AdminTenantManagement() {
                       style={{ backgroundColor: tenant.primaryColor ?? "#6366f1" }}
                     >
                       {tenant.logoUrl
-                        ? <img src={tenant.logoUrl} alt={tenant.name} className="w-10 h-10 rounded-lg object-cover" />
+                        ? <img src={tenant.logoUrl} alt={tenant.name} loading="lazy" decoding="async" className="w-10 h-10 rounded-lg object-cover" />
                         : tenant.name.slice(0, 2).toUpperCase()
                       }
                     </div>

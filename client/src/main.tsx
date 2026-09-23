@@ -16,6 +16,12 @@ import "./index.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      // Global cache policy: treat data as fresh for 30s to avoid redundant
+      // refetches on mount/navigation, keep inactive queries cached for 5min,
+      // and don't hammer the API on every window refocus.
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
       retry: (failureCount, error) => {
         if (error instanceof TRPCClientError) {
           const code = error.data?.code as string | undefined;

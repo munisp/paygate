@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,8 +15,8 @@ const _storage = FlutterSecureStorage();
 final dioProvider = Provider<Dio>((ref) {
   final dio = Dio(BaseOptions(
     baseUrl: _kBaseUrl,
-    connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(seconds: 30),
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 15),
     headers: {'Content-Type': 'application/json'},
   ));
 
@@ -35,12 +38,18 @@ final dioProvider = Provider<Dio>((ref) {
     },
   ));
 
-  // Logging in debug mode
-  dio.interceptors.add(LogInterceptor(
-    requestBody: false,
-    responseBody: false,
-    logPrint: (o) => debugPrint('[API] $o'),
-  ));
+  // Minimal in-memory GET cache (TTL 30s, keyed by uri + auth scope).
+  // No dio_cache_interceptor / dio_smart_retry in pubspec, so implemented here.
+  dio.interceptors.add(_InMemoryGetCacheInterceptor(ttl: const Duration(seconds: 30)));
+
+  // Logging in debug mode only — never log request traffic in release builds.
+  if (kDebugMode) {
+    dio.interceptors.add(LogInterceptor(
+      requestBody: false,
+      responseBody: false,
+      logPrint: (o) => debugPrint('[API] $o'),
+    ));
+  }
 
   return dio;
 });
@@ -49,13 +58,24 @@ final apiServiceProvider = Provider<ApiService>((ref) {
   return ApiService(ref.watch(dioProvider));
 });
 
+/// Decodes a JSON body, offloading to a background isolate via [compute]
+/// when the payload exceeds 50 KB so the main isolate stays responsive.
+Future<dynamic> decodeJsonBody(String body) {
+  if (body.length > 50 * 1024) {
+    return compute(_jsonDecodeSync, body);
+  }
+  return Future.value(jsonDecode(body));
+}
+
+dynamic _jsonDecodeSync(String body) => jsonDecode(body);
+
 class ApiService {
   final Dio _dio;
   ApiService(this._dio);
 
   // ─── tRPC helper ───────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> trpcQuery(String procedure, [Map<String, dynamic>? input]) async {
-    final inputJson = input != null ? Uri.encodeComponent('{"json":${_encodeJson(input)}}') : Uri.encodeComponent('{"json":null}');
+    final inputJson = Uri.encodeComponent(jsonEncode({'json': input}));
     final response = await _dio.get('/trpc/$procedure?input=$inputJson');
     return _unwrapTrpc(response.data);
   }
@@ -70,16 +90,6 @@ class ApiService {
       return (data['result'] as Map<String, dynamic>?) ?? {};
     }
     return data is Map<String, dynamic> ? data : {};
-  }
-
-  String _encodeJson(Map<String, dynamic> input) {
-    return input.entries.map((e) {
-      final v = e.value;
-      if (v is String) return '"${e.key}":"$v"';
-      if (v is bool || v is num) return '"${e.key}":$v';
-      if (v == null) return '"${e.key}":null';
-      return '"${e.key}":"$v"';
-    }).join(',').let((s) => '{$s}');
   }
 
   // ─── Auth ──────────────────────────────────────────────────────────────────
@@ -364,11 +374,57 @@ class ApiService {
       trpcMutation('pos.products.delete', {'id': productId});
 }
 
-extension _Let<T> on T {
-  R let<R>(R Function(T) block) => block(this);
+/// Minimal in-memory cache for idempotent GET requests.
+///
+/// Keyed by request URI plus the Authorization header value (auth scope) so
+/// cached responses never leak across sessions. Entries expire after [ttl].
+/// Non-GET requests bypass the cache and invalidate all entries for safety.
+class _InMemoryGetCacheInterceptor extends Interceptor {
+  _InMemoryGetCacheInterceptor({required this.ttl});
+
+  final Duration ttl;
+  final Map<String, _CacheEntry> _cache = {};
+
+  String _keyFor(RequestOptions options) =>
+      '${options.headers['Authorization'] ?? ''}|${options.uri}';
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (options.method != 'GET') {
+      _cache.clear();
+      return handler.next(options);
+    }
+    final entry = _cache[_keyFor(options)];
+    if (entry != null && DateTime.now().isBefore(entry.expiresAt)) {
+      return handler.resolve(entry.response);
+    }
+    return handler.next(options);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    if (response.requestOptions.method == 'GET' &&
+        response.statusCode != null &&
+        response.statusCode! >= 200 &&
+        response.statusCode! < 300) {
+      final options = response.requestOptions;
+      _cache[_keyFor(options)] = _CacheEntry(
+        Response<dynamic>(
+          requestOptions: options,
+          data: response.data,
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          headers: response.headers,
+        ),
+        DateTime.now().add(ttl),
+      );
+    }
+    handler.next(response);
+  }
 }
 
-void debugPrint(String message) {
-  // ignore: avoid_print
-  print(message);
+class _CacheEntry {
+  _CacheEntry(this.response, this.expiresAt);
+  final Response<dynamic> response;
+  final DateTime expiresAt;
 }

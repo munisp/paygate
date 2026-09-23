@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/api_service.dart';
@@ -323,7 +324,11 @@ class _QRGeneratorScreenState extends ConsumerState<QRGeneratorScreen> {
                                         builder: (context) => AlertDialog(
                                           backgroundColor: const Color(0xFF1e293b),
                                           title: const Text('QR Code Image', style: TextStyle(color: Color(0xFFf1f5f9))),
-                                          content: Image.network(qr.imageUrl, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.red)),
+                                          content: CachedNetworkImage(
+                                            imageUrl: qr.imageUrl,
+                                            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                            errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.red),
+                                          ),
                                           actions: [
                                             TextButton(
                                               onPressed: () => Navigator.of(context).pop(),

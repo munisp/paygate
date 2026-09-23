@@ -62,9 +62,11 @@ func CurrencyToLedger(currency string) uint32 {
 
 // Client wraps the tigerbeetle-go client with helper methods.
 // It implements clientInterface.
+// The Client has NO mutex: tigerbeetle-go is safe for concurrent use and
+// internally batches concurrent requests into a single network message
+// (PC2). Serialising calls behind a Go mutex would defeat that batching.
 type Client struct {
 	inner tb.Client
-	mu    sync.Mutex
 }
 
 var (
@@ -190,8 +192,6 @@ func ReferenceToID(reference string) tb_types.Uint128 {
 // EnsureAccount creates a TigerBeetle account if it does not already exist.
 // This is idempotent — if the account already exists the call is a no-op.
 func (c *Client) EnsureAccount(id tb_types.Uint128, ledger uint32, code uint16) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	existing, err := c.inner.LookupAccounts([]tb_types.Uint128{id})
 	if err != nil {
@@ -234,8 +234,6 @@ func (c *Client) EnsureAccount(id tb_types.Uint128, ledger uint32, code uint16) 
 // C5: a negative balance is NEVER silently clamped to zero — the exact signed
 // deficit is returned in the error so reconciliation can detect it.
 func (c *Client) GetBalance(id tb_types.Uint128) (uint64, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	accounts, err := c.inner.LookupAccounts([]tb_types.Uint128{id})
 	if err != nil {
@@ -255,6 +253,49 @@ func (c *Client) GetBalance(id tb_types.Uint128) (uint64, error) {
 	return cp.Uint64(), nil
 }
 
+// GetBalances batch-looks-up many accounts in as few LookupAccounts calls as
+// possible (chunks of TB_MAX_BATCH_SIZE — PC6) instead of one round trip per
+// account. It returns slices parallel to ids: balances[i]/found[i] describe
+// ids[i]. found[i] is false when the account does not exist. A non-nil error
+// indicates a transport-level failure for the whole call.
+func (c *Client) GetBalances(ids []tb_types.Uint128) (balances []uint64, found []bool, err error) {
+	balances = make([]uint64, len(ids))
+	found = make([]bool, len(ids))
+	for start := 0; start < len(ids); start += TB_MAX_BATCH_SIZE {
+		end := start + TB_MAX_BATCH_SIZE
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+		accounts, err := c.inner.LookupAccounts(chunk)
+		if err != nil {
+			return nil, nil, fmt.Errorf("GetBalances LookupAccounts (chunk %d-%d): %w", start, end, err)
+		}
+		// LookupAccounts returns found accounts in the same order as their
+		// IDs appeared in the query — build an index by position.
+		pos := make(map[[16]byte]int, len(chunk))
+		for i, id := range chunk {
+			pos[id.Bytes()] = start + i
+		}
+		for _, acc := range accounts {
+			i, ok := pos[acc.ID.Bytes()]
+			if !ok {
+				continue
+			}
+			cp := acc.CreditsPosted.BigInt()
+			dp := acc.DebitsPosted.BigInt()
+			if dp.Cmp(&cp) > 0 {
+				deficit := new(big.Int).Sub(&dp, &cp)
+				return nil, nil, fmt.Errorf("GetBalances: account %v is OVERDRAWN by %s (credits_posted=%s debits_posted=%s)", acc.ID, deficit.String(), cp.String(), dp.String())
+			}
+			cp.Sub(&cp, &dp)
+			balances[i] = cp.Uint64()
+			found[i] = true
+		}
+	}
+	return balances, found, nil
+}
+
 // Transfer executes a single TigerBeetle transfer.
 func (c *Client) Transfer(
 	transferID tb_types.Uint128,
@@ -264,8 +305,6 @@ func (c *Client) Transfer(
 	ledger uint32,
 	code uint16,
 ) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	transfers := []tb_types.Transfer{
 		{
@@ -306,8 +345,6 @@ func (c *Client) TransferWithResult(
 	ledger uint32,
 	code uint16,
 ) (TransferResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	transfers := []tb_types.Transfer{
 		{
@@ -339,35 +376,36 @@ func (c *Client) TransferWithResult(
 // Source: https://backend.how/posts/1b-payments-per-day/
 const TB_MAX_BATCH_SIZE = 8190
 
-// BatchTransfers submits up to TB_MAX_BATCH_SIZE transfers in a single
-// CreateTransfers call. This is the high-throughput path: one kernel
-// doorbell ring (io_uring_enter) per ~8,190 transfers instead of one per
-// transfer, eliminating the per-transfer network round-trip overhead.
+// BatchTransfers submits transfers in one or more CreateTransfers calls,
+// automatically chunking into batches of at most TB_MAX_BATCH_SIZE (PC2).
+// This is the high-throughput path: one kernel doorbell ring
+// (io_uring_enter) per ~8,190 transfers instead of one per transfer,
+// eliminating the per-transfer network round-trip overhead.
 //
-// Callers MUST chunk slices larger than TB_MAX_BATCH_SIZE before calling.
 // If the slice is empty, BatchTransfers returns nil immediately.
+//
+// NOTE: chunking means batches LARGER than TB_MAX_BATCH_SIZE are split into
+// independent CreateTransfers calls; the linked-flag atomicity guarantee
+// below only holds WITHIN each chunk.
 //
 // The linked flag on each transfer controls atomicity:
 //   - linked=true on transfers[0..n-2] + linked=false on transfers[n-1]
 //     makes the entire batch succeed or fail atomically.
 //   - All linked=false means each transfer is independent.
 func (c *Client) BatchTransfers(transfers []tb_types.Transfer) error {
-	if len(transfers) == 0 {
-		return nil
-	}
-	if len(transfers) > TB_MAX_BATCH_SIZE {
-		return fmt.Errorf("BatchTransfers: batch size %d exceeds maximum %d", len(transfers), TB_MAX_BATCH_SIZE)
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	results, err := c.inner.CreateTransfers(transfers)
-	if err != nil {
-		return fmt.Errorf("BatchTransfers CreateTransfers: %w", err)
-	}
-	for _, r := range results {
-		if r.Result != tb_types.TransferOK {
-			return fmt.Errorf("BatchTransfers[%d]: %v", r.Index, r.Result)
+	for start := 0; start < len(transfers); start += TB_MAX_BATCH_SIZE {
+		end := start + TB_MAX_BATCH_SIZE
+		if end > len(transfers) {
+			end = len(transfers)
+		}
+		results, err := c.inner.CreateTransfers(transfers[start:end])
+		if err != nil {
+			return fmt.Errorf("BatchTransfers CreateTransfers (chunk %d-%d): %w", start, end, err)
+		}
+		for _, r := range results {
+			if r.Result != tb_types.TransferOK {
+				return fmt.Errorf("BatchTransfers[%d]: %v", start+int(r.Index), r.Result)
+			}
 		}
 	}
 	return nil
@@ -394,8 +432,6 @@ func (c *Client) CreatePendingTransfer(
 	code uint16,
 	timeout uint32, // seconds until auto-void (0 = no timeout)
 ) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	transfers := []tb_types.Transfer{
 		{
@@ -429,8 +465,6 @@ func (c *Client) PostPendingTransfer(
 	ledger uint32,
 	code uint16,
 ) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	transfers := []tb_types.Transfer{
 		{
@@ -460,8 +494,6 @@ func (c *Client) VoidPendingTransfer(
 	ledger uint32,
 	code uint16,
 ) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	transfers := []tb_types.Transfer{
 		{

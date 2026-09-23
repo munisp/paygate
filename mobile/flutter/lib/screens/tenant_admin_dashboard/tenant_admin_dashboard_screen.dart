@@ -340,11 +340,14 @@ class _TenantAdminDashboardScreenState extends ConsumerState<TenantAdminDashboar
                            transaction.status.toLowerCase().contains(query);
                   }).toList();
 
-            return ListView(
+            final txCount = filteredTransactions.isEmpty ? 1 : filteredTransactions.length;
+            return ListView.builder(
               padding: const EdgeInsets.all(16.0),
-              children: [
-                // Welcome Card
-                Card(
+              itemCount: 2 + txCount + 2,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  // Welcome Card
+                  return Card(
                   color: _cardColor,
                   margin: const EdgeInsets.only(bottom: 16.0),
                   child: Padding(
@@ -369,18 +372,23 @@ class _TenantAdminDashboardScreenState extends ConsumerState<TenantAdminDashboar
                       ],
                     ),
                   ),
-                ),
+                );
+                }
 
-                // Recent Transactions Section
-                Padding(
+                if (index == 1) {
+                  // Recent Transactions Section
+                  return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Text(
                     'Recent Transactions',
                     style: TextStyle(color: _textColor, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                ),
-                if (filteredTransactions.isEmpty)
-                  Center(
+                );
+                }
+                final txSectionEnd = 2 + txCount;
+                if (index < txSectionEnd) {
+                  if (filteredTransactions.isEmpty) {
+                    return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Text(
@@ -388,9 +396,10 @@ class _TenantAdminDashboardScreenState extends ConsumerState<TenantAdminDashboar
                         style: TextStyle(color: _textColor.withOpacity(0.7)),
                       ),
                     ),
-                  )
-                else
-                  ...filteredTransactions.map((transaction) => Card(
+                  );
+                  }
+                  final transaction = filteredTransactions[index - 2];
+                  return Card(
                         color: _cardColor,
                         margin: const EdgeInsets.only(bottom: 8.0),
                         child: ListTile(
@@ -422,17 +431,20 @@ class _TenantAdminDashboardScreenState extends ConsumerState<TenantAdminDashboar
                           onTap: () => _showEditDialog(transaction),
                           onLongPress: () => _showDeleteConfirmationDialog(transaction),
                         ),
-                      )),
+                      );
+                }
 
-                // Placeholder for other sections like Tenant List with CRUD
-                Padding(
+                if (index == txSectionEnd) {
+                  // Placeholder for other sections like Tenant List with CRUD
+                  return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Text(
                     'Tenant Management',
                     style: TextStyle(color: _textColor, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                ),
-                Card(
+                );
+                }
+                return Card(
                   color: _cardColor,
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -461,8 +473,8 @@ class _TenantAdminDashboardScreenState extends ConsumerState<TenantAdminDashboar
                       ],
                     ),
                   ),
-                ),
-              ],
+                );
+              },
             );
           },
         ),

@@ -232,11 +232,13 @@ class _PartnerAdminDashboardScreenState extends ConsumerState<PartnerAdminDashbo
                 ),
               );
             }
-            return ListView(
+            return ListView.builder(
               padding: const EdgeInsets.all(16.0),
-              children: [
+              itemCount: 6 + data.partners.length,
+              itemBuilder: (context, index) {
+                if (index == 0) {
                 // Dashboard Summary Cards
-                Card(
+                return Card(
                   color: _cardColor,
                   margin: const EdgeInsets.only(bottom: 16.0),
                   child: Padding(
@@ -256,8 +258,10 @@ class _PartnerAdminDashboardScreenState extends ConsumerState<PartnerAdminDashbo
                       ],
                     ),
                   ),
-                ),
-                Row(
+                );
+                }
+                if (index == 1) {
+                return Row(
                   children: [
                     Expanded(
                       child: Card(
@@ -306,15 +310,19 @@ class _PartnerAdminDashboardScreenState extends ConsumerState<PartnerAdminDashbo
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 20.0),
-                Text(
-                  'Manage Partners',
-                  style: TextStyle(color: _textColor, fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10.0),
+                );
+                }
+                if (index == 2) return const SizedBox(height: 20.0);
+                if (index == 3) {
+                  return Text(
+                    'Manage Partners',
+                    style: TextStyle(color: _textColor, fontSize: 20, fontWeight: FontWeight.bold),
+                  );
+                }
+                if (index == 4) return const SizedBox(height: 10.0);
                 // Search and Filter (Placeholder)
-                Padding(
+                if (index == 5) {
+                return Padding(
                   padding: const EdgeInsets.only(bottom: 16.0),
                   child: TextField(
                     decoration: InputDecoration(
@@ -333,9 +341,11 @@ class _PartnerAdminDashboardScreenState extends ConsumerState<PartnerAdminDashbo
                       // Implement search logic here
                     },
                   ),
-                ),
+                );
+                }
                 // Partners List
-                ...data.partners.map((partner) => Card(
+                final partner = data.partners[index - 6];
+                return Card(
                   color: _cardColor,
                   margin: const EdgeInsets.only(bottom: 10.0),
                   child: Padding(
@@ -391,8 +401,8 @@ class _PartnerAdminDashboardScreenState extends ConsumerState<PartnerAdminDashbo
                       ],
                     ),
                   ),
-                )).toList(),
-              ],
+                );
+              },
             );
           },
         ),

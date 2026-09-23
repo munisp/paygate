@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Search, UserPlus, Download, X, CreditCard, ArrowUpRight, Phone, Mail, Calendar, TrendingUp, TrendingDown, Clock, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +18,29 @@ const RISK_COLORS: Record<string, string> = {
   high: "bg-red-100 text-red-700",
   critical: "bg-red-200 text-red-900",
 };
+
+// Memoized row — avoids re-rendering every row on unrelated state changes.
+const CustomerRow = memo(function CustomerRow({ c, onSelect }: { c: any; onSelect: (id: string) => void }) {
+  return (
+    <tr
+      className="hover:bg-muted/30 transition-colors cursor-pointer"
+      onClick={() => onSelect(c.id)}
+    >
+      <td className="px-4 py-3 font-medium text-foreground">{c.name ?? "—"}</td>
+      <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
+      <td className="px-4 py-3 text-muted-foreground">{c.phone ?? "—"}</td>
+      <td className="px-4 py-3">
+        <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${RISK_COLORS[c.riskLevel] ?? "bg-muted text-muted-foreground"}`}>
+          {c.riskLevel}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
+      <td className="px-4 py-3 text-right">
+        <Button variant="ghost" size="sm" className="text-xs h-7 px-2">View</Button>
+      </td>
+    </tr>
+  );
+});
 
 export default function Customers() {
   const [search, setSearch] = useState("");
@@ -110,24 +133,7 @@ export default function Customers() {
             )) : rows.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No customers found</td></tr>
             ) : rows.map((c: any) => (
-              <tr
-                key={c.id}
-                className="hover:bg-muted/30 transition-colors cursor-pointer"
-                onClick={() => setSelectedId(c.id)}
-              >
-                <td className="px-4 py-3 font-medium text-foreground">{c.name ?? "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
-                <td className="px-4 py-3 text-muted-foreground">{c.phone ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${RISK_COLORS[c.riskLevel] ?? "bg-muted text-muted-foreground"}`}>
-                    {c.riskLevel}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
-                <td className="px-4 py-3 text-right">
-                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2">View</Button>
-                </td>
-              </tr>
+              <CustomerRow key={c.id} c={c} onSelect={setSelectedId} />
             ))}
           </tbody>
         </table></div>

@@ -90,6 +90,8 @@ function DocumentLightbox({ url, onClose }: { url: string; onClose: () => void }
           <img
             src={url}
             alt="KYC Document"
+            loading="lazy"
+            decoding="async"
             style={{ transform: `scale(${zoom})`, transformOrigin: "center", transition: "transform 0.15s" }}
             className="max-w-full max-h-full object-contain rounded shadow-2xl"
           />

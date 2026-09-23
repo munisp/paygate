@@ -388,7 +388,8 @@ export default function HostedCheckoutScreen() {
 
   const { data: statusData } = trpc.hostedCheckout.getStatus.useQuery(
     { sessionId: session?.id ?? '' },
-    { enabled: !!session?.id && paymentState === 'processing', refetchInterval: 3000 },
+    // 15s polling — 3s hammered the status endpoint for marginal UX gain.
+    { enabled: !!session?.id && paymentState === 'processing', refetchInterval: 15_000 },
   );
 
   useEffect(() => {

@@ -76,9 +76,9 @@ export default function RemittanceTracker() {
     !search || h.recipient?.toLowerCase().includes(search.toLowerCase()) || h.trackingCode?.includes(search)
   );
 
-  // Derive live stats from history
-  const now = Date.now();
-  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  // Derive live stats from history (memoized — Date.now() must not be
+  // re-evaluated on every render; recompute only when history changes)
+  const thirtyDaysAgo = useMemo(() => Date.now() - 30 * 24 * 60 * 60 * 1000, [transfers]);
   const recent = transfers.filter((h: any) => {
     const ts = h.createdAt ? new Date(h.createdAt).getTime() : 0;
     return ts >= thirtyDaysAgo;

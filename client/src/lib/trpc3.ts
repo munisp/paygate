@@ -1,9 +1,9 @@
 /**
  * tRPC client for the Tier 6–8 feature router (served at /api/trpc3).
- * Mirrors the setup in trpc.ts but points to the /api/trpc3 endpoint.
+ * Built via the shared factory in trpc.ts.
  */
-import { createTRPCReact } from "@trpc/react-query";
-import React from "react";
 import type { tier6to8Router } from "../../../server/tier6to8Router";
-export const TrpcContext3 = React.createContext<null>(null);
-export const trpc3 = createTRPCReact<typeof tier6to8Router>({ context: TrpcContext3 as any });
+import { createPaygateTrpc } from "./trpc";
+
+const { trpc: trpc3, TrpcContext: TrpcContext3 } = createPaygateTrpc<typeof tier6to8Router>();
+export { trpc3, TrpcContext3 };

@@ -107,14 +107,17 @@ export function useRealtimeNotifications() {
       xhrRef.current = null;
     }
 
-    const url = `${SSE_URL}?token=${encodeURIComponent(token)}`;
+    // Token is sent via the Authorization header, not the URL query string,
+    // so it never leaks into server/proxy access logs. The server auth stack
+    // (sdk.authenticateRequest) accepts Bearer tokens from this header.
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
     lastIndexRef.current = 0;
 
-    xhr.open("GET", url, true);
+    xhr.open("GET", SSE_URL, true);
     xhr.setRequestHeader("Accept", "text/event-stream");
     xhr.setRequestHeader("Cache-Control", "no-cache");
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
     xhr.onreadystatechange = () => {
       if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {

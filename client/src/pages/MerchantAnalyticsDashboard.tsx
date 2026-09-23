@@ -21,6 +21,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { downsampleSeries } from "@/lib/downsample";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { useLocation } from "wouter";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
@@ -433,12 +434,14 @@ export default function MerchantAnalyticsDashboard() {
 
   // ── Time series data ───────────────────────────────────────────────────────
   const timeSeriesData = useMemo(() => {
-    return (bundle?.timeSeries ?? []).map((d: any) => ({
+    const mapped = (bundle?.timeSeries ?? []).map((d: any) => ({
       date: fmtDate(d.date),
       revenue: Number(d.volume ?? 0),
       fees: Number(d.fees ?? 0),
       count: Number(d.count ?? 0),
     }));
+    // Downsample long series before rendering (LTTB, <=500 points)
+    return downsampleSeries(mapped, 500, { x: (_p, i) => i, y: p => p.revenue });
   }, [bundle]);
 
   // ── Daily status breakdown ─────────────────────────────────────────────────

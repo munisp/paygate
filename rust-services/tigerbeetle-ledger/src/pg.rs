@@ -14,13 +14,17 @@
 //     without double-posting. The check-then-insert race is closed with
 //     INSERT ... ON CONFLICT DO NOTHING + rollback + re-read.
 //
-// Connection: single tokio-postgres connection guarded by a mutex. Writes are
-// serialized — matching the previous "double-entry under one write lock"
-// semantic and keeping transaction code simple and correct.
+// Connection: a small fixed-size pool of tokio-postgres connections (one
+// Mutex<Client> per connection), selected round-robin (PC9). No single global
+// lock serialises all DB access any more; each connection still serialises
+// its own transactions, preserving the "double-entry under one write lock per
+// connection" semantic. deadpool-postgres/sqlx are NOT available offline, so
+// the pool is implemented in-repo over the existing tokio-postgres dep.
 
 use crate::model::*;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls, Row};
@@ -117,42 +121,69 @@ fn transfer_from_row(row: &Row) -> Transfer {
 
 #[derive(Clone)]
 pub struct PgStore {
-    client: Arc<Mutex<Client>>,
+    pool: Arc<Vec<Mutex<Client>>>,
+    next: Arc<AtomicUsize>,
 }
 
+/// default_pool_size is used when PG_POOL_SIZE is unset/invalid.
+const DEFAULT_POOL_SIZE: usize = 8;
+
 impl PgStore {
+    /// Borrow the next pool connection (round-robin). The returned mutex
+    /// serialises work on THAT connection only — different callers proceed in
+    /// parallel on different connections.
+    fn conn(&self) -> &Mutex<Client> {
+        let i = self.next.fetch_add(1, Ordering::Relaxed) % self.pool.len();
+        &self.pool[i]
+    }
+
     /// Connect, verify reachability, and run migrations. Fails loud: any error
     /// here must abort startup (the service refuses to serve a non-durable
     /// ledger in production).
     pub async fn connect(database_url: &str) -> Result<Self, StoreError> {
-        let (client, connection) = tokio_postgres::connect(database_url, NoTls)
+        let pool_size = std::env::var("PG_POOL_SIZE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(DEFAULT_POOL_SIZE);
+
+        let mut pool = Vec::with_capacity(pool_size);
+        for i in 0..pool_size {
+            let (client, connection) = tokio_postgres::connect(database_url, NoTls)
+                .await
+                .map_err(|e| StoreError::Backend(format!("postgres connect failed (conn {i}): {e}")))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = connection.await {
+                    tracing::error!(error = %e, conn = i, "postgres connection terminated");
+                }
+            });
+
+            client
+                .batch_execute("SELECT 1")
+                .await
+                .map_err(|e| StoreError::Backend(format!("postgres health probe failed (conn {i}): {e}")))?;
+
+            pool.push(Mutex::new(client));
+        }
+
+        // Run migrations once, on the first connection.
+        pool[0]
+            .lock()
             .await
-            .map_err(|e| StoreError::Backend(format!("postgres connect failed: {e}")))?;
-
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!(error = %e, "postgres connection terminated");
-            }
-        });
-
-        client
-            .batch_execute("SELECT 1")
-            .await
-            .map_err(|e| StoreError::Backend(format!("postgres health probe failed: {e}")))?;
-
-        client
             .batch_execute(MIGRATIONS)
             .await
             .map_err(|e| StoreError::Backend(format!("ledger schema migration failed: {e}")))?;
 
-        tracing::info!("ledger schema verified (ledger_accounts, ledger_transfers)");
+        tracing::info!(pool_size, "ledger schema verified (ledger_accounts, ledger_transfers)");
         Ok(PgStore {
-            client: Arc::new(Mutex::new(client)),
+            pool: Arc::new(pool),
+            next: Arc::new(AtomicUsize::new(0)),
         })
     }
 
     pub async fn healthy(&self) -> bool {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         client.batch_execute("SELECT 1").await.is_ok()
     }
 
@@ -173,7 +204,7 @@ impl PgStore {
             created_at: now_nanos(),
         };
 
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         client
             .execute(
                 "INSERT INTO ledger_accounts
@@ -196,7 +227,7 @@ impl PgStore {
     }
 
     pub async fn get_account(&self, account_id: &str) -> Result<Account, StoreError> {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         let row = client
             .query_opt("SELECT * FROM ledger_accounts WHERE id = $1", &[&account_id])
             .await
@@ -214,7 +245,7 @@ impl PgStore {
         req: CreateTransferRequest,
     ) -> Result<(Transfer, bool), StoreError> {
         validate_transfer_request(&req)?;
-        let mut client = self.client.lock().await;
+        let mut client = self.conn().lock().await;
 
         // Fast-path replay check (the unique constraint is the real guard).
         if let Some(row) = client
@@ -357,7 +388,7 @@ impl PgStore {
     ) -> Result<(serde_json::Value, bool), StoreError> {
         let plan = plan_cross_border(&req)?;
         let reference = plan.reference.clone();
-        let mut client = self.client.lock().await;
+        let mut client = self.conn().lock().await;
 
         // Replay: the t1 row stores the exact response payload.
         if let Some(row) = client
@@ -545,7 +576,7 @@ impl PgStore {
         rail: &str,
         limit: usize,
     ) -> (Vec<Transfer>, usize) {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         let total: i64 = client
             .query_one("SELECT COUNT(*) FROM ledger_transfers", &[])
             .await
@@ -571,7 +602,7 @@ impl PgStore {
     }
 
     pub async fn list_accounts(&self, merchant_id: &str) -> Vec<Account> {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         client
             .query(
                 "SELECT * FROM ledger_accounts WHERE ($1 = '' OR merchant_id = $1) ORDER BY created_at",
@@ -585,7 +616,7 @@ impl PgStore {
     }
 
     pub async fn stats(&self) -> LedgerStats {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
 
         let total_accounts: i64 = client
             .query_one("SELECT COUNT(*) FROM ledger_accounts", &[])
@@ -638,7 +669,7 @@ impl PgStore {
     }
 
     pub async fn seed_demo_accounts(&self) -> Result<(), StoreError> {
-        let client = self.client.lock().await;
+        let client = self.conn().lock().await;
         let demo_merchant = "merchant_demo_001";
         let ts = now_nanos() as i64;
 
@@ -751,7 +782,7 @@ mod tests {
             .await
             .unwrap();
         {
-            let client = store.client.lock().await;
+            let client = store.conn().lock().await;
             client
                 .execute(
                     "UPDATE ledger_accounts SET credits_posted = 100000 WHERE id = $1",

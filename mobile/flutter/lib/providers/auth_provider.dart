@@ -66,7 +66,17 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
 final authStateProvider = AsyncNotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
 
-// Convenience selector
+// Convenience selectors — narrow to the needed field with .select() so
+// widgets only rebuild when that specific field changes.
 final currentUserProvider = Provider<Map<String, dynamic>?>((ref) {
-  return ref.watch(authStateProvider).value?.user;
+  return ref.watch(authStateProvider.select((a) => a.value?.user));
+});
+
+final isAuthenticatedProvider = Provider<bool>((ref) {
+  return ref.watch(
+      authStateProvider.select((a) => a.value?.isAuthenticated ?? false));
+});
+
+final authErrorProvider = Provider<String?>((ref) {
+  return ref.watch(authStateProvider.select((a) => a.value?.error));
 });

@@ -1,8 +1,9 @@
 /**
- * trpc5.ts — tRPC client for Wave 80 new features router (/api/trpc5)
+ * tRPC client for the Wave 80 new-features router (served at /api/trpc5).
+ * Built via the shared factory in trpc.ts.
  */
-import { createTRPCReact } from "@trpc/react-query";
-import React from "react";
 import type { Wave80Router } from "../../../server/wave80Router";
-export const TrpcContext5 = React.createContext<null>(null);
-export const trpc5 = createTRPCReact<Wave80Router>({ context: TrpcContext5 as any });
+import { createPaygateTrpc } from "./trpc";
+
+const { trpc: trpc5, TrpcContext: TrpcContext5 } = createPaygateTrpc<Wave80Router>();
+export { trpc5, TrpcContext5 };

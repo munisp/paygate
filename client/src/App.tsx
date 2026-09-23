@@ -19,25 +19,25 @@ import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import AcceptInvite from "./pages/AcceptInvite";
 
-// ── Consumer layout (eager — consumer shell) ─────────────────────────────────
-import ConsumerLayout from "./pages/consumer/ConsumerLayout";
-import EMIManagement from "./pages/EMIManagement";
-import SubscriptionManagement from "./pages/SubscriptionManagement";
-import PartnerAdminDashboard from "./pages/PartnerAdminDashboard";
-import TenantBrandingAdmin from "./pages/TenantBrandingAdmin";
-import GoldSIP from "./pages/GoldSIP";
-import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
-import WebhookLiveStream from "./pages/WebhookLiveStream";
-import MiddlewareDashboard from "./pages/MiddlewareDashboard";
-import FraudAlertsDashboard from "./pages/FraudAlertsDashboard";
-import WebhookSimulator from "./pages/Webhooks/WebhookSimulator";
-import WAFAlertDashboard from "./pages/WAFAlertDashboard";
-import BNPLCalculator from "./pages/BNPLCalculator";
-import InsuranceHub from "./pages/InsuranceHub";
-import RemittanceTracker from "./pages/RemittanceTracker";
-
 // ── Lazy page loader helper ───────────────────────────────────────────────────
 const lz = (fn: () => Promise<any>) => lazy(fn);
+
+// ── Consumer layout & misc pages (lazy — code-split out of entry bundle) ─────
+const ConsumerLayout = lz(() => import("./pages/consumer/ConsumerLayout"));
+const EMIManagement = lz(() => import("./pages/EMIManagement"));
+const SubscriptionManagement = lz(() => import("./pages/SubscriptionManagement"));
+const PartnerAdminDashboard = lz(() => import("./pages/PartnerAdminDashboard"));
+const TenantBrandingAdmin = lz(() => import("./pages/TenantBrandingAdmin"));
+const GoldSIP = lz(() => import("./pages/GoldSIP"));
+const ConsumerLoyaltyApp = lz(() => import("./pages/ConsumerLoyaltyApp"));
+const WebhookLiveStream = lz(() => import("./pages/WebhookLiveStream"));
+const MiddlewareDashboard = lz(() => import("./pages/MiddlewareDashboard"));
+const FraudAlertsDashboard = lz(() => import("./pages/FraudAlertsDashboard"));
+const WebhookSimulator = lz(() => import("./pages/Webhooks/WebhookSimulator"));
+const WAFAlertDashboard = lz(() => import("./pages/WAFAlertDashboard"));
+const BNPLCalculator = lz(() => import("./pages/BNPLCalculator"));
+const InsuranceHub = lz(() => import("./pages/InsuranceHub"));
+const RemittanceTracker = lz(() => import("./pages/RemittanceTracker"));
 
 // ── Merchant pages ────────────────────────────────────────────────────────────
 const Dashboard = lz(() => import("./pages/Dashboard"));
@@ -584,7 +584,8 @@ function Router() {
 
   if (isConsumerPage) {
     return (
-      <ConsumerLayout>
+      <Suspense fallback={<PageLoader />}>
+        <ConsumerLayout>
         <Suspense fallback={<PageLoader />}>
           <Switch>
             <Route path="/consumer" component={ConsumerWallet} />
@@ -639,7 +640,8 @@ function Router() {
             <Route component={ConsumerWallet} />
           </Switch>
         </Suspense>
-      </ConsumerLayout>
+        </ConsumerLayout>
+      </Suspense>
     );
   }
 

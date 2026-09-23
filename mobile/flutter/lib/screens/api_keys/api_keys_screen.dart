@@ -26,7 +26,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
       final res = await http.get(Uri.parse('/api/trpc/api_keys.list'),
         headers: {'Content-Type': 'application/json'});
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final data = await decodeJsonBody(res.body);
         setState(() { _items = data['result']?['data'] ?? []; _loading = false; });
       } else {
         setState(() { _error = 'Failed to load data'; _loading = false; });

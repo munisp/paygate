@@ -13,17 +13,20 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -914,6 +917,71 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+// ─── gzip response compression (PC5) ─────────────────────────────────────────
+
+// gzipWriterPool recycles gzip writers to avoid per-request allocations.
+var gzipWriterPool = sync.Pool{
+	New: func() any {
+		return gzip.NewWriter(io.Discard)
+	},
+}
+
+// gzipSkipPrefixes lists path prefixes that must NOT be compressed:
+// SSE/streaming endpoints flush incrementally and would deadlock behind a
+// buffering compressor.
+var gzipSkipPrefixes = []string{
+	"/v1/stream/", // Fluvio SSE event stream
+}
+
+// gzipMiddleware compresses response bodies with gzip when the client
+// advertises Accept-Encoding: gzip. Streaming endpoints are passed through.
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		for _, prefix := range gzipSkipPrefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		gz := gzipWriterPool.Get().(*gzip.Writer)
+		gz.Reset(w)
+		defer func() {
+			if err := gz.Close(); err != nil {
+				slog.Warn("[gzip] close error", "err", err)
+			}
+			gzipWriterPool.Put(gz)
+		}()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
+	})
+}
+
+// gzipResponseWriter routes Write calls through the gzip writer and forwards
+// Flush to BOTH the compressor and the underlying connection so any handler
+// that flushes (e.g. polling endpoints) still works correctly.
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	return g.gz.Write(b)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	if err := g.gz.Flush(); err != nil {
+		slog.Warn("[gzip] flush error", "err", err)
+	}
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

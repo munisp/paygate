@@ -50,7 +50,7 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
   Future<void> _fetchVelocityLimits() async {
     final res = await http.get(Uri.parse('/api/trpc/velocityLimits.list?input={"page":1,"pageSize":20}'));
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+      final data = await decodeJsonBody(res.body);
       setState(() => _velocityLimits = List<Map<String, dynamic>>.from(data['result']?['data']?['limits'] ?? []));
     }
   }
@@ -58,7 +58,7 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
   Future<void> _fetchInterchangeSchedules() async {
     final res = await http.get(Uri.parse('/api/trpc/interchange.getSchedule?input={}'));
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+      final data = await decodeJsonBody(res.body);
       setState(() => _interchangeSchedules = List<Map<String, dynamic>>.from(data['result']?['data']?['schedules'] ?? []));
     }
   }
@@ -66,7 +66,7 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
   Future<void> _fetchSchemeMemberships() async {
     final res = await http.get(Uri.parse('/api/trpc/schemeMembership.list?input={}'));
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+      final data = await decodeJsonBody(res.body);
       setState(() => _schemeMemberships = List<Map<String, dynamic>>.from(data['result']?['data']?['memberships'] ?? []));
     }
   }
@@ -74,7 +74,7 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
   Future<void> _fetchSTRReports() async {
     final res = await http.get(Uri.parse('/api/trpc/str.list?input={"page":1,"pageSize":20}'));
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+      final data = await decodeJsonBody(res.body);
       setState(() => _strReports = List<Map<String, dynamic>>.from(data['result']?['data']?['reports'] ?? []));
     }
   }
@@ -82,7 +82,7 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
   Future<void> _fetchCBNReports() async {
     final res = await http.get(Uri.parse('/api/trpc/regulatoryReports.list?input={"page":1,"pageSize":20}'));
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+      final data = await decodeJsonBody(res.body);
       setState(() => _cbnReports = List<Map<String, dynamic>>.from(data['result']?['data']?['reports'] ?? []));
     }
   }
@@ -143,94 +143,107 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
     );
   }
 
-  Widget _buildVelocityTab() {
-    return ListView(
+  /// Lazily-built list tab: header, optional [banner], then one card per item
+  /// via [ListView.builder] so long lists are not materialized eagerly.
+  Widget _buildListTab({
+    required String title,
+    Widget? banner,
+    required List<Map<String, dynamic>> items,
+    required String emptyText,
+    required Widget Function(Map<String, dynamic> item) itemBuilder,
+  }) {
+    final extra = banner != null ? 1 : 0;
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Sub-Merchant Velocity Limits', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        if (_velocityLimits.isEmpty)
-          const Center(child: Text('No velocity limits configured.', style: TextStyle(color: Colors.grey)))
-        else
-          ..._velocityLimits.map((limit) => _buildCard(
-            title: limit['merchantId'] ?? '',
-            subtitle: '${(limit['channel'] ?? '').toString().toUpperCase()} · ${limit['windowSeconds']}s · max ${limit['maxCount']} txns',
-            status: limit['isActive'] == true ? 'Active' : 'Inactive',
-            statusColor: limit['isActive'] == true ? Colors.green : Colors.grey,
-          )),
-      ],
+      itemCount: 1 + extra + (items.isEmpty ? 1 : items.length),
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          );
+        }
+        index -= 1;
+        if (banner != null) {
+          if (index == 0) return banner;
+          index -= 1;
+        }
+        if (items.isEmpty) {
+          return Center(child: Text(emptyText, style: const TextStyle(color: Colors.grey)));
+        }
+        return itemBuilder(items[index]);
+      },
+    );
+  }
+
+  Widget _buildVelocityTab() {
+    return _buildListTab(
+      title: 'Sub-Merchant Velocity Limits',
+      items: _velocityLimits,
+      emptyText: 'No velocity limits configured.',
+      itemBuilder: (limit) => _buildCard(
+        title: limit['merchantId'] ?? '',
+        subtitle: '${(limit['channel'] ?? '').toString().toUpperCase()} · ${limit['windowSeconds']}s · max ${limit['maxCount']} txns',
+        status: limit['isActive'] == true ? 'Active' : 'Inactive',
+        statusColor: limit['isActive'] == true ? Colors.green : Colors.grey,
+      ),
     );
   }
 
   Widget _buildInterchangeTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Interchange Fee Schedule', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        if (_interchangeSchedules.isEmpty)
-          const Center(child: Text('No interchange schedules.', style: TextStyle(color: Colors.grey)))
-        else
-          ..._interchangeSchedules.map((s) => _buildCard(
-            title: '${s['network']} · ${s['cardType']}',
-            subtitle: s['feeType'] == 'percentage' ? '${s['feeValue']}%' : '₦${((s['feeValue'] ?? 0) / 100).toStringAsFixed(2)} flat',
-            status: s['rail'] ?? '',
-            statusColor: Colors.blue,
-          )),
-      ],
+    return _buildListTab(
+      title: 'Interchange Fee Schedule',
+      items: _interchangeSchedules,
+      emptyText: 'No interchange schedules.',
+      itemBuilder: (s) => _buildCard(
+        title: '${s['network']} · ${s['cardType']}',
+        subtitle: s['feeType'] == 'percentage' ? '${s['feeValue']}%' : '₦${((s['feeValue'] ?? 0) / 100).toStringAsFixed(2)} flat',
+        status: s['rail'] ?? '',
+        statusColor: Colors.blue,
+      ),
     );
   }
 
   Widget _buildSchemeTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Scheme Membership', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        if (_schemeMemberships.isEmpty)
-          const Center(child: Text('No scheme memberships.', style: TextStyle(color: Colors.grey)))
-        else
-          ..._schemeMemberships.map((m) => _buildCard(
-            title: '${m['schemeName']} · ${m['membershipType']}',
-            subtitle: 'BIN: ${m['binRangeStart']}–${m['binRangeEnd']}',
-            status: m['status'] ?? '',
-            statusColor: m['status'] == 'active' ? Colors.green : Colors.grey,
-          )),
-      ],
+    return _buildListTab(
+      title: 'Scheme Membership',
+      items: _schemeMemberships,
+      emptyText: 'No scheme memberships.',
+      itemBuilder: (m) => _buildCard(
+        title: '${m['schemeName']} · ${m['membershipType']}',
+        subtitle: 'BIN: ${m['binRangeStart']}–${m['binRangeEnd']}',
+        status: m['status'] ?? '',
+        statusColor: m['status'] == 'active' ? Colors.green : Colors.grey,
+      ),
     );
   }
 
   Widget _buildSTRTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Suspicious Transaction Reports', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: const Color(0xFF92400e), borderRadius: BorderRadius.circular(8)),
-          child: const Text('⚠ CBN/NFIU requires STR submission within 24 hours', style: TextStyle(color: Colors.orange, fontSize: 12)),
-        ),
-        if (_strReports.isEmpty)
-          const Center(child: Text('No STRs filed.', style: TextStyle(color: Colors.grey)))
-        else
-          ..._strReports.map((r) => _buildCard(
-            title: 'STR-${(r['id'] ?? '').toString().substring(0, 8).toUpperCase()}',
-            subtitle: '${r['suspiciousActivityType']} · ₦${((r['transactionAmountKobo'] ?? 0) / 100).toStringAsFixed(0)}',
-            status: r['status'] ?? '',
-            statusColor: r['status'] == 'submitted' ? Colors.green : Colors.orange,
-          )),
-      ],
+    return _buildListTab(
+      title: 'Suspicious Transaction Reports',
+      banner: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: const Color(0xFF92400e), borderRadius: BorderRadius.circular(8)),
+        child: const Text('⚠ CBN/NFIU requires STR submission within 24 hours', style: TextStyle(color: Colors.orange, fontSize: 12)),
+      ),
+      items: _strReports,
+      emptyText: 'No STRs filed.',
+      itemBuilder: (r) => _buildCard(
+        title: 'STR-${(r['id'] ?? '').toString().substring(0, 8).toUpperCase()}',
+        subtitle: '${r['suspiciousActivityType']} · ₦${((r['transactionAmountKobo'] ?? 0) / 100).toStringAsFixed(0)}',
+        status: r['status'] ?? '',
+        statusColor: r['status'] == 'submitted' ? Colors.green : Colors.orange,
+      ),
     );
   }
 
   Widget _buildCBNReportsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('CBN Regulatory Reports', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        Row(
+    return _buildListTab(
+      title: 'CBN Regulatory Reports',
+      banner: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
           children: ['form_a', 'form_b', 'form_c'].map((type) => Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -242,14 +255,15 @@ class _PSPManagementScreenState extends State<PSPManagementScreen>
             ),
           )).toList(),
         ),
-        const SizedBox(height: 12),
-        ..._cbnReports.map((r) => _buildCard(
-          title: (r['reportType'] ?? '').toString().toUpperCase().replaceAll('_', ' '),
-          subtitle: r['reportingPeriod'] ?? '',
-          status: r['status'] ?? '',
-          statusColor: r['status'] == 'submitted' ? Colors.green : Colors.orange,
-        )),
-      ],
+      ),
+      items: _cbnReports,
+      emptyText: 'No regulatory reports.',
+      itemBuilder: (r) => _buildCard(
+        title: (r['reportType'] ?? '').toString().toUpperCase().replaceAll('_', ' '),
+        subtitle: r['reportingPeriod'] ?? '',
+        status: r['status'] ?? '',
+        statusColor: r['status'] == 'submitted' ? Colors.green : Colors.orange,
+      ),
     );
   }
 

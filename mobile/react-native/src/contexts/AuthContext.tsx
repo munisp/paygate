@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
+import { setAuthToken } from "../lib/trpc";
 
 const TOKEN_KEY = "paygate_auth_token";
 const USER_KEY = "paygate_user";
@@ -48,6 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
       const storedUser = await SecureStore.getItemAsync(USER_KEY);
       if (storedToken && storedUser) {
+        // Sync the module-scope token cache before any tRPC query can mount.
+        setAuthToken(storedToken);
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
       }
@@ -58,42 +61,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function login(newToken: string, newUser: User) {
+  const login = useCallback(async (newToken: string, newUser: User) => {
     await SecureStore.setItemAsync(TOKEN_KEY, newToken);
     await SecureStore.setItemAsync(USER_KEY, JSON.stringify(newUser));
+    setAuthToken(newToken);
     setToken(newToken);
     setUser(newUser);
-  }
+  }, []);
 
-  async function logout() {
+  const logout = useCallback(async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    setAuthToken(null);
     setToken(null);
     setUser(null);
-  }
+  }, []);
 
-  async function biometricLogin(): Promise<boolean> {
+  const biometricLogin = useCallback(async (): Promise<boolean> => {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: "Authenticate to access PayGate",
       fallbackLabel: "Use PIN",
       disableDeviceFallback: false,
     });
     return result.success;
-  }
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      token,
+      isLoading,
+      isAuthenticated: !!token && !!user,
+      login,
+      logout,
+      biometricLogin,
+      hasBiometrics,
+    }),
+    [user, token, isLoading, login, logout, biometricLogin, hasBiometrics],
+  );
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        isLoading,
-        isAuthenticated: !!token && !!user,
-        login,
-        logout,
-        biometricLogin,
-        hasBiometrics,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

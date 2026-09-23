@@ -238,10 +238,31 @@ import 'screens/white_label_sdk/white_label_s_d_k_screen.dart';
 import 'screens/workflow_observability/workflow_observability_screen.dart';
 
 class PayGateApp extends StatelessWidget {
-  const PayGateApp({super.key});
+  const PayGateApp({super.key, this.bootstrapFuture});
+
+  /// Background initialization (Hive, Firebase, notifications). While it is
+  /// in flight a splash is shown; the first frame is never blocked on it.
+  final Future<void>? bootstrapFuture;
 
   @override
   Widget build(BuildContext context) {
+    final future = bootstrapFuture;
+    if (future == null) return _buildApp(context);
+    return FutureBuilder<void>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: SplashScreen(),
+          );
+        }
+        return _buildApp(context);
+      },
+    );
+  }
+
+  Widget _buildApp(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => AuthProvider(),
       child: MaterialApp(

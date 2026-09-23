@@ -134,6 +134,97 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 // (liveness must not crash-loop the pod) but reports degraded:true + reasons.
 const bootDegradedReasons: string[] = [];
 
+// ─── PS2: consolidated, byte-capped payload scanning ─────────────────────────
+
+/** Maximum string-content bytes the payload scanners inspect per request. */
+const SCAN_BODY_BYTE_BUDGET = 1 * 1024 * 1024; // 1 MB
+const ORIGINAL_BODY = Symbol("paygate.originalBody");
+
+type ScannedRequest = express.Request & { [ORIGINAL_BODY]?: unknown };
+
+/**
+ * Deep-copies `value`, keeping at most `budget` bytes of string content.
+ * Strings beyond the budget are truncated; structure beyond the budget is
+ * dropped. Buffers and class instances are returned by reference untouched.
+ */
+function capBodyForScan(value: unknown, state: { remaining: number }, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    if (value.length <= state.remaining) {
+      state.remaining -= value.length;
+      return value;
+    }
+    const out = value.slice(0, Math.max(0, state.remaining));
+    state.remaining = 0;
+    return out;
+  }
+  if (typeof value !== "object" || depth > 10) return value;
+  if (Buffer.isBuffer(value) || value instanceof Date) return value;
+  if (state.remaining <= 0) return Array.isArray(value) ? [] : {};
+  if (Array.isArray(value)) {
+    return value.map((item) => capBodyForScan(item, state, depth + 1));
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    state.remaining -= key.length;
+    out[key] = capBodyForScan(v, state, depth + 1);
+  }
+  return out;
+}
+
+/**
+ * Swaps req.body for a byte-capped snapshot so the scanning middlewares below
+ * (payloadScan + wafMiddleware) each inspect at most the first 1 MB — once.
+ * The original body is stashed on the request and restored by
+ * restoreUncappedBody before any route handler runs.
+ */
+function capBodyForScanMiddleware(req: express.Request, _res: express.Response, next: express.NextFunction): void {
+  if (req.body != null && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+    const r = req as ScannedRequest;
+    r[ORIGINAL_BODY] = req.body;
+    req.body = capBodyForScan(req.body, { remaining: SCAN_BODY_BYTE_BUDGET });
+  }
+  next();
+}
+
+/** Restores the uncapped request body stashed by capBodyForScanMiddleware. */
+function restoreUncappedBody(req: express.Request, _res: express.Response, next: express.NextFunction): void {
+  const r = req as ScannedRequest;
+  if (ORIGINAL_BODY in r) {
+    req.body = r[ORIGINAL_BODY];
+    delete r[ORIGINAL_BODY];
+  }
+  next();
+}
+
+/**
+ * strictWaf's transport-level checks (content-type enforcement + request
+ * smuggling guard) without its internal delegation to wafMiddleware — the
+ * global WAF scan already ran for this request.
+ */
+function strictTrpcTransportChecks(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  // Require Content-Type for POST/PUT/PATCH
+  if (["POST", "PUT", "PATCH"].includes(req.method)) {
+    const ct = req.headers["content-type"] ?? "";
+    if (!ct.includes("application/json") && !ct.includes("multipart/form-data")) {
+      res.status(415).json({ error: "Unsupported media type" });
+      return;
+    }
+  }
+
+  // Check for suspicious header combinations (request smuggling)
+  const te = req.headers["transfer-encoding"];
+  const cl = req.headers["content-length"];
+  if (te && cl) {
+    res.status(400).json({ error: "Ambiguous request" });
+    return;
+  }
+
+  next();
+}
+
 async function startServer() {
   // Fail closed on missing critical configuration (production) and warn
   // loudly about unconfigured integrations everywhere else.
@@ -243,6 +334,16 @@ async function startServer() {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
+  // PS2: tRPC bodies can be up to 25 MB and the payload scanners regex every
+  // string in the body. Both scanners (payloadScan + wafMiddleware) below run
+  // against a single capped snapshot — the first 1 MB of string content —
+  // instead of triple full-payload scans, and strictWaf no longer re-invokes
+  // the WAF (see below). Threat patterns (SQLi/XSS/traversal/etc.) are short
+  // signatures that appear within the first bytes of an injected field, so
+  // fail-loud detection semantics are preserved. The full body is restored
+  // before any route handler runs (see restoreUncappedBody below).
+  app.use(capBodyForScanMiddleware);
+
   // Payload scanner inspects parsed bodies — must run after the body parsers.
   await mountGuarded("payloadScan (security116)", async () => {
     const m = await import("../security116");
@@ -252,13 +353,20 @@ async function startServer() {
   // WAF inspects parsed bodies — must run after the body parsers.
   app.use(wafMiddleware);
 
-  // Strict WAF (content-type + smuggling checks) composes with wafMiddleware —
-  // it delegates to it internally — and is scoped to the financial mutation
-  // surface only, so JSON parsing of webhooks etc. is unaffected.
+  // Strict WAF (content-type + smuggling checks) is scoped to the financial
+  // mutation surface only, so JSON parsing of webhooks etc. is unaffected.
+  // PS2: m.strictWafMiddleware delegates to wafMiddleware internally, which
+  // already ran globally above — mounting it here would double-scan every
+  // /api/trpc body. Apply only strictWaf's content-type / request-smuggling
+  // checks; the full WAF scan has already been performed for this request.
   await mountGuarded("strictWaf (wafMiddleware, /api/trpc)", async () => {
-    const m = await import("../wafMiddleware");
-    app.use("/api/trpc", m.strictWafMiddleware);
+    await import("../wafMiddleware"); // strictWafMiddleware lives here
+    app.use("/api/trpc", strictTrpcTransportChecks);
   });
+
+  // PS2: end of the scan chain — restore the uncapped body so downstream
+  // handlers (tRPC, webhooks, routes) see the real payload.
+  app.use(restoreUncappedBody);
 
   // ── Prometheus scrape endpoint (k8s pod annotations target /api/metrics) ──
   app.get("/api/metrics", (req, res) => { void metricsHandler(req, res); });

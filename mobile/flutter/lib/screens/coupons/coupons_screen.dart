@@ -36,7 +36,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
         headers: {'Content-Type': 'application/json'},
       );
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final data = await decodeJsonBody(res.body);
         setState(() { _items = data['result']?['data']?['rows'] ?? []; _loading = false; });
       } else {
         setState(() { _error = 'Failed to load coupons'; _loading = false; });

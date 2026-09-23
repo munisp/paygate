@@ -22,7 +22,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
         Uri.parse('https://api.paygate.africa/api/trpc/complianceKyc.list?input={"limit":50}'),
         headers: {'Content-Type': 'application/json'},
       );
-      final d = jsonDecode(r.body);
+      final d = await decodeJsonBody(r.body);
       setState(() { _records = d['result']?['data']?['items'] ?? []; _loading = false; });
     } catch (_) { setState(() => _loading = false); }
   }

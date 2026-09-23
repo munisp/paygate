@@ -1,11 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
-import { trpc, createTRPCClient } from "../src/lib/trpc";
+import { trpc, createTRPCClient, getAuthToken } from "../src/lib/trpc";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
 
 SplashScreen.preventAutoHideAsync();
@@ -65,7 +65,10 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const trpcClient = createTRPCClient(() => null); // token injected per-request via AuthContext
+  // Create the tRPC client exactly once. It reads the auth token lazily via
+  // getAuthToken() on every request, so it never goes stale across
+  // login/logout and is not recreated on each render.
+  const [trpcClient] = useState(() => createTRPCClient(getAuthToken));
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

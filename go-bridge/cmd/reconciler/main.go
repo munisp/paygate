@@ -33,6 +33,7 @@ import (
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	tb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 )
 
 func main() {
@@ -115,29 +116,41 @@ func runReconciliation(toleranceKobo int64) error {
 		return nil
 	}
 
-	var (
-		totalChecked  int
-		totalMismatch int
-		totalAlerted  int
-	)
-
+	// PC6: batch the TigerBeetle lookups — resolve all IDs first, then fetch
+	// all balances in chunked LookupAccounts calls instead of one round trip
+	// per merchant.
+	ids := make([]tb_types.Uint128, 0, len(pgRows))
+	validRows := make([]pgdb.ReconciliationRow, 0, len(pgRows))
 	for _, row := range pgRows {
-		totalChecked++
-
-		// 2. Look up the corresponding TigerBeetle wallet balance.
 		merchantID, err := tb.UUIDToID(row.MerchantID)
 		if err != nil {
 			slog.Warn("[reconciler] invalid merchant_id — skipping",
 				"merchant_id", row.MerchantID, "err", err)
 			continue
 		}
+		ids = append(ids, merchantID)
+		validRows = append(validRows, row)
+	}
 
-		tbBalance, err := tbClient.GetBalance(merchantID)
-		if err != nil {
-			slog.Warn("[reconciler] TigerBeetle GetBalance failed — skipping",
-				"merchant_id", row.MerchantID, "currency", row.Currency, "err", err)
+	balances, found, err := tbClient.GetBalances(ids)
+	if err != nil {
+		return fmt.Errorf("GetBalances: %w", err)
+	}
+
+	var (
+		totalChecked  int
+		totalMismatch int
+		totalAlerted  int
+	)
+
+	for i, row := range validRows {
+		totalChecked++
+		if !found[i] {
+			slog.Warn("[reconciler] TigerBeetle account not found — skipping",
+				"merchant_id", row.MerchantID, "currency", row.Currency)
 			continue
 		}
+		tbBalance := balances[i]
 
 		// 3. Compare.
 		pgBalance := row.PGBalance

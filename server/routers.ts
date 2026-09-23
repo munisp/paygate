@@ -161,7 +161,7 @@ import {
   acknowledgeGeoAnomaly,
   getGlobalAnomalyConfig,
   setGlobalAnomalyConfig,
-  getKnownCountriesForUser,
+  getKnownCountriesForUsers,
   recordAnomalyConfigChange,
   getAnomalyConfigAuditLog,
   getLatestCountryForUsers,
@@ -995,16 +995,25 @@ const transactionsRouter = router({
       // Fire webhook event for all active webhooks on this merchant
       const webhooks = await listWebhooks(merchant.id);
       const payload = JSON.stringify({ event: 'transaction.refunded', data: { transactionId: tx.id, merchantId: merchant.id, refundAmount, currency: tx.currency, reason: input.reason ?? 'merchant_initiated' }, timestamp: new Date().toISOString() });
-      for (const wh of (webhooks as any[])) {
-        if (!wh.isActive) continue;
+      // PS3: fan out to all active webhooks concurrently and NEVER block the
+      // refund response on webhook delivery — failures are logged, not thrown.
+      void Promise.allSettled((webhooks as any[]).filter((wh) => wh.isActive).map(async (wh) => {
         const startedAt = Date.now();
         try {
           const resp = await fetch(wh.url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PayGate-Event': 'transaction.refunded' }, body: payload, signal: AbortSignal.timeout(10000) });
           await createWebhookDelivery({ id: nanoid('wdl_'), webhookId: wh.id, merchantId: merchant.id, tenantId: merchant.tenantId ?? "ten_default", eventType: 'transaction.refunded', payload, responseStatus: resp.status, status: resp.ok ? 'success' : 'failed', responseBody: '', latencyMs: Date.now() - startedAt, attemptCount: 1 });
-        } catch {
-          await createWebhookDelivery({ id: nanoid('wdl_'), webhookId: wh.id, merchantId: merchant.id, tenantId: merchant.tenantId ?? "ten_default", eventType: 'transaction.refunded', payload, responseStatus: 0, status: 'failed', responseBody: '', latencyMs: Date.now() - startedAt, attemptCount: 1 });
+        } catch (err) {
+          logger.warn('[webhooks] refund fan-out delivery failed (non-fatal):', err instanceof Error ? err.message : err);
+          try {
+            await createWebhookDelivery({ id: nanoid('wdl_'), webhookId: wh.id, merchantId: merchant.id, tenantId: merchant.tenantId ?? "ten_default", eventType: 'transaction.refunded', payload, responseStatus: 0, status: 'failed', responseBody: '', latencyMs: Date.now() - startedAt, attemptCount: 1 });
+          } catch (logErr) {
+            logger.error('[webhooks] failed to record refund webhook delivery (non-fatal):', logErr instanceof Error ? logErr.message : logErr);
+          }
         }
-      }
+      })).then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed > 0) logger.error(`[webhooks] refund fan-out: ${failed}/${results.length} deliveries failed for tx ${tx.id}`);
+      });
       return { success: true, transaction: updated };
     }),
 });
@@ -1598,8 +1607,9 @@ const payoutsRouter = router({
         `).catch((e) => logger.error("[routers] failed to revert payout approving guard:", e));
         throw approveErr;
       }
-      const { logAuditEvent: logPayoutAudit } = await import('./db');
-      await logPayoutAudit({
+      // PS11: audit insert is fire-and-forget — never block/throw the payout
+      // approval response on audit-trail latency or failure.
+      void import('./db').then(({ logAuditEvent: logPayoutAudit }) => logPayoutAudit({
         merchantId: merchant.id,
         actorId: String(user.id),
         actorName: user.name ?? 'Unknown',
@@ -1607,7 +1617,7 @@ const payoutsRouter = router({
         resource: 'payout',
         resourceId: input.id,
         metadata: { amount: Number(payout.amount), currency: payout.currency, reason: input.reason },
-      });
+      })).catch((e) => logger.error('[audit] logAuditEvent payout.approved failed:', e instanceof Error ? e.message : e));
       notifyPayoutApproved({
         merchantName: merchant.businessName ?? merchant.id,
         payoutId: input.id,
@@ -3286,18 +3296,24 @@ const merchantAnalyticsRouter = router({
         getHourlyHeatmap, getRecentTransactionsFeed, getChannelBreakdown,
         getRevenueTimeSeries, getFraudStats,
       } = await import('./db');
-      const [comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats] =
-        await Promise.all([
-          getPeriodComparison(merchant.id, input.from, input.to),
-          getDailyStatusBreakdown(merchant.id, input.from, input.to),
-          getTopCustomers(merchant.id, input.from, input.to, 10),
-          getHourlyHeatmap(merchant.id, input.from, input.to),
-          getRecentTransactionsFeed(merchant.id, 20),
-          getChannelBreakdown(merchant.id, input.from, input.to),
-          getRevenueTimeSeries(merchant.id, input.from, input.to),
-          getFraudStats(merchant.id),
-        ]);
-      return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
+      // PS4: cache the 8-aggregate bundle per merchant+range (fail-open —
+      // Redis down falls through to the DB). Range rounded to the minute so
+      // near-identical dashboard polls share a cache entry.
+      const cacheKey = `${merchant.id}:${Math.floor(input.from.getTime() / 60000)}:${Math.floor(input.to.getTime() / 60000)}`;
+      return withCache("analytics:bundle", cacheKey, TTL.ANALYTICS_BUNDLE, async () => {
+        const [comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats] =
+          await Promise.all([
+            getPeriodComparison(merchant.id, input.from, input.to),
+            getDailyStatusBreakdown(merchant.id, input.from, input.to),
+            getTopCustomers(merchant.id, input.from, input.to, 10),
+            getHourlyHeatmap(merchant.id, input.from, input.to),
+            getRecentTransactionsFeed(merchant.id, 20),
+            getChannelBreakdown(merchant.id, input.from, input.to),
+            getRevenueTimeSeries(merchant.id, input.from, input.to),
+            getFraudStats(merchant.id),
+          ]);
+        return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
+      });
     }),
     /** Manually trigger analytics digest email for the current merchant */
   sendDigest: protectedProcedure
@@ -3794,26 +3810,28 @@ const middlewareRouter = router({
           const sessRes = await fetch(url, { headers: { Authorization: `Bearer ${access_token}` } });
           if (!sessRes.ok) return { sessions: [], total: 0 };
           const sessions = await sessRes.json() as Array<{ id: string; userId: string; username: string; ipAddress: string; start: number; lastAccess: number; clients?: Record<string, string> }>;
-          // Enrich each session with isNewCountry flag
-          const enriched = await Promise.all(
-            sessions.slice(0, input.limit).map(async (s) => {
-              try {
-                const known = await getKnownCountriesForUser(s.userId, 90);
-                const db2 = await getDb();
-                if (!db2) return { ...s, isNewCountry: false };
-                const recent = await db2.execute(sql`
-                  SELECT geo_country FROM keycloak_events
-                  WHERE user_id = ${s.userId} AND event_type = 'LOGIN' AND geo_country IS NOT NULL
-                  ORDER BY received_at DESC LIMIT 1
-                `);
-                const latestCountry = (recent.rows[0] as { geo_country: string } | undefined)?.geo_country;
-                const isNewCountry = !!latestCountry && !known.includes(latestCountry);
-                return { ...s, isNewCountry, geoCountry: latestCountry ?? null };
-              } catch {
-                return { ...s, isNewCountry: false, geoCountry: null };
-              }
-            })
-          );
+          // PS8: enrich sessions with isNewCountry via TWO batched queries for
+          // the whole page instead of 2 queries per row (N+1 on up to 500 rows).
+          const page = sessions.slice(0, input.limit);
+          const userIds = [...new Set(page.map((s) => s.userId).filter(Boolean))];
+          let knownByUser = new Map<string, string[]>();
+          let latestByUser = new Map<string, string>();
+          try {
+            const [known, latest] = await Promise.all([
+              getKnownCountriesForUsers(userIds, 90),
+              getLatestCountryForUsers(userIds),
+            ]);
+            knownByUser = known;
+            latestByUser = new Map(latest.map((r) => [r.user_id, r.geo_country]));
+          } catch (err) {
+            logger.warn('[admin] session geo enrichment failed (non-fatal):', err instanceof Error ? err.message : err);
+          }
+          const enriched = page.map((s) => {
+            const latestCountry = latestByUser.get(s.userId);
+            const known = knownByUser.get(s.userId) ?? [];
+            const isNewCountry = !!latestCountry && !known.includes(latestCountry);
+            return { ...s, isNewCountry, geoCountry: latestCountry ?? null };
+          });
           return { sessions: enriched, total: sessions.length };
         } catch {
           return { sessions: [], total: 0 };
@@ -3939,16 +3957,23 @@ const middlewareRouter = router({
               const sessRes = await fetch(`${kcUrl}/admin/realms/${realm}/sessions?first=0&max=500`, { headers: { Authorization: `Bearer ${access_token}` } });
               if (sessRes.ok) {
                 const raw = await sessRes.json() as Array<Record<string, unknown>>;
-                sessions = await Promise.all(raw.map(async (s) => {
-                  try {
-                    const known = await getKnownCountriesForUser(String(s.userId ?? ""), 90);
-                    const db2 = await getDb();
-                    if (!db2) return { ...s, isNewCountry: false, geoCountry: null };
-                    const recent = await db2.execute(sql`SELECT geo_country FROM keycloak_events WHERE user_id = ${String(s.userId ?? "")} AND event_type = 'LOGIN' AND geo_country IS NOT NULL ORDER BY received_at DESC LIMIT 1`);
-                    const latestCountry = (recent.rows[0] as { geo_country: string } | undefined)?.geo_country;
-                    return { ...s, isNewCountry: !!latestCountry && !known.includes(latestCountry), geoCountry: latestCountry ?? null };
-                  } catch { return { ...s, isNewCountry: false, geoCountry: null }; }
-                }));
+                // PS8: batched geo enrichment — 2 queries total, not 2 per row.
+                const userIds = [...new Set(raw.map((s) => String(s.userId ?? "")).filter(Boolean))];
+                let knownByUser = new Map<string, string[]>();
+                let latestByUser = new Map<string, string>();
+                try {
+                  const [known, latest] = await Promise.all([
+                    getKnownCountriesForUsers(userIds, 90),
+                    getLatestCountryForUsers(userIds),
+                  ]);
+                  knownByUser = known;
+                  latestByUser = new Map(latest.map((r) => [r.user_id, r.geo_country]));
+                } catch { /* enrichment is best-effort for the CSV export */ }
+                sessions = raw.map((s) => {
+                  const latestCountry = latestByUser.get(String(s.userId ?? ""));
+                  const known = knownByUser.get(String(s.userId ?? "")) ?? [];
+                  return { ...s, isNewCountry: !!latestCountry && !known.includes(latestCountry), geoCountry: latestCountry ?? null };
+                });
               }
             }
           } catch { /* ignore */ }
@@ -7667,30 +7692,37 @@ const stripeRouter = router({
 });
 
 // ─── Admin Router ─────────────────────────────────────────────────────────────
+// PS6: module-level singleton pg.Pool — the previous per-request
+// `new Pool(...)` + `pool.end()` churned a fresh connection pool (and its
+// startup handshakes) on every admin call.
+let _adminMgmtPool: import('pg').Pool | null = null;
+async function getAdminMgmtPool(): Promise<import('pg').Pool> {
+  if (_adminMgmtPool) return _adminMgmtPool;
+  const { Pool } = await import('pg');
+  _adminMgmtPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  _adminMgmtPool.on('error', (e: Error) => logger.warn('[adminMgmt] pg pool error (non-fatal):', e.message));
+  return _adminMgmtPool;
+}
+
 const adminMgmtRouter = router({
   // Returns count of admin users — used by onboarding wizard to detect no-admin state.
   getAdminCount: protectedProcedure.query(async ({ ctx }) => {
-    const { Pool } = await import('pg');
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = await getAdminMgmtPool();
     const res = await pool.query(`SELECT COUNT(*) as cnt FROM users WHERE role='admin'`);
-    await pool.end();
     return { count: parseInt(res.rows[0]?.cnt ?? '0', 10) };
   }),
 
   // Promotes the currently logged-in owner to admin (only works when 0 admins exist).
   promoteOwnerToAdmin: protectedProcedure.mutation(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
-    const { Pool } = await import('pg');
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = await getAdminMgmtPool();
     // Safety: only allow self-promotion when no admins exist yet
     const check = await pool.query(`SELECT COUNT(*) as cnt FROM users WHERE role='admin'`);
     const adminCount = parseInt(check.rows[0]?.cnt ?? '0', 10);
     if (adminCount > 0) {
-      await pool.end();
       throw new TRPCError({ code: 'FORBIDDEN', message: 'An admin already exists. Use the Database panel to manage roles.' });
     }
     await pool.query(`UPDATE users SET role='admin' WHERE id=$1`, [user.id]);
-    await pool.end();
     return { promoted: true, userId: user.id };
   }),
 
@@ -7698,10 +7730,8 @@ const adminMgmtRouter = router({
   listUsers: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
     if (user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
-    const { Pool } = await import('pg');
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = await getAdminMgmtPool();
     const res = await pool.query(`SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC LIMIT 200`);
-    await pool.end();
     return res.rows as { id: string; name: string; email: string; role: string; created_at: Date }[];
   }),
 
@@ -7711,10 +7741,8 @@ const adminMgmtRouter = router({
     .mutation(async ({ ctx, input }) => {
       const caller = await resolveUser(ctx.user.openId);
       if (caller.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
-      const { Pool } = await import('pg');
-      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const pool = await getAdminMgmtPool();
             await pool.query(`UPDATE users SET role=$1 WHERE id=$2`, [input.role, input.userId]);
-      await pool.end();
       // Fire-and-forget Kafka audit event
       publishAuditEvent({
         action: 'user.role.changed',
@@ -9015,8 +9043,9 @@ const inventoryRouter = router({
     const user = await resolveUser(ctx.user.openId);
     const merchant = await requireMerchant(user.id);
     await adjustInventoryStock(input.itemId, input.quantity, input.type, input.note);
-    const { logAuditEvent } = await import('./db');
-    await logAuditEvent({
+    // PS11: audit insert is fire-and-forget — never block/throw the stock
+    // adjustment response on audit-trail latency or failure.
+    void import('./db').then(({ logAuditEvent }) => logAuditEvent({
       merchantId: merchant.id,
       actorId: String(user.id),
       actorName: user.name ?? 'Unknown',
@@ -9024,7 +9053,7 @@ const inventoryRouter = router({
       resource: 'inventory_item',
       resourceId: input.itemId,
       metadata: { quantity: input.quantity, type: input.type, note: input.note },
-    });
+    })).catch((e) => logger.error('[audit] logAuditEvent inventory.adjustStock failed:', e instanceof Error ? e.message : e));
     return { ok: true };
   }),
   getRecipeCost: protectedProcedure.input(z.object({ menuItemId: z.string() })).query(async ({ ctx, input }) => {

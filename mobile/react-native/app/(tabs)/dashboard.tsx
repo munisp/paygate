@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ActivityIndicator } from 'react-native';
 import React, { useState } from 'react';
 import { Stack } from 'expo-router';
 import { trpc } from '@/lib/trpc';
@@ -70,53 +70,56 @@ export default function DashboardScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Dashboard', headerStyle: { backgroundColor: '#0f172a' }, headerTintColor: '#f8fafc' }} />
-      <ScrollView contentContainerStyle={styles.scrollViewContent}>
-        <Text style={styles.header}>Welcome to PayGate!</Text>
+      {/* Single FlatList — header content scrolls with the list; no nested
+          virtualized list inside a ScrollView. */}
+      <FlatList
+        data={filteredTransactions ?? []}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <TransactionItem transaction={item} />}
+        contentContainerStyle={styles.scrollViewContent}
+        ListHeaderComponent={
+          <>
+            <Text style={styles.header}>Welcome to PayGate!</Text>
 
-        {/* KPI Cards */}
-        <View style={styles.kpiContainer}>
-          <KPICard title="Total Revenue" value={`₦${summary?.totalRevenue?.toLocaleString() || '0'}`} icon="💰" />
-          <KPICard title="Successful Txns" value={summary?.successfulTransactions?.toLocaleString() || '0'} icon="✅" />
-          <KPICard title="Pending Txns" value={summary?.pendingTransactions?.toLocaleString() || '0'} icon="⏳" />
-        </View>
+            {/* KPI Cards */}
+            <View style={styles.kpiContainer}>
+              <KPICard title="Total Revenue" value={`₦${summary?.totalRevenue?.toLocaleString() || '0'}`} icon="💰" />
+              <KPICard title="Successful Txns" value={summary?.successfulTransactions?.toLocaleString() || '0'} icon="✅" />
+              <KPICard title="Pending Txns" value={summary?.pendingTransactions?.toLocaleString() || '0'} icon="⏳" />
+            </View>
 
-        {/* Quick Actions */}
-        <Text style={styles.sectionHeader}>Quick Actions</Text>
-        <View style={styles.quickActionsContainer}>
-          <TouchableOpacity style={styles.quickActionButton}>
-            <Text style={styles.quickActionButtonText}>Send Money</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionButton}>
-            <Text style={styles.quickActionButtonText}>Generate Link</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionButton}>
-            <Text style={styles.quickActionButtonText}>View Reports</Text>
-          </TouchableOpacity>
-        </View>
+            {/* Quick Actions */}
+            <Text style={styles.sectionHeader}>Quick Actions</Text>
+            <View style={styles.quickActionsContainer}>
+              <TouchableOpacity style={styles.quickActionButton}>
+                <Text style={styles.quickActionButtonText}>Send Money</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickActionButton}>
+                <Text style={styles.quickActionButtonText}>Generate Link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickActionButton}>
+                <Text style={styles.quickActionButtonText}>View Reports</Text>
+              </TouchableOpacity>
+            </View>
 
-        {/* Recent Transactions */}
-        <Text style={styles.sectionHeader}>Recent Transactions</Text>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search transactions..."
-          placeholderTextColor="#94a3b8"
-          value={searchText}
-          onChangeText={setSearchText}
-        />
-        {filteredTransactions && filteredTransactions.length > 0 ? (
-          <FlatList
-            data={filteredTransactions}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <TransactionItem transaction={item} />}
-            scrollEnabled={false} // Disable FlatList scrolling inside ScrollView
-          />
-        ) : (
+            {/* Recent Transactions */}
+            <Text style={styles.sectionHeader}>Recent Transactions</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search transactions..."
+              placeholderTextColor="#94a3b8"
+              value={searchText}
+              onChangeText={setSearchText}
+            />
+          </>
+        }
+        ListEmptyComponent={
           <View style={styles.emptyStateContainer}>
             <Text style={styles.emptyStateText}>No recent transactions found. Time to make some naira!</Text>
             <Text style={styles.emptyStateText}>Try processing a payment or generating a payment link.</Text>
           </View>
-        )}
-      </ScrollView>
+        }
+      />
     </View>
   );
 }

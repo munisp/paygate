@@ -17,7 +17,7 @@ class _QRPaymentsScreenState extends State<QRPaymentsScreen> {
   Future<void> _load() async {
     try {
       final r = await http.get(Uri.parse('https://api.paygate.africa/api/trpc/qrPayments.list?input={"limit":50}'));
-      final d = jsonDecode(r.body);
+      final d = await decodeJsonBody(r.body);
       setState(() { _qrCodes = d['result']?['data']?['items'] ?? []; _loading = false; });
     } catch (_) { setState(() => _loading = false); }
   }

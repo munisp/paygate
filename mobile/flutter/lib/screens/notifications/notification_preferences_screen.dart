@@ -183,11 +183,15 @@ class NotificationPreferencesScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
+      body: Builder(builder: (context) {
+        final groupList = grouped.entries.toList();
+        return ListView.builder(
         padding: const EdgeInsets.all(16),
-        children: [
+        itemCount: 2 + groupList.length,
+        itemBuilder: (context, index) {
+          if (index == 0) {
           // Channel header
-          Container(
+          return Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFF1E293B),
@@ -225,11 +229,13 @@ class NotificationPreferencesScreen extends ConsumerWidget {
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
+          );
+          }
+          if (index == 1) return const SizedBox(height: 16);
 
           // Grouped preferences
-          ...grouped.entries.map((entry) => Column(
+          final entry = groupList[index - 2];
+          return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -262,9 +268,10 @@ class NotificationPreferencesScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                 ],
-              )),
-        ],
-      ),
+              );
+        },
+      );
+      }),
     );
   }
 }

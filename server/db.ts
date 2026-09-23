@@ -284,8 +284,26 @@ export async function listTransactions(merchantId: string, opts: ListOpts = {}) 
     )!);
   }
   const where = and(...conds);
+  // PS5: select only the columns the transactions UI consumes — the full-row
+  // select also dragged along heavy/internal columns (metadata JSONB, GNN
+  // fraud fields, tenant/merchant ids) for every row of every page.
   const [rows, [{ total }]] = await Promise.all([
-    database.select().from(transactions).where(where).orderBy(desc(transactions.createdAt)).limit(limit).offset(offset),
+    database.select({
+      id: transactions.id,
+      reference: transactions.reference,
+      amount: transactions.amount,
+      currency: transactions.currency,
+      status: transactions.status,
+      channel: transactions.channel,
+      customerEmail: transactions.customerEmail,
+      customerName: transactions.customerName,
+      description: transactions.description,
+      feeAmount: transactions.feeAmount,
+      netAmount: transactions.netAmount,
+      metadata: transactions.metadata,
+      completedAt: transactions.completedAt,
+      createdAt: transactions.createdAt,
+    }).from(transactions).where(where).orderBy(desc(transactions.createdAt)).limit(limit).offset(offset),
     database.select({ total: count() }).from(transactions).where(where),
   ]);
   return { rows, total };
@@ -2376,6 +2394,32 @@ export async function getKnownCountriesForUser(userId: string, days = 90): Promi
   `);
   const rows: any[] = result?.rows ?? result ?? [];
   return rows.map(r => r.geo_country as string).filter(Boolean);
+}
+
+/**
+ * Batched variant of getKnownCountriesForUser — one query for many users
+ * (PS8: avoids the 2-queries-per-row N+1 in the admin sessions endpoints).
+ * Returns a Map of userId → distinct login countries within the last N days.
+ */
+export async function getKnownCountriesForUsers(userIds: string[], days = 90): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (userIds.length === 0) return map;
+  const database = requireDbSync();
+  const result: any = await database.execute(sql`
+    SELECT DISTINCT user_id, geo_country
+    FROM keycloak_events
+    WHERE user_id = ANY(${userIds})
+      AND event_type = 'LOGIN'
+      AND geo_country IS NOT NULL
+      AND received_at >= now() - make_interval(days => ${days})
+  `);
+  const rows: any[] = result?.rows ?? result ?? [];
+  for (const r of rows) {
+    const list = map.get(r.user_id) ?? [];
+    if (r.geo_country) list.push(r.geo_country as string);
+    map.set(r.user_id, list);
+  }
+  return map;
 }
 
 /** Most recent login country per user for a set of user ids. */
