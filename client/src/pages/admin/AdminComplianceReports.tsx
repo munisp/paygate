@@ -10,12 +10,11 @@ import { toast } from "sonner";
 import { FileText, Download, RefreshCw, Shield, AlertTriangle, CheckCircle } from "lucide-react";
 
 const REPORT_TYPES = [
-  { value: "aml_sar", label: "AML Suspicious Activity Report (SAR)", description: "Transactions flagged for suspicious activity" },
+  { value: "aml_summary", label: "AML Suspicious Activity Report (SAR)", description: "Transactions flagged for suspicious activity" },
   { value: "kyc_status", label: "KYC/KYB Status Report", description: "Merchant and consumer verification status" },
-  { value: "transaction_monitoring", label: "Transaction Monitoring Report", description: "High-value and cross-border transaction summary" },
-  { value: "fraud_summary", label: "Fraud Summary Report", description: "Fraud alerts, chargebacks, and dispute trends" },
-  { value: "regulatory_cbN", label: "CBN Regulatory Report", description: "Central Bank of Nigeria compliance summary" },
-  { value: "pep_screening", label: "PEP Screening Report", description: "Politically Exposed Persons screening results" },
+  { value: "transaction_volume", label: "Transaction Monitoring Report", description: "High-value and cross-border transaction summary" },
+  { value: "fraud_incidents", label: "Fraud Summary Report", description: "Fraud alerts, chargebacks, and dispute trends" },
+  { value: "regulatory_filing", label: "CBN Regulatory Report", description: "Central Bank of Nigeria compliance summary" },
 ];
 
 export default function AdminComplianceReports() {
@@ -23,16 +22,27 @@ export default function AdminComplianceReports() {
   const [period, setPeriod] = useState("last_30_days");
   const [generatedReport, setGeneratedReport] = useState<any>(null);
 
-  const generateMutation = trpc.wave27.compliance.generateReport.useMutation({
+  const generateMutation = trpc.wave27.complianceReport.generateReport.useMutation({
     onSuccess: (data) => { toast.success("Report generated successfully"); setGeneratedReport(data); },
     onError: (e) => toast.error(e.message),
   });
 
-  const { data: recentReports, refetch, isLoading, isError } = trpc.wave27.compliance.listReports.useQuery();
+  const { data: recentReports, refetch, isLoading, isError } = trpc.wave27.complianceReport.listReports.useQuery();
 
   const handleGenerate = () => {
     if (!reportType) { toast.error("Please select a report type"); return; }
-    generateMutation.mutate({ reportType, period });
+    const end = new Date();
+    const start = new Date(end);
+    const daysMap: Record<string, number> = { last_7_days: 7, last_30_days: 30, last_90_days: 90, last_year: 365, all_time: 3650 };
+    const days = daysMap[period as string] ?? 30;
+    const periodEnum = days <= 1 ? "daily" : days <= 7 ? "weekly" : days <= 30 ? "monthly" : days <= 90 ? "quarterly" : "annual";
+    start.setDate(start.getDate() - days);
+    generateMutation.mutate({
+      reportType,
+      period: periodEnum as any,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    });
   };
 
   const handleDownload = (report: any) => {
@@ -148,11 +158,11 @@ export default function AdminComplianceReports() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Recent Reports</CardTitle></CardHeader>
           <CardContent>
-            {!recentReports?.reports?.length ? (
+            {!(recentReports ?? []).length ? (
               <div className="text-center py-8 text-gray-500">No reports generated yet. Generate your first report above.</div>
             ) : (
               <div className="space-y-3">
-                {recentReports.reports.map((r: any, i: number) => (
+                {(recentReports ?? []).map((r: any, i: number) => (
                   <div key={i} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                     <div className="flex items-center gap-3">
                       <FileText className="w-5 h-5 text-gray-400" />

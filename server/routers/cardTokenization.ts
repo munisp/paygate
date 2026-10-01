@@ -20,34 +20,17 @@ import { createHmac, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb, getUserByOpenId, getMerchantByOwnerId } from "../db";
+import { cardAuthorizationsTable } from "../../drizzle/schema";
 
-// ─── Table descriptor (DDL: drizzle/0094_public_rest_tokenization.sql) ───────
-
-export const cardAuthorizations = pgTable("card_authorizations", {
-  id: text("id").primaryKey(),
-  merchantId: text("merchant_id").notNull(),
-  customerEmail: text("customer_email").notNull(),
-  authorizationCode: text("authorization_code").notNull(),
-  reusable: boolean("reusable").notNull().default(true),
-  signature: text("signature"),
-  bin: text("bin"),
-  last4: text("last4"),
-  brand: text("brand"),
-  cardType: text("card_type"),
-  bank: text("bank"),
-  expMonth: text("exp_month"),
-  expYear: text("exp_year"),
-  channel: text("channel").notNull().default("card"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [
-  index("card_authorizations_merchant_idx").on(t.merchantId),
-  index("card_authorizations_email_idx").on(t.customerEmail),
-  index("card_authorizations_signature_idx").on(t.signature),
-]);
+// ─── Table descriptor ────────────────────────────────────────────────────────
+// A2 dedupe: the single source of truth for card_authorizations is
+// drizzle/schema.ts (cardAuthorizationsTable — identical columns, plus the
+// authorization_code UNIQUE constraint and timestamptz created_at matching the
+// DDL in drizzle/0094_public_rest_tokenization.sql). Re-exported under the
+// historical local name so existing consumers (publicRest.ts) are unchanged.
+export const cardAuthorizations = cardAuthorizationsTable;
 
 export type CardAuthorization = typeof cardAuthorizations.$inferSelect;
 

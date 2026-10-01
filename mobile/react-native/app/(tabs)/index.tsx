@@ -48,15 +48,25 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const [refreshing, setRefreshing] = React.useState(false);
 
-  const { data: metrics, isLoading, refetch } = trpc.dashboard.getMetrics.useQuery(
-    { period: "today" },
+  // Real proc: dashboard.overview ({from?, to?} dates) returns
+  // { merchant, overview, timeSeries }.
+  const todayRange = React.useMemo(() => {
+    const to = new Date();
+    const from = new Date(to); from.setHours(0, 0, 0, 0);
+    return { from, to };
+  }, []);
+  const { data: overviewData, isLoading, refetch } = trpc.dashboard.overview.useQuery(
+    todayRange,
     { staleTime: 60_000 }
   );
+  const metrics = (overviewData as any)?.overview;
 
-  const { data: recentTx } = trpc.transactions.list.useQuery(
-    { limit: 5, page: 1 },
+  const { data: recentTxData } = trpc.transactions.list.useQuery(
+    { limit: 5, offset: 0 },
     { staleTime: 30_000 }
   );
+  // transactions.list returns { rows, total }.
+  const recentTx = (recentTxData as any)?.rows ?? recentTxData;
 
   async function onRefresh() {
     setRefreshing(true);
@@ -64,8 +74,8 @@ export default function DashboardScreen() {
     setRefreshing(false);
   }
 
-  const totalRevenue = metrics?.totalRevenue ?? 0;
-  const txCount = metrics?.transactionCount ?? 0;
+  const totalRevenue = metrics?.netVolume ?? metrics?.totalVolume ?? 0;
+  const txCount = metrics?.totalTransactions ?? 0;
   const successRate = metrics?.successRate ?? 0;
   const pendingPayouts = metrics?.pendingPayouts ?? 0;
 

@@ -15,7 +15,7 @@ import { logger } from './logger';
 
 import crypto from "crypto";
 import { getDb } from "./db";
-import { webhooks, webhookDeliveries } from "../drizzle/schema";
+import { webhooks, webhookDeliveries, webhookDeliveryLog } from "../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { deliverWebhookViaMiddleware } from "./middlewareBridge";
 import { scheduleRetry } from "./webhookRetry";
@@ -120,6 +120,18 @@ export async function dispatchSlaBreachWebhook(
         latencyMs: null,
         status: success ? "success" : "failed",
         attemptCount: 1,
+        deliveredAt: success ? new Date() : null,
+      });
+      // A2-HIGH-1: mirror into webhook_delivery_log (the append-only audit log
+      // read by crud119/orphanedTablesCRUD delivery-log endpoints).
+      await db!.insert(webhookDeliveryLog).values({
+        endpointId: endpoint.id,
+        merchantId: payload.merchantId,
+        eventType: payload.event,
+        payload: payload as unknown as Record<string, unknown>,
+        statusCode: statusCode ?? null,
+        success: success ? 1 : 0,
+        attempt: 1,
         deliveredAt: success ? new Date() : null,
       });
     } catch (dbErr) {
@@ -242,6 +254,17 @@ export async function dispatchWebhook(
         attemptCount: 1,
         // C15: failed first delivery enters the retry schedule (attempt 2 = +1m).
         nextRetryAt: success ? null : scheduleRetry(1),
+        deliveredAt: success ? new Date() : null,
+      });
+      // A2-HIGH-1: mirror into webhook_delivery_log (append-only audit log).
+      await db!.insert(webhookDeliveryLog).values({
+        endpointId: endpoint.id,
+        merchantId: payload.merchantId,
+        eventType: payload.event,
+        payload: payload as unknown as Record<string, unknown>,
+        statusCode: statusCode ?? null,
+        success: success ? 1 : 0,
+        attempt: 1,
         deliveredAt: success ? new Date() : null,
       });
     } catch (dbErr) {

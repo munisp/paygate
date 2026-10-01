@@ -24,22 +24,30 @@ export default function AdminPayoutApproval() {
   const [selectedBatch, setSelectedBatch] = useState<any>(null);
   const [approverNote, setApproverNote] = useState("");
 
-  const { data, isLoading, refetch } = trpc.wave27.payoutApproval.list.useQuery({
-    search: search || undefined,
-  }, { staleTime: 30_000 });
+  // Server exposes getPendingApprovals (no args; returns pending batches only)
+  // plus approvePayoutBatch({batchId, approverNote}) / rejectPayoutBatch({batchId, reason}).
+  const { data, isLoading, refetch } = trpc.wave27.payoutApproval.getPendingApprovals.useQuery(undefined, { staleTime: 30_000 });
 
-  const approveMutation = trpc.wave27.payoutApproval.approve.useMutation({
+  const approveMutation = trpc.wave27.payoutApproval.approvePayoutBatch.useMutation({
     onSuccess: () => { toast.success("Payout batch approved"); refetch(); setSelectedBatch(null); setApproverNote(""); },
     onError: (e) => toast.error(e.message),
   });
 
-  const rejectMutation = trpc.wave27.payoutApproval.reject.useMutation({
+  const rejectMutation = trpc.wave27.payoutApproval.rejectPayoutBatch.useMutation({
     onSuccess: () => { toast.success("Payout batch rejected"); refetch(); setSelectedBatch(null); setApproverNote(""); },
     onError: (e) => toast.error(e.message),
   });
 
-  const batches = data?.batches ?? [];
-  const stats = data?.stats ?? { pendingCount: 0, pendingAmount: 0, approvedToday: 0, rejectedToday: 0 };
+  const allBatches: any[] = Array.isArray(data) ? data : (data?.batches ?? []);
+  const batches = search
+    ? allBatches.filter((b: any) =>
+        String(b.id ?? "").toLowerCase().includes(search.toLowerCase()) ||
+        String(b.merchant_id ?? "").toLowerCase().includes(search.toLowerCase()))
+    : allBatches;
+  const stats = {
+    pendingCount: batches.length,
+    pendingAmount: batches.reduce((sum: number, b: any) => sum + Number(b.total_amount || 0), 0),
+  };
 
   return (
     <AdminLayout>
@@ -53,7 +61,7 @@ export default function AdminPayoutApproval() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <Card className="border-yellow-200 bg-yellow-50">
             <CardContent className="p-4">
               <div className="text-sm text-yellow-700">Pending Approval</div>
@@ -64,18 +72,6 @@ export default function AdminPayoutApproval() {
             <CardContent className="p-4">
               <div className="text-sm text-gray-500">Pending Amount</div>
               <div className="text-2xl font-bold mt-1">₦{(stats.pendingAmount / 1000000).toFixed(1)}M</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-sm text-gray-500">Approved Today</div>
-              <div className="text-2xl font-bold text-green-600 mt-1">{stats.approvedToday}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-sm text-gray-500">Rejected Today</div>
-              <div className="text-2xl font-bold text-red-600 mt-1">{stats.rejectedToday}</div>
             </CardContent>
           </Card>
         </div>
@@ -168,7 +164,13 @@ export default function AdminPayoutApproval() {
                   <Button
                     variant="outline"
                     className="text-red-600 border-red-200 hover:bg-red-50"
-                    onClick={() => rejectMutation.mutate({ batchId: selectedBatch.id, approverNote })}
+                    onClick={() => {
+                      if (!approverNote || approverNote.trim().length < 5) {
+                        toast.error("Please provide a rejection reason (at least 5 characters) in the note field.");
+                        return;
+                      }
+                      rejectMutation.mutate({ batchId: String(selectedBatch.id), reason: approverNote.trim() });
+                    }}
                     disabled={rejectMutation.isPending}
                   >
                     <XCircle className="w-4 h-4 mr-2" />
@@ -176,7 +178,7 @@ export default function AdminPayoutApproval() {
                   </Button>
                   <Button
                     className="bg-green-600 hover:bg-green-700"
-                    onClick={() => approveMutation.mutate({ batchId: selectedBatch.id, approverNote })}
+                    onClick={() => approveMutation.mutate({ batchId: String(selectedBatch.id), approverNote: approverNote || undefined })}
                     disabled={approveMutation.isPending}
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
