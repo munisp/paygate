@@ -23,7 +23,7 @@ export default function ConsumerSubscriptions() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const subscribeMutation = trpc.newFeatures.subscriptionBillingV2.subscribe.useMutation({
+  const subscribeMutation = trpc.subscriptions.create.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Subscribed to ${d.planName}`);
       refetch();
@@ -167,7 +167,13 @@ export default function ConsumerSubscriptions() {
                     <Button
                       size="sm"
                       className="w-full mt-3"
-                      onClick={() => subscribeMutation.mutate({ planId: plan.planId })}
+                      onClick={() => subscribeMutation.mutate({
+                          planName: plan.name ?? plan.planName ?? plan.planId,
+                          amountKobo: plan.priceKobo ?? plan.amountKobo,
+                          currency: plan.currency ?? "NGN",
+                          interval: ({ day: "daily", week: "weekly", month: "monthly", year: "annually" } as any)[plan.interval] ?? "monthly",
+                          startAt: new Date().toISOString(),
+                        })}
                       disabled={subscribeMutation.isPending}
                     >
                       Subscribe

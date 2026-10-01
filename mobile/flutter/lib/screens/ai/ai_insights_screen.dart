@@ -26,7 +26,7 @@ class __AiInsightsScreenState extends State<AiInsightsScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('aiInsights.summary');
+      final result = await api.query('tier1to5.aiInsights.getInsights');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

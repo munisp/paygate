@@ -27,8 +27,9 @@ export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
-  const { data, isLoading } = trpc.transactions.getById.useQuery(
-    { id: parseInt(id ?? "0") },
+  // Server proc is transactions.get { id: string } (ids are nanoid strings).
+  const { data, isLoading } = trpc.transactions.get.useQuery(
+    { id: id ?? "" },
     { enabled: !!id }
   );
 
@@ -132,7 +133,7 @@ export default function TransactionDetailScreen() {
               `Refund ₦${((data.amount ?? 0) / 100).toLocaleString()}?`,
               [
                 { text: "Cancel", style: "cancel" },
-                { text: "Refund", style: "destructive", onPress: () => refundTransaction.mutate({ transactionId: data.id }) },
+                { text: "Refund", style: "destructive", onPress: () => refundTransaction.mutate({ id: data.id }) },
               ]
             )}
           >

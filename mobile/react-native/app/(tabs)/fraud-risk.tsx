@@ -3,26 +3,31 @@ import { View, Text, TouchableOpacity, TextInput, FlatList, StyleSheet, Activity
 import { Stack } from 'expo-router';
 import { trpc } from '@/lib/trpc';
 
+// Matches the real fraudAlerts row returned by fraudRisk.list ({ rows, total }).
 type FraudAlert = {
   id: string;
-  customerName: string;
-  transactionId: string;
-  amount: number;
-  currency: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  status: 'pending' | 'resolved';
-  description: string;
-  timestamp: string;
+  alertType: string;
+  riskScore: number;
+  transactionId: string | null;
+  status: 'open' | 'investigating' | 'resolved' | 'false_positive';
+  description: string | null;
+  createdAt: string | Date;
 };
+
+const severityFromScore = (score: number): 'low' | 'medium' | 'high' | 'critical' =>
+  score >= 90 ? 'critical' : score >= 75 ? 'high' : score >= 50 ? 'medium' : 'low';
 
 const FraudRiskScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: alerts, isLoading, isError, error, refetch } = trpc.fraudRisk.listAlerts.useQuery();
+  // Server proc is fraudRisk.list (returns { rows, total }); there is no listAlerts.
+  const { data: alertsResult, isLoading, isError, error, refetch } = trpc.fraudRisk.list.useQuery({});
   const updateAlertMutation = trpc.fraudRisk.updateAlert.useMutation();
 
-  const filteredAlerts = alerts?.filter(alert =>
-    alert.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    alert.transactionId.toLowerCase().includes(searchQuery.toLowerCase())
+  const alerts = (alertsResult?.rows ?? []) as FraudAlert[];
+  const filteredAlerts = alerts.filter(alert =>
+    alert.alertType.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (alert.transactionId ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (alert.description ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleMarkResolved = async (alertId: string) => {
@@ -47,7 +52,7 @@ const FraudRiskScreen = () => {
     );
   };
 
-  const getSeverityColor = (severity: FraudAlert['severity']) => {
+  const getSeverityColor = (severity: ReturnType<typeof severityFromScore>) => {
     switch (severity) {
       case 'low': return '#22c55e'; // green
       case 'medium': return '#eab308'; // yellow
@@ -93,17 +98,16 @@ const FraudRiskScreen = () => {
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.customerName}>{item.customerName}</Text>
-              <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(item.severity) }]}>
-                <Text style={styles.severityText}>{item.severity.toUpperCase()}</Text>
+              <Text style={styles.customerName}>{item.alertType.replace(/_/g, ' ')}</Text>
+              <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(severityFromScore(item.riskScore)) }]}>
+                <Text style={styles.severityText}>{severityFromScore(item.riskScore).toUpperCase()} ({item.riskScore})</Text>
               </View>
             </View>
-            <Text style={styles.detailText}>Transaction ID: {item.transactionId}</Text>
-            <Text style={styles.detailText}>Amount: {item.currency} {item.amount.toLocaleString()}</Text>
-            <Text style={styles.detailText}>Status: {item.status === 'resolved' ? 'Resolved' : 'Pending'}</Text>
-            <Text style={styles.detailText}>Description: {item.description}</Text>
-            <Text style={styles.detailText}>Time: {new Date(item.timestamp).toLocaleString()}</Text>
-            {item.status === 'pending' && (
+            <Text style={styles.detailText}>Transaction ID: {item.transactionId ?? 'N/A'}</Text>
+            <Text style={styles.detailText}>Status: {item.status.replace(/_/g, ' ')}</Text>
+            <Text style={styles.detailText}>Description: {item.description ?? '—'}</Text>
+            <Text style={styles.detailText}>Time: {new Date(item.createdAt).toLocaleString()}</Text>
+            {item.status === 'open' && (
               <TouchableOpacity
                 style={styles.resolveButton}
                 onPress={() => handleMarkResolved(item.id)}

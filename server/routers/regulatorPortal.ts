@@ -44,6 +44,11 @@ const participantsRouter = router({
   }),
 
   // Client: p.id, p.dfspId, p.name, p.currency, p.schemeType, p.status
+  // A2-HIGH-1 writer note: nexthub_participants / nexthub_participant_limits /
+  // nexthub_participant_positions are hub-side registry & risk data written by
+  // the NextHub hub onboarding and settlement/position-keeping services
+  // (outside this Node codebase — verified by repo-wide grep). This portal is
+  // a regulator read surface only; it must never mutate hub registry data.
   list: protectedProcedure.query(async () => {
     return db
       .select({

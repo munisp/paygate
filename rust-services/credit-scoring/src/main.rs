@@ -2,9 +2,10 @@
 //! Exposes credit score calculation over HTTP.
 //! v2.0: Adds DataFusion-powered batch feature extraction from S3/MinIO lakehouse.
 
+mod internal_auth;
 mod telemetry;
 
-use actix_web::{web, App, HttpResponse, HttpServer, middleware};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, middleware};
 use credit_scoring::{
     CreditScoreRequest, CreditFeatures, calculate_credit_score,
     datafusion_analytics::{LakehouseConfig, extract_credit_features, run_analytics_query},
@@ -32,11 +33,13 @@ async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8100".to_string())
         .parse().unwrap_or(8100);
+    let internal_key = web::Data::new(internal_auth::resolve_internal_key("credit-scoring"));
     log::info!("Credit Scoring v2.0 starting on port {} (DataFusion enabled)", port);
 
-    HttpServer::new(|| {
+    HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
+            .app_data(internal_key.clone())
             .route("/health", web::get().to(health))
             // Manual feature scoring (existing endpoint)
             .route("/score/calculate", web::post().to(score_handler))
@@ -61,7 +64,11 @@ async fn health() -> HttpResponse {
     }))
 }
 
-async fn score_handler(body: web::Json<CreditScoreRequest>) -> HttpResponse {
+async fn score_handler(req: HttpRequest, key: web::Data<String>, body: web::Json<CreditScoreRequest>) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     match calculate_credit_score(body.into_inner()) {
         Ok(result) => HttpResponse::Ok().json(result),
         Err(e) => HttpResponse::BadRequest().json(json!({"error": e})),
@@ -70,9 +77,15 @@ async fn score_handler(body: web::Json<CreditScoreRequest>) -> HttpResponse {
 
 /// Extract features from the MinIO/S3 lakehouse via DataFusion, then compute score.
 async fn score_from_lakehouse(
+    req: HttpRequest,
+    key: web::Data<String>,
     path: web::Path<String>,
     body: web::Json<LakehouseScoreRequest>,
 ) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     let merchant_id = path.into_inner();
     let config = LakehouseConfig::from_env();
 
@@ -123,7 +136,11 @@ async fn score_from_lakehouse(
 }
 
 /// Run a raw DataFusion SQL query against the lakehouse Parquet files.
-async fn analytics_query(body: web::Json<AnalyticsQueryRequest>) -> HttpResponse {
+async fn analytics_query(req: HttpRequest, key: web::Data<String>, body: web::Json<AnalyticsQueryRequest>) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     let config = LakehouseConfig::from_env();
     match run_analytics_query(&body.sql, &config).await {
         Ok(rows) => HttpResponse::Ok().json(json!({
@@ -136,7 +153,11 @@ async fn analytics_query(body: web::Json<AnalyticsQueryRequest>) -> HttpResponse
 }
 
 /// Return DataFusion-extracted features for a merchant without scoring.
-async fn get_features(path: web::Path<String>) -> HttpResponse {
+async fn get_features(req: HttpRequest, key: web::Data<String>, path: web::Path<String>) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     let merchant_id = path.into_inner();
     let config = LakehouseConfig::from_env();
     match extract_credit_features(&merchant_id, &config).await {

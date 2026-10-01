@@ -16,15 +16,15 @@ const PLANS = [
 ];
 
 export default function GNNThresholdPage() {
-  const { data, isLoading, refetch } = trpc.gnnThreshold.list.useQuery();
+  const { data, isLoading, refetch } = trpc.gnnThreshold.getThreshold.useQuery();
   const [editing, setEditing] = useState<Record<string, number>>({});
 
-  const update = trpc.gnnThreshold.update.useMutation({
+  const update = trpc.gnnThreshold.updateThreshold.useMutation({
     onSuccess: () => { toast.success("GNN threshold updated"); refetch(); setEditing({}); },
     onError: (e) => toast.error(e.message),
   });
 
-  const thresholds = data?.thresholds ?? [];
+  const thresholds = data ? [{ planId: data.planId, gnnThresholdKobo: data.thresholdKobo }] : [];
 
   const getThreshold = (planId: string) => {
     const found = thresholds.find(t => t.planId === planId);
@@ -100,7 +100,7 @@ export default function GNNThresholdPage() {
                 <Button
                   className="w-full"
                   disabled={!isDirty || update.isPending}
-                  onClick={() => update.mutate({ planId: plan.id, gnnThresholdKobo: currentThreshold })}
+                  onClick={() => update.mutate({ planId: plan.id, thresholdKobo: currentThreshold })}
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save Threshold
