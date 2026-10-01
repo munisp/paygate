@@ -770,6 +770,12 @@ export const apBillPayRouter = router({
                 narration: `AP bill ${bill.billNumber ?? bill.id}`,
                 feeAmount: feeKobo,
               });
+              if (!payout) {
+                throw new TRPCError({
+                  code: "INTERNAL_SERVER_ERROR",
+                  message: "Payout insert returned no row — aborting bill payment",
+                });
+              }
               await initiatePayoutApproval({
                 payoutId: payout.id,
                 merchantId: merchant.id,
@@ -910,6 +916,12 @@ export const apBillPayRouter = router({
             narration: `AP bill ${bill.billNumber ?? bill.id} (card funding)`,
             feeAmount: payment.feeKobo ?? 0,
           });
+          if (!payout) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Payout insert returned no row — aborting bill payment confirmation",
+            });
+          }
           await initiatePayoutApproval({
             payoutId: payout.id,
             merchantId: merchant.id,
