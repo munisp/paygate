@@ -342,6 +342,10 @@ const corridorsRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       // Cross-tenant financial volume stats — platform-admin only.
+      // A2-HIGH-1 writer note: tenant_corridor_daily_stats is a daily rollup
+      // projection populated by the external analytics/BI pipeline that
+      // aggregates corridor transactions offline — no in-repo writer exists
+      // (verified by repo-wide grep). This procedure is a reader only.
       await requirePlatformAdmin(ctx);
       const db = await requireDb();
       const conditions = [eq(tenantCorridorDailyStats.tenantId, input.tenantId)];
