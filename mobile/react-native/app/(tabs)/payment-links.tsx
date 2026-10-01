@@ -5,17 +5,16 @@ import { trpc } from '@/lib/trpc';
 import Clipboard from '@react-native-clipboard/clipboard';
 
 // Define types for PaymentLink and CreatePaymentLinkInput
+// Matches the real paymentLinks row (paymentLinks.list returns { rows, total }).
 interface PaymentLink {
   id: string;
-  amount: number;
-  description: string;
-  url: string;
-  createdAt: string;
-}
-
-interface CreatePaymentLinkInput {
-  amount: number;
-  description: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  amount: number | null;
+  currency: string;
+  isActive: boolean;
+  createdAt: string | Date;
 }
 
 // Define theme colors
@@ -33,7 +32,8 @@ export default function PaymentLinksScreen() {
   const [newLinkDescription, setNewLinkDescription] = useState('');
   const [isCreatingLink, setIsCreatingLink] = useState(false);
 
-  const { data: paymentLinks, isLoading: isPaymentLinksLoading, isError: isPaymentLinksError, error: paymentLinksError, refetch: refetchPaymentLinks } = trpc.paymentLinks.list.useQuery();
+  const { data: paymentLinksResult, isLoading: isPaymentLinksLoading, isError: isPaymentLinksError, error: paymentLinksError, refetch: refetchPaymentLinks } = trpc.paymentLinks.list.useQuery({});
+  const paymentLinks = (paymentLinksResult?.rows ?? []) as PaymentLink[];
   const createPaymentLinkMutation = trpc.paymentLinks.create.useMutation({
     onSuccess: () => {
       Alert.alert('Success', 'Payment link created successfully!');
@@ -48,13 +48,15 @@ export default function PaymentLinksScreen() {
     },
   });
 
-  const deletePaymentLinkMutation = trpc.paymentLinks.delete.useMutation({
+  // There is no paymentLinks.delete on the server — paymentLinks.toggle {id}
+  // deactivates/reactivates the link instead.
+  const togglePaymentLinkMutation = trpc.paymentLinks.toggle.useMutation({
     onSuccess: () => {
-      Alert.alert('Success', 'Payment link deleted successfully!');
+      Alert.alert('Success', 'Payment link status updated.');
       refetchPaymentLinks();
     },
     onError: (error) => {
-      Alert.alert('Error', `Failed to delete payment link: ${error.message}`);
+      Alert.alert('Error', `Failed to update payment link: ${error.message}`);
     },
   });
 
@@ -70,16 +72,18 @@ export default function PaymentLinksScreen() {
     }
 
     setIsCreatingLink(true);
-    createPaymentLinkMutation.mutate({ amount, description: newLinkDescription });
+    // Server requires a title; map the description field to it.
+    createPaymentLinkMutation.mutate({ amount, title: newLinkDescription, description: newLinkDescription });
   };
 
-  const handleDeleteLink = (id: string) => {
+  const handleToggleLink = (link: PaymentLink) => {
+    const action = link.isActive ? 'deactivate' : 'reactivate';
     Alert.alert(
-      'Confirm Delete',
-      'Are you sure you want to delete this payment link?',
+      'Confirm',
+      `Are you sure you want to ${action} this payment link?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', onPress: () => deletePaymentLinkMutation.mutate({ id }), style: 'destructive' },
+        { text: action === 'deactivate' ? 'Deactivate' : 'Reactivate', onPress: () => togglePaymentLinkMutation.mutate({ id: link.id }), style: 'destructive' },
       ]
     );
   };
@@ -101,26 +105,29 @@ export default function PaymentLinksScreen() {
     }
   };
 
-  const filteredPaymentLinks = paymentLinks?.filter(link =>
-    link.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    link.amount.toString().includes(searchQuery)
+  const linkUrl = (item: PaymentLink) => `/pay/${item.slug}`;
+
+  const filteredPaymentLinks = paymentLinks.filter(link =>
+    link.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (link.description ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (link.amount != null && link.amount.toString().includes(searchQuery))
   );
 
   const renderPaymentLinkItem = ({ item }: { item: PaymentLink }) => (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>₦{item.amount.toLocaleString()}</Text>
-      <Text style={styles.cardDescription}>{item.description}</Text>
-      <Text style={styles.cardUrl}>{item.url}</Text>
+      <Text style={styles.cardTitle}>{item.amount != null ? `₦${item.amount.toLocaleString()}` : 'Any amount'}</Text>
+      <Text style={styles.cardDescription}>{item.title}{item.isActive ? '' : ' (inactive)'}</Text>
+      <Text style={styles.cardUrl}>{linkUrl(item)}</Text>
       <Text style={styles.cardDate}>Created: {new Date(item.createdAt).toLocaleDateString()}</Text>
       <View style={styles.cardActions}>
-        <TouchableOpacity style={[styles.button, styles.copyButton]} onPress={() => handleCopyLink(item.url)}>
+        <TouchableOpacity style={[styles.button, styles.copyButton]} onPress={() => handleCopyLink(linkUrl(item))}>
           <Text style={styles.buttonText}>Copy</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, styles.shareButton]} onPress={() => handleShareLink(item.url, item.description)}>
+        <TouchableOpacity style={[styles.button, styles.shareButton]} onPress={() => handleShareLink(linkUrl(item), item.title)}>
           <Text style={styles.buttonText}>Share</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, styles.deleteButton]} onPress={() => handleDeleteLink(item.id)}>
-          <Text style={styles.buttonText}>Delete</Text>
+        <TouchableOpacity style={[styles.button, styles.deleteButton]} onPress={() => handleToggleLink(item)}>
+          <Text style={styles.buttonText}>{item.isActive ? 'Deactivate' : 'Reactivate'}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -186,7 +193,7 @@ export default function PaymentLinksScreen() {
             <Text style={styles.buttonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
-      ) : (filteredPaymentLinks?.length === 0) ? (
+      ) : (filteredPaymentLinks.length === 0) ? (
         <View style={styles.emptyStateContainer}>
           <Text style={styles.emptyStateText}>No payment links found. Time to create your first link and get paid!</Text>
           <Text style={styles.emptyStateSubText}>Perhaps you're looking for a payment link for that 'Aso-ebi' contribution or 'Owambe' savings?</Text>
@@ -201,10 +208,10 @@ export default function PaymentLinksScreen() {
         />
       )}
 
-      {(deletePaymentLinkMutation.isLoading || deletePaymentLinkMutation.isError) && (
+      {(togglePaymentLinkMutation.isLoading || togglePaymentLinkMutation.isError) && (
         <View style={styles.overlayLoadingContainer}>
-          {deletePaymentLinkMutation.isLoading && <ActivityIndicator size="large" color={COLORS.accent} />}
-          {deletePaymentLinkMutation.isError && <Text style={styles.errorText}>Error deleting: {deletePaymentLinkMutation.error?.message}</Text>}
+          {togglePaymentLinkMutation.isLoading && <ActivityIndicator size="large" color={COLORS.accent} />}
+          {togglePaymentLinkMutation.isError && <Text style={styles.errorText}>Error updating link: {togglePaymentLinkMutation.error?.message}</Text>}
         </View>
       )}
     </ScrollView>

@@ -20,9 +20,13 @@ export default function FxHedgingWorkflow() {
   const [newHedge, setNewHedge] = useState({ baseCurrency: "USD", quoteCurrency: "NGN", notionalAmount: "10000", hedgeRatio: "1580", expiryDays: "30" });
   const [showForm, setShowForm] = useState(false);
 
-  const { data: positions, refetch, isLoading } = trpc.wave30.fxHedging.listPositions.useQuery({ limit: 50 }, { staleTime: 30_000 });
-  const { data: pnl } = trpc.wave30.fxHedging.getPnlSummary.useQuery();
-  const { data: rates } = trpc.wave30.fxHedging.listPositions.useQuery({ status: "open" }, { staleTime: 30_000 });
+  // Server exposes wave30.fxHedging.{listPositions({status?}), openPosition,
+  // updateRate, closePosition({positionId, closingRate}), getPortfolioSummary}.
+  // There is no getPnlSummary — portfolio summary reports counts/notionals only.
+  // Live FX rates come from wave27.fxHedging.getFxRates.
+  const { data: positions, refetch, isLoading } = trpc.wave30.fxHedging.listPositions.useQuery({}, { staleTime: 30_000 });
+  const { data: summary } = trpc.wave30.fxHedging.getPortfolioSummary.useQuery();
+  const { data: ratesData } = trpc.wave27.fxHedging.getFxRates.useQuery(undefined, { staleTime: 60_000 });
 
   const openPosition = trpc.wave30.fxHedging.openPosition.useMutation({
     onSuccess: () => { toast.success("FX hedge position opened"); setShowForm(false); refetch(); },
@@ -30,17 +34,29 @@ export default function FxHedgingWorkflow() {
   });
 
   const closePosition = trpc.wave30.fxHedging.closePosition.useMutation({
-    onSuccess: () => { toast.success("Position closed"); refetch(); },
+    onSuccess: (d) => { toast.success(`Position closed. Realized P&L: ${Number(d?.realizedPnl ?? 0).toFixed(2)}`); refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
-  const close = trpc.wave30.fxHedging.close.useMutation({
-    onSuccess: () => { toast.success("Position settled"); refetch(); },
-    onError: (err) => toast.error(err.message),
-  });
+  const closeWithRate = (pos: any, label: string) => {
+    const input = window.prompt(`Enter closing rate for ${pos.currency_pair ?? `${pos.base_currency}/${pos.quote_currency}`} (${label}):`, String(pos.market_rate ?? pos.hedge_rate ?? ""));
+    if (input === null) return;
+    const closingRate = parseFloat(input);
+    if (!closingRate || closingRate <= 0) { toast.error("A positive closing rate is required"); return; }
+    closePosition.mutate({ positionId: String(pos.id), closingRate });
+  };
 
-  const totalPnl = pnl?.reduce((a: number, p: any) => a + parseFloat(p.unrealized_pnl ?? 0), 0) ?? 0;
-  const openCount = positions?.filter((p: any) => p.status === 'open').length ?? 0;
+  // wave27 getFxRates returns NGN-based rates {USD: x, ...}; convert to display pairs.
+  const rates = ratesData?.rates
+    ? Object.entries(ratesData.rates as Record<string, number>).map(([cur, r]) => ({
+        pair: `${cur}/NGN`,
+        rate: 1 / r,
+        updated_at: ratesData.timestamp,
+      }))
+    : [];
+
+  const totalNotional = Number(summary?.total_notional ?? 0);
+  const openCount = positions?.filter((p: any) => p.status === 'open' || p.status === 'active').length ?? 0;
 
   if (isLoading) {
     return (
@@ -68,8 +84,8 @@ export default function FxHedgingWorkflow() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Open Positions", value: openCount, icon: <ArrowUpDown className="w-5 h-5 text-blue-500" />, color: "text-blue-600" },
-          { label: "Total Unrealized P&L", value: `$${totalPnl.toFixed(2)}`, icon: totalPnl >= 0 ? <TrendingUp className="w-5 h-5 text-green-500" /> : <TrendingDown className="w-5 h-5 text-red-500" />, color: totalPnl >= 0 ? "text-green-600" : "text-red-600" },
-          { label: "USD/NGN Rate", value: rates?.find((r: any) => r.pair === 'USD/NGN')?.rate ?? "1,580", icon: <DollarSign className="w-5 h-5 text-amber-500" />, color: "text-amber-600" },
+          { label: "Open Notional", value: `$${totalNotional.toLocaleString()}`, icon: <TrendingUp className="w-5 h-5 text-green-500" />, color: "text-green-600" },
+          { label: "USD/NGN Rate", value: rates.find((r: any) => r.pair === 'USD/NGN')?.rate.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—", icon: <DollarSign className="w-5 h-5 text-amber-500" />, color: "text-amber-600" },
           { label: "Total Positions", value: positions?.length ?? 0, icon: <BarChart2 className="w-5 h-5 text-purple-500" />, color: "text-purple-600" },
         ].map((s) => (
           <Card key={s.label}>
@@ -126,9 +142,11 @@ export default function FxHedgingWorkflow() {
                 onClick={() => openPosition.mutate({
                   baseCurrency: newHedge.baseCurrency,
                   quoteCurrency: newHedge.quoteCurrency,
+                  positionType: "long",
                   notionalAmount: parseFloat(newHedge.notionalAmount),
-                  hedgeRatio: parseFloat(newHedge.hedgeRatio),
-                  expiryDays: parseInt(newHedge.expiryDays),
+                  entryRate: parseFloat(newHedge.hedgeRatio),
+                  hedgeRatio: 0.8,
+                  expiryDate: new Date(Date.now() + parseInt(newHedge.expiryDays || "30") * 86400000).toISOString(),
                 })}>
                 Open Position
               </Button>
@@ -209,17 +227,11 @@ export default function FxHedgingWorkflow() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        {pos.status === 'open' && (
-                          <>
-                            <Button size="sm" variant="outline" className="text-xs text-green-700 border-green-300"
-                              onClick={() => close.mutate({ positionId: pos.id })}>
-                              Settle
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-xs text-red-700 border-red-300"
-                              onClick={() => closePosition.mutate({ positionId: pos.id })}>
-                              Close
-                            </Button>
-                          </>
+                        {(pos.status === 'open' || pos.status === 'active') && (
+                          <Button size="sm" variant="outline" className="text-xs text-red-700 border-red-300"
+                            onClick={() => closeWithRate(pos, "close position")}>
+                            Close
+                          </Button>
                         )}
                       </div>
                     </TableCell>

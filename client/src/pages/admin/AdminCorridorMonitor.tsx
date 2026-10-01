@@ -51,12 +51,12 @@ export default function AdminCorridorMonitor() {
   const [fxMarkup, setFxMarkup] = useState("");
   const [dailyLimit, setDailyLimit] = useState("");
 
-  const { data: corridorsData, refetch, isLoading, isError } = trpc.wave26.corridors.list.useQuery({}, { staleTime: 30_000 });
-  const toggleMutation = trpc.wave26.corridors.toggle.useMutation({
+  const { data: corridorsData, refetch, isLoading, isError } = trpc.corridors.list.useQuery({}, { staleTime: 30_000 });
+  const toggleMutation = trpc.corridors.toggle.useMutation({
     onSuccess: () => { toast.success("Corridor status updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const updateMutation = trpc.wave26.corridors.update.useMutation({
+  const updateMutation = trpc.corridors.update.useMutation({
     onSuccess: () => {
       toast.success("Corridor updated");
       setEditingId(null);
@@ -65,7 +65,12 @@ export default function AdminCorridorMonitor() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const corridors = (corridorsData?.corridors ?? []).filter(
+  const corridors = ((corridorsData ?? []) as any[]).map((c: any) => ({
+    ...c,
+    enabled: c.enabled ?? c.isEnabled,
+    fxMarkupBps: c.fxMarkupBps ?? Math.round((c.fxMarkupPct ?? 0) * 100),
+    dailyLimitKobo: c.dailyLimitKobo ?? (c.dailyLimitUsd != null ? Math.round(c.dailyLimitUsd * 100) : undefined),
+  })).filter(
     (c: any) =>
       !search ||
       c.sourceCurrency?.toLowerCase().includes(search.toLowerCase()) ||
@@ -196,7 +201,7 @@ export default function AdminCorridorMonitor() {
                         variant="ghost"
                         onClick={() =>
                           toggleMutation.mutate({
-                            corridorId: corridor.id,
+                            id: corridor.id,
                             enabled: !corridor.enabled,
                           })
                         }
@@ -257,9 +262,9 @@ export default function AdminCorridorMonitor() {
                           size="sm"
                           onClick={() =>
                             updateMutation.mutate({
-                              corridorId: corridor.id,
-                              fxMarkupBps: fxMarkup ? parseInt(fxMarkup) : undefined,
-                              dailyLimitKobo: dailyLimit ? parseInt(dailyLimit) : undefined,
+                              id: corridor.id,
+                              fxMarkupPct: fxMarkup ? parseInt(fxMarkup) / 100 : undefined,
+                              dailyLimitUsd: dailyLimit ? parseInt(dailyLimit) / 100 : undefined,
                             })
                           }
                           disabled={updateMutation.isPending}

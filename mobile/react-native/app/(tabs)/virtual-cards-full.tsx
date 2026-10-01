@@ -3,14 +3,17 @@ import { View, Text, ScrollView, TouchableOpacity, TextInput, FlatList, StyleShe
 import { Stack } from 'expo-router';
 import { trpc } from '@/lib/trpc';
 
+// Matches the real virtualCards row (virtualCards.list returns { rows, total }).
 type VirtualCard = {
   id: string;
-  last4: string;
-  status: 'active' | 'frozen';
-  cardHolderName: string;
-  balance: number;
+  maskedPan: string | null;
+  status: 'active' | 'frozen' | string;
+  label: string | null;
+  spendLimit: number | null;
   currency: string;
 };
+
+const last4Of = (maskedPan: string | null) => (maskedPan ?? '').replace(/\D/g, '').slice(-4) || '----';
 
 export default function VirtualCardsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,9 +21,12 @@ export default function VirtualCardsScreen() {
   const [newCardHolderName, setNewCardHolderName] = useState('');
   const [newCardBalance, setNewCardBalance] = useState('');
   const [newCardCurrency, setNewCardCurrency] = useState('NGN'); // Default currency
-  const { data: virtualCards, isLoading, error, refetch } = trpc.virtualCards.list.useQuery();
+  const { data: virtualCardsResult, isLoading, error, refetch } = trpc.virtualCards.list.useQuery({});
+  const virtualCards = (virtualCardsResult?.rows ?? []) as VirtualCard[];
   const createCardMutation = trpc.virtualCards.create.useMutation();
-  const freezeCardMutation = trpc.virtualCards.freeze.useMutation();
+  // Server proc is virtualCards.toggleFreeze { id } — it toggles active/frozen
+  // server-side; there is no freeze mutation taking a boolean.
+  const toggleFreezeMutation = trpc.virtualCards.toggleFreeze.useMutation();
 
   const handleCreateCard = async () => {
     if (!newCardHolderName || !newCardBalance) {
@@ -28,9 +34,11 @@ export default function VirtualCardsScreen() {
       return;
     }
     try {
+      // Server takes { label?, spendLimit?, currency, brand? } — map holder
+      // name → label and the entered amount → spendLimit.
       await createCardMutation.mutateAsync({
-        cardHolderName: newCardHolderName,
-        balance: parseFloat(newCardBalance),
+        label: newCardHolderName,
+        spendLimit: Math.round(parseFloat(newCardBalance)),
         currency: newCardCurrency,
       });
       Alert.alert('Success', 'Virtual card created successfully!');
@@ -45,10 +53,7 @@ export default function VirtualCardsScreen() {
 
   const handleToggleFreeze = async (cardId: string, currentStatus: 'active' | 'frozen') => {
     try {
-      await freezeCardMutation.mutateAsync({
-        cardId,
-        freeze: currentStatus === 'active',
-      });
+      await toggleFreezeMutation.mutateAsync({ id: cardId });
       Alert.alert('Success', `Card ${currentStatus === 'active' ? 'frozen' : 'unfrozen'} successfully!`);
       refetch();
     } catch (err: any) {
@@ -76,12 +81,13 @@ export default function VirtualCardsScreen() {
     );
   }
 
-  const filteredCards = virtualCards?.filter(card =>
-    card.cardHolderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    card.last4.includes(searchQuery)
-  ) || [];
+  const filteredCards = virtualCards.filter(card =>
+    (card.label ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    last4Of(card.maskedPan).includes(searchQuery)
+  );
 
   return (
+    <>
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Virtual Cards' }} />
       <TextInput
@@ -106,20 +112,20 @@ export default function VirtualCardsScreen() {
           renderItem={({ item }) => (
             <View style={styles.cardItem}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>**** **** **** {item.last4}</Text>
+                <Text style={styles.cardTitle}>**** **** **** {last4Of(item.maskedPan)}</Text>
                 <Text style={[styles.cardStatus, item.status === 'frozen' ? styles.frozenStatus : styles.activeStatus]}>
                   {item.status === 'active' ? 'Active' : 'Frozen'}
                 </Text>
               </View>
-              <Text style={styles.cardHolder}>Holder: {item.cardHolderName}</Text>
-              <Text style={styles.cardBalance}>Balance: {item.currency} {item.balance.toFixed(2)}</Text>
+              <Text style={styles.cardHolder}>Label: {item.label ?? '—'}</Text>
+              <Text style={styles.cardBalance}>Spend limit: {item.currency} {item.spendLimit != null ? item.spendLimit.toLocaleString() : '—'}</Text>
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   style={styles.actionButton}
                   onPress={() => handleToggleFreeze(item.id, item.status)}
-                  disabled={freezeCardMutation.isLoading}
+                  disabled={toggleFreezeMutation.isLoading}
                 >
-                  {freezeCardMutation.isLoading ? (
+                  {toggleFreezeMutation.isLoading ? (
                     <ActivityIndicator color="#f8fafc" />
                   ) : (
                     <Text style={styles.actionButtonText}>{item.status === 'active' ? 'Freeze' : 'Unfreeze'}</Text>
@@ -191,6 +197,7 @@ export default function VirtualCardsScreen() {
         </View>
       </View>
     </Modal>
+    </>
   );
 }
 
