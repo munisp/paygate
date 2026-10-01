@@ -43,7 +43,7 @@ export default function RemittanceTracker() {
 
   const { data: corridors } = trpc.remittanceMw.corridors.useQuery();
   const { data: history, refetch } = trpc.remittanceMw.history.useQuery();
-  const sendMutation = trpc.remittanceMw.send.useMutation({
+  const sendMutation = trpc.remittanceMw.create.useMutation({
     onSuccess: (data) => {
       toast.success(`Transfer initiated! Tracking: ${data.trackingCode ?? "PG-RMT-" + Date.now()}`);
       setSendOpen(false);

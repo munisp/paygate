@@ -20,10 +20,12 @@ export default function BnplScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | Loan['status']>('all');
 
-  const loansQuery = trpc.bnpl.listLoans.useQuery();
-  const { data: loans, isLoading, isError, error } = loansQuery;
+  const loansQuery = trpc.bnpl.list.useQuery({});
+  const { data: loansData, isLoading, isError, error } = loansQuery;
+  // bnpl.list returns { rows, total }.
+  const loans = ((loansData as any)?.rows ?? []) as any[];
 
-  const createLoanMutation = trpc.bnpl.createLoan.useMutation({
+  const createLoanMutation = trpc.bnpl.create.useMutation({
     onSuccess: () => {
       Alert.alert("Success", "Loan created successfully!");
       setShowCreateLoanModal(false);
@@ -37,7 +39,10 @@ export default function BnplScreen() {
     },
   });
 
-  const approveLoanMutation = trpc.bnpl.approveLoan.useMutation({
+  // BLOCKED(W15): the bnpl router has no approveLoan proc (list, stats,
+  // monthlyStats, create, listPlans, createPlan, togglePlan, sendReminder,
+  // recordRepayment, getLoan, restructureLoan only). Fails loudly at runtime.
+  const approveLoanMutation = (trpc as any).bnpl.approveLoan.useMutation({
     onSuccess: () => {
       Alert.alert("Success", "Loan approved successfully!");
       loansQuery.refetch();
@@ -47,7 +52,8 @@ export default function BnplScreen() {
     },
   });
 
-  const rejectLoanMutation = trpc.bnpl.rejectLoan.useMutation({
+  // BLOCKED(W15): no rejectLoan proc exists on the bnpl router.
+  const rejectLoanMutation = (trpc as any).bnpl.rejectLoan.useMutation({
     onSuccess: () => {
       Alert.alert("Success", "Loan rejected successfully!");
       loansQuery.refetch();
@@ -81,10 +87,11 @@ export default function BnplScreen() {
       return;
     }
 
+    // bnpl.create schema: {principalAmount, installments(2-24), customerName?, ...}
     createLoanMutation.mutate({
       customerName: newLoanCustomerName,
-      amount: amount,
-      dueDate: newLoanDueDate,
+      principalAmount: Math.round(amount * 100),
+      installments: 3,
     });
   };
 

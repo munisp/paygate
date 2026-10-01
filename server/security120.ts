@@ -14,6 +14,7 @@
 
 import { TRPCError } from "@trpc/server";
 import { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 
 // ── 1. PBAC for crud120 / crud120b namespaces ─────────────────────────────────
 
@@ -219,12 +220,87 @@ export interface WAFBlockEvent {
 const wafBlockLog: WAFBlockEvent[] = [];
 
 export function recordWAFBlock(event: Omit<WAFBlockEvent, "timestamp">): void {
-  wafBlockLog.push({ ...event, timestamp: Date.now() });
+  const entry = { ...event, timestamp: Date.now() };
+  wafBlockLog.push(entry);
   if (wafBlockLog.length > 10_000) wafBlockLog.shift();
+  // A2-MEDIUM-1: write-through to waf_block_events (drizzle/0107).
+  // Fire-and-forget with catch-logging — never throw into the request path.
+  void (async () => {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (!database) return;
+    await database.execute(sql`
+      INSERT INTO waf_block_events (ip, path, method, reason, severity, created_at)
+      VALUES (${entry.ip}, ${entry.path}, ${entry.method}, ${entry.reason}, ${entry.severity},
+              ${new Date(entry.timestamp).toISOString()}::timestamptz)
+    `);
+  })().catch((e) => console.error("[waf] waf_block_events persist failed (non-fatal):", e instanceof Error ? e.message : e));
+}
+
+/**
+ * A2-MEDIUM-1: hydrate the in-memory ring buffer from Postgres on startup so
+ * recent WAF blocks survive restarts. Fire-and-forget; never throws.
+ */
+export function hydrateWAFBlockLog(limit = 1000): void {
+  void (async () => {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (!database) return;
+    const res: any = await database.execute(sql`
+      SELECT ip, path, method, reason, severity, created_at
+      FROM waf_block_events ORDER BY created_at DESC LIMIT ${limit}
+    `);
+    const rows: any[] = res?.rows ?? res ?? [];
+    for (const r of rows.reverse()) {
+      wafBlockLog.push({
+        timestamp: r.created_at instanceof Date ? r.created_at.getTime() : new Date(r.created_at).getTime(),
+        ip: r.ip,
+        path: r.path,
+        method: r.method,
+        reason: r.reason,
+        severity: r.severity ?? "high",
+      });
+    }
+    if (wafBlockLog.length > 10_000) wafBlockLog.splice(0, wafBlockLog.length - 10_000);
+  })().catch((e) => console.error("[waf] hydrate failed (non-fatal):", e instanceof Error ? e.message : e));
 }
 
 export function getRecentWAFBlocks(limit = 100): WAFBlockEvent[] {
   return wafBlockLog.slice(-limit).reverse();
+}
+
+/**
+ * A4: X-OpenAppsec-* headers are client-spoofable — only honour them when the
+ * request provably arrives from the trusted OpenAppSec gateway, i.e. it carries
+ * the shared-secret header X-OpenAppsec-Gateway-Token matching
+ * OPENAPPSEC_GATEWAY_SECRET (timing-safe compare). FAIL CLOSED: when the env
+ * var is unset in production the headers are always stripped/ignored; in
+ * non-production a missing secret logs a loud warning and also ignores them.
+ */
+function isTrustedOpenAppSecGateway(req: Request): boolean {
+  const secret = process.env.OPENAPPSEC_GATEWAY_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[openAppSec] OPENAPPSEC_GATEWAY_SECRET unset in production — ignoring X-OpenAppsec-* headers (fail-closed)");
+    } else {
+      console.warn("[openAppSec] OPENAPPSEC_GATEWAY_SECRET unset — ignoring X-OpenAppsec-* headers");
+    }
+    return false;
+  }
+  const presented = req.headers["x-openappsec-gateway-token"];
+  const presentedStr = Array.isArray(presented) ? presented[0] : presented;
+  if (!presentedStr) return false;
+  const a = Buffer.from(String(presentedStr));
+  const b = Buffer.from(secret);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function stripOpenAppSecHeaders(req: Request): void {
+  delete req.headers["x-openappsec-action"];
+  delete req.headers["x-openappsec-reason"];
 }
 
 export function openAppSecHeaderMiddleware(
@@ -233,6 +309,13 @@ export function openAppSecHeaderMiddleware(
   next: NextFunction
 ): void {
   // Honour OpenAppSec block decisions forwarded via X-OpenAppsec-Action header
+  // ONLY from the trusted gateway; otherwise strip the spoofable headers so no
+  // downstream code can be tricked by them.
+  if (!isTrustedOpenAppSecGateway(req)) {
+    stripOpenAppSecHeaders(req);
+    next();
+    return;
+  }
   const action = req.headers["x-openappsec-action"] as string | undefined;
   if (action === "block") {
     const reason = (req.headers["x-openappsec-reason"] as string) ?? "WAF block";
