@@ -246,6 +246,52 @@ export function logAuthFailure(event: Omit<AuthFailureEvent, "timestamp">): void
     userId: entry.userId,
     email: entry.userEmail,
   });
+  // A2-MEDIUM-1: write-through to auth_failure_events (drizzle/0107).
+  // Fire-and-forget with catch-logging — audit persistence must never throw
+  // into the request path.
+  void (async () => {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (!database) return;
+    await database.execute(sql`
+      INSERT INTO auth_failure_events (user_id, user_email, action, resource, ip, reason, created_at)
+      VALUES (${entry.userId ?? null}, ${entry.userEmail ?? null}, ${entry.action}, ${entry.resource},
+              ${entry.ip ?? null}, ${entry.reason}, ${entry.timestamp}::timestamptz)
+    `);
+  })().catch((e) => console.error("[AuthFailure] auth_failure_events persist failed (non-fatal):", e instanceof Error ? e.message : e));
+}
+
+/**
+ * A2-MEDIUM-1: hydrate the in-memory ring buffer from Postgres on startup so
+ * recent failures survive restarts. Fire-and-forget; never throws.
+ */
+export function hydrateAuthFailureLog(limit = 1000): void {
+  void (async () => {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (!database) return;
+    const res: any = await database.execute(sql`
+      SELECT user_id, user_email, action, resource, ip, reason, created_at
+      FROM auth_failure_events ORDER BY created_at DESC LIMIT ${limit}
+    `);
+    const rows: any[] = res?.rows ?? res ?? [];
+    for (const r of rows.reverse()) {
+      authFailureLog.push({
+        timestamp: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+        userId: r.user_id ?? undefined,
+        userEmail: r.user_email ?? undefined,
+        action: r.action,
+        resource: r.resource,
+        ip: r.ip ?? undefined,
+        reason: r.reason,
+      });
+    }
+    if (authFailureLog.length > MAX_AUTH_FAILURE_LOG) {
+      authFailureLog.splice(0, authFailureLog.length - MAX_AUTH_FAILURE_LOG);
+    }
+  })().catch((e) => console.error("[AuthFailure] hydrate failed (non-fatal):", e instanceof Error ? e.message : e));
 }
 
 export function getRecentAuthFailures(limit = 100): AuthFailureEvent[] {

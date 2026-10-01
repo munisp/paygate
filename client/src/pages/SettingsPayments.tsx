@@ -2,7 +2,7 @@
 /**
  * /settings/payments — Stripe Payment Configuration & Go-Live Checklist
  *
- * Embeds the full go-live checklist (trpc.system.goLiveChecklist) alongside
+ * Embeds the full go-live checklist (trpc.portalHealth.getGoLiveChecklist) alongside
  * a live Stripe key-mode indicator and a one-click test charge button.
  * Accessible from Settings sidebar and from the Billing page banner.
  */

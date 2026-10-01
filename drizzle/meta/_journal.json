@@ -743,6 +743,13 @@
       "when": 1787600000018,
       "tag": "0106_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1787600000019,
+      "tag": "0107_security_event_persistence",
+      "breakpoints": true
     }
   ]
 }
