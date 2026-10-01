@@ -12,8 +12,8 @@ const Color kAccentColor = Color(0xFF6366f1);
 // Define a provider for the billing data
 final tenantBillingProvider = FutureProvider.autoDispose.family<List<dynamic>, String>((ref, searchQuery) async {
   final api = ref.read(apiServiceProvider);
-  // Assuming the tRPC router namespace for TenantBillingDashboard is 'tenantBilling.list'
-  final response = await api.get('/trpc/tenantBilling.list', params: {'search': searchQuery});
+  // Assuming the tRPC router namespace for TenantBillingDashboard is 'tenantMgmt.listBillingInvoices'
+  final response = await api.get('/trpc/tenantMgmt.listBillingInvoices', params: {'search': searchQuery});
   return response.data as List<dynamic>;
 });
 

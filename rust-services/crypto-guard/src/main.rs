@@ -8,6 +8,7 @@
 //! - POST /nonce/generate    — Generate cryptographically secure nonces
 //! - GET  /health            — Health check
 
+mod internal_auth;
 mod telemetry;
 
 use axum::{
@@ -237,6 +238,8 @@ async fn main() {
         replay_config: Arc::new(ReplayConfig::default()),
     };
 
+    let internal_key = Arc::new(internal_auth::resolve_internal_key("crypto-guard"));
+
     // Build router
     let app = Router::new()
         .route("/health", get(health))
@@ -266,6 +269,8 @@ async fn main() {
             }
         })
         .layer(RequestBodyLimitLayer::new(1 * 1024 * 1024)) // 1 MB body limit
+        .layer(axum::middleware::from_fn(internal_auth::internal_key_auth_mw))
+        .layer(axum::Extension(internal_key))
         .with_state(state);
 
     let port: u16 = std::env::var("CRYPTO_GUARD_PORT")

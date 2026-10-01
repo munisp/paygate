@@ -31,20 +31,26 @@ export default function AdminBnplUnderwriting() {
   const [underwriterNote, setUnderwriterNote] = useState("");
   const [approvedLimit, setApprovedLimit] = useState("");
 
-  const { data, isLoading, refetch } = trpc.wave27.bnplUnderwriting.list.useQuery({ search: search || undefined }, { staleTime: 30_000 });
+  const { data, isLoading, refetch } = trpc.wave27.bnplUnderwriting.listApplications.useQuery(undefined, { staleTime: 30_000 });
 
-  const approveMutation = trpc.wave27.bnplUnderwriting.approve.useMutation({
-    onSuccess: () => { toast.success("BNPL application approved"); refetch(); setSelectedApp(null); },
-    onError: (e) => toast.error(e.message),
-  });
+  // Server has no manual approve/reject underwriting endpoint — underwriting
+  // decisions are computed server-side by bnplUnderwriting.submitApplication.
+  const unavailable = (action: string) => () =>
+    toast.error(`Manual ${action} is not available: the server exposes automated underwriting only.`);
 
-  const rejectMutation = trpc.wave27.bnplUnderwriting.reject.useMutation({
-    onSuccess: () => { toast.success("BNPL application rejected"); refetch(); setSelectedApp(null); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const applications = data?.applications ?? [];
-  const stats = data?.stats ?? { pendingCount: 0, approvedCount: 0, rejectedCount: 0, avgCreditScore: 0 };
+  const applications = ((data ?? []) as any[])
+    .filter((a: any) => !search || a.consumer_id?.toLowerCase().includes(search.toLowerCase()) || a.consumer_email?.toLowerCase().includes(search.toLowerCase()))
+    .map((a: any) => ({
+      ...a,
+      credit_score: a.credit_score ?? a.score,
+      risk_level: a.risk_level ?? ((a.score ?? 0) >= 70 ? "low" : (a.score ?? 0) >= 40 ? "medium" : "high"),
+    }));
+  const stats = {
+    pendingCount: applications.filter(a => a.status === "pending_review" || a.status === "conditional").length,
+    approvedCount: applications.filter(a => a.status === "approved").length,
+    rejectedCount: applications.filter(a => a.status === "rejected" || a.status === "declined").length,
+    avgCreditScore: applications.length ? Math.round(applications.reduce((s, a) => s + (a.credit_score ?? 0), 0) / applications.length) : 0,
+  };
 
   return (
     <AdminLayout>
@@ -177,14 +183,14 @@ export default function AdminBnplUnderwriting() {
               {selectedApp?.status === "pending_review" && (
                 <>
                   <Button variant="outline" className="text-red-600 border-red-200"
-                    onClick={() => rejectMutation.mutate({ applicationId: selectedApp.id, underwriterNote })}
-                    disabled={rejectMutation.isPending}>
-                    <XCircle className="w-4 h-4 mr-2" />{rejectMutation.isPending ? "Rejecting..." : "Reject"}
+                    onClick={unavailable("reject")}
+                    disabled={false}>
+                    <XCircle className="w-4 h-4 mr-2" />Reject
                   </Button>
                   <Button className="bg-green-600 hover:bg-green-700"
-                    onClick={() => approveMutation.mutate({ applicationId: selectedApp.id, approvedLimit: Number(approvedLimit), underwriterNote })}
-                    disabled={approveMutation.isPending || !approvedLimit}>
-                    <CheckCircle className="w-4 h-4 mr-2" />{approveMutation.isPending ? "Approving..." : "Approve"}
+                    onClick={unavailable("approve")}
+                    disabled={!approvedLimit}>
+                    <CheckCircle className="w-4 h-4 mr-2" />Approve
                   </Button>
                 </>
               )}

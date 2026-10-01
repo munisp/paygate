@@ -17,9 +17,9 @@ export default function ConsumerGold() {
 
   const { data: price, isLoading: priceLoading, refetch: refetchPrice } = trpc.newFeatures.digitalGold.getPrice.useQuery();
   const { data: holdings, refetch: refetchHoldings } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
-  const { data: history } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
+  const { data: history } = trpc.newFeatures.digitalGold.getTransactionHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
-  const buyMutation = trpc.newFeatures.digitalGold.buy.useMutation({
+  const buyMutation = trpc.newFeatures.digitalGold.buyGold.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Purchased ${d.gramsAcquired?.toFixed(4)}g gold`);
       setBuyGrams("");
@@ -28,7 +28,7 @@ export default function ConsumerGold() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const sellMutation = trpc.newFeatures.digitalGold.sell.useMutation({
+  const sellMutation = trpc.newFeatures.digitalGold.sellGold.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Sold gold for ₦${((d.proceedsKobo ?? 0) / 100).toLocaleString()}`);
       setSellGrams("");
@@ -37,7 +37,7 @@ export default function ConsumerGold() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const sipMutation = trpc.newFeatures.digitalGold.createSIP.useMutation({
+  const sipMutation = trpc.newFeatures.digitalGold.setupSIP.useMutation({
     onSuccess: () => {
       toast.success("Gold SIP plan created");
       setSipAmount("");
@@ -129,7 +129,7 @@ export default function ConsumerGold() {
             </div>
             <Button
               className="w-full bg-yellow-500 hover:bg-yellow-600 text-black"
-              onClick={() => buyMutation.mutate({ grams: parseFloat(buyGrams) })}
+              onClick={() => buyMutation.mutate({ amountKobo: Math.max(50000, Math.round(buyEstimate)), fundingSource: "wallet" })}
               disabled={!buyGrams || buyMutation.isPending}
             >
               {buyMutation.isPending ? "Processing..." : "Buy Gold"}
@@ -164,7 +164,7 @@ export default function ConsumerGold() {
             <Button
               variant="destructive"
               className="w-full"
-              onClick={() => sellMutation.mutate({ grams: parseFloat(sellGrams) })}
+              onClick={() => sellMutation.mutate({ grams: parseFloat(sellGrams), destinationAccount: "wallet" })}
               disabled={!sellGrams || sellMutation.isPending}
             >
               {sellMutation.isPending ? "Processing..." : "Sell Gold"}
@@ -205,7 +205,7 @@ export default function ConsumerGold() {
             <div className="flex items-end">
               <Button
                 className="w-full"
-                onClick={() => sipMutation.mutate({ amountKobo: parseFloat(sipAmount) * 100, frequency: sipFrequency })}
+                onClick={() => sipMutation.mutate({ amountKobo: parseFloat(sipAmount) * 100, frequency: sipFrequency, startDate: new Date().toISOString() })}
                 disabled={!sipAmount || sipMutation.isPending}
               >
                 {sipMutation.isPending ? "Creating..." : "Start SIP"}

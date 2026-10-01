@@ -23,8 +23,10 @@ export default function CrossBorderScreen() {
   const [newTransferCurrency, setNewTransferCurrency] = useState('');
   const [newTransferCorridor, setNewTransferCorridor] = useState('');
 
-  const { data: transfers, isLoading, isError, error, refetch } = trpc.crossBorder.listTransfers.useQuery();
-  const createTransferMutation = trpc.crossBorder.createTransfer.useMutation({
+  const { data: transfersData, isLoading, isError, error, refetch } = trpc.crossBorder.list.useQuery({});
+  // crossBorder.list returns a plain array of transfer rows.
+  const transfers = (transfersData as any[]) ?? [];
+  const createTransferMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
       Alert.alert('Success', 'International transfer initiated successfully!');
       refetch();
@@ -41,9 +43,9 @@ export default function CrossBorderScreen() {
   });
 
   const filteredTransfers = transfers?.filter(transfer =>
-    transfer.senderName.toLowerCase().includes(searchText.toLowerCase()) ||
-    transfer.recipientName.toLowerCase().includes(searchText.toLowerCase()) ||
-    transfer.corridor.toLowerCase().includes(searchText.toLowerCase())
+    String(transfer.senderName ?? '').toLowerCase().includes(searchText.toLowerCase()) ||
+    String(transfer.recipientName ?? transfer.receiverName ?? '').toLowerCase().includes(searchText.toLowerCase()) ||
+    String(transfer.corridor ?? '').toLowerCase().includes(searchText.toLowerCase())
   );
 
   const handleCreateTransfer = () => {
@@ -51,12 +53,17 @@ export default function CrossBorderScreen() {
       Alert.alert('Validation Error', 'All fields are required.');
       return;
     }
+    // crossBorder.initiate schema: {receiverId, sourceCurrency, targetCurrency,
+    // amount (decimal string), corridor, rail?, idempotencyKey(min 8), ...}
     createTransferMutation.mutate({
+      receiverId: newTransferRecipient,
+      receiverName: newTransferRecipient,
       senderName: newTransferSender,
-      recipientName: newTransferRecipient,
-      amount: parseFloat(newTransferAmount),
-      currency: newTransferCurrency,
+      sourceCurrency: 'NGN',
+      targetCurrency: newTransferCurrency,
+      amount: newTransferAmount,
       corridor: newTransferCorridor,
+      idempotencyKey: `cb_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     });
   };
 
