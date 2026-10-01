@@ -20,6 +20,38 @@
 import { TRPCError } from "@trpc/server";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+/**
+ * A2-HIGH-1: persist blocked rate-limit decisions to rate_limit_events
+ * (write-through, fire-and-forget — never throws into the request path, and
+ * the 429 response must never depend on Postgres availability).
+ */
+function recordRateLimitEvent(e: {
+  identifier: string;
+  identifierType: "user" | "ip";
+  endpoint: string;
+  ipAddress?: string;
+  windowMs: number;
+  limitVal: number;
+  count: number;
+}): void {
+  void (async () => {
+    const { getDb } = await import("./db");
+    const { rateLimitEvents } = await import("../drizzle/schema");
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(rateLimitEvents).values({
+      identifier: e.identifier,
+      identifierType: e.identifierType,
+      endpoint: e.endpoint,
+      ipAddress: e.ipAddress ?? null,
+      windowMs: e.windowMs,
+      limitVal: e.limitVal,
+      count: e.count,
+      blocked: true,
+    } as any);
+  })().catch((err) => console.warn("[rateLimit] rate_limit_events insert failed (non-fatal):", (err as Error)?.message ?? err));
+}
+
 // ─── In-process fallback store ────────────────────────────────────────────────
 
 interface WindowEntry {
@@ -197,6 +229,15 @@ export function rateLimit(opts: RateLimitOptions = {}) {
     const result = await consume(key, effectiveMax, windowMs);
     if (!result.allowed) {
       const retryAfterSec = Math.ceil(result.ttlMs / 1000);
+      recordRateLimitEvent({
+        identifier: userId ? String(userId) : String(ip),
+        identifierType: userId ? "user" : "ip",
+        endpoint: path,
+        ipAddress: ip,
+        windowMs,
+        limitVal: effectiveMax,
+        count: result.count,
+      });
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
         message: `Rate limit exceeded. Retry after ${retryAfterSec}s. (${result.count}/${effectiveMax} in ${windowMs / 1000}s window)`,
@@ -233,6 +274,15 @@ export function expressRateLimit(opts: RateLimitOptions = {}): RequestHandler {
     res.setHeader("X-RateLimit-Remaining", String(Math.max(0, effectiveMax - result.count)));
     if (!result.allowed) {
       const retryAfterSec = Math.ceil(result.ttlMs / 1000);
+      recordRateLimitEvent({
+        identifier: String(ip),
+        identifierType: "ip",
+        endpoint: scope,
+        ipAddress: ip,
+        windowMs,
+        limitVal: effectiveMax,
+        count: result.count,
+      });
       res.setHeader("Retry-After", String(retryAfterSec));
       res.status(429).json({
         error: "Rate limit exceeded",
