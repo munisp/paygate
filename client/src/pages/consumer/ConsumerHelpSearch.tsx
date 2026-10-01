@@ -71,7 +71,7 @@ export default function ConsumerHelpSearch() {
   const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
   const debouncedQuery = useDebounce(query, 500);
 
-  const trackSearch = trpc.wave25.helpSearch.track.useMutation({
+  const trackSearch = trpc.wave25.helpSearchConsumer.track.useMutation({
     // Silent fail — tracking is non-critical; don't disrupt the user experience
     onError: (err) => console.warn('[HelpSearch] Failed to track search query:', err.message),
   });
@@ -80,7 +80,7 @@ export default function ConsumerHelpSearch() {
   const handleSearch = useCallback((q: string) => {
     setQuery(q);
     if (q.length > 2) {
-      trackSearch.mutate({ query: q, source: "consumer" });
+      trackSearch.mutate({ query: q, resultCount: 0, clicked: false, section: "consumer" });
     }
   }, []);
 

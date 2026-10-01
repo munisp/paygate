@@ -44,13 +44,44 @@ function broadcastAlerts(alerts: WebhookFailureAlert[]): void {
   }
 }
 
-// ─── Acknowledged alert tracking (in-memory, resets on restart) ───────────────
+// ─── Acknowledged alert tracking ──────────────────────────────────────────────
+// A2-MEDIUM-1: the Set is a fast read cache; every ack is written through to
+// webhook_alert_acks (drizzle/0107) fire-and-forget, and the cache is hydrated
+// from Postgres on poller start so acks survive restarts.
 
 const acknowledgedIds = new Set<string>();
+
+function persistAck(alertId: string): void {
+  void (async () => {
+    const drizzle = await getDb();
+    if (!drizzle) return;
+    const { sql } = await import("drizzle-orm");
+    await drizzle.execute(sql`
+      INSERT INTO webhook_alert_acks (delivery_id) VALUES (${alertId})
+      ON CONFLICT (delivery_id) DO NOTHING
+    `);
+  })().catch((e) => console.error("[webhookFailureAlerts] webhook_alert_acks persist failed (non-fatal):", e instanceof Error ? e.message : String(e)));
+}
+
+/** Hydrate acknowledgedIds from Postgres. Fire-and-forget; never throws. */
+async function hydrateAcknowledgedIds(): Promise<void> {
+  try {
+    const drizzle = await getDb();
+    if (!drizzle) return;
+    const { sql } = await import("drizzle-orm");
+    const res: any = await drizzle.execute(sql`SELECT delivery_id FROM webhook_alert_acks`);
+    const rows: any[] = res?.rows ?? res ?? [];
+    for (const r of rows) acknowledgedIds.add(String(r.delivery_id));
+  } catch (e) {
+    console.error("[webhookFailureAlerts] ack hydration failed (non-fatal):", e instanceof Error ? e.message : String(e));
+  }
+}
 
 export function acknowledgeAlert(deliveryId: string): void {
   acknowledgedIds.add(deliveryId);
   acknowledgedIds.add(`dlq:${deliveryId}`); // also ack the dead-letter form
+  persistAck(deliveryId);
+  persistAck(`dlq:${deliveryId}`);
 }
 
 // ─── Core polling logic ───────────────────────────────────────────────────────
@@ -182,6 +213,23 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
 
     if (alerts.length > 0) {
       broadcastAlerts(alerts);
+      // A2-HIGH-1: persist alerts to webhook_failure_alerts (fire-and-forget —
+      // alerting must never throw into the polling loop).
+      void (async () => {
+        const drizzle = await getDb();
+        if (!drizzle) return;
+        const { webhookFailureAlerts: wfaTable } = await import("../drizzle/schema");
+        for (const a of alerts) {
+          await drizzle.insert(wfaTable).values({
+            merchantId: a.merchantId,
+            webhookId: a.webhookId,
+            failureCount: a.attemptCount,
+            lastError: a.errorMessage,
+            lastAttemptedAt: new Date(a.failedAt),
+            acknowledged: acknowledgedIds.has(a.id),
+          } as any);
+        }
+      })().catch((e) => console.error("[webhookFailureAlerts] webhook_failure_alerts persist failed (non-fatal):", e instanceof Error ? e.message : String(e)));
       // Notify owner if there are critical failures
       const critical = alerts.filter((a) => a.severity === "critical" && !a.id.startsWith("dlq:"));
       if (critical.length > 0) {
@@ -220,6 +268,8 @@ let pollerInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startWebhookFailurePoller(intervalMs = 60_000): void {
   if (pollerInterval) return; // already running
+  // A2-MEDIUM-1: restore persisted acknowledgements before the first poll.
+  void hydrateAcknowledgedIds();
   // Run immediately on start, then on interval
   pollWebhookFailures().catch((e) => console.error("[webhookFailureAlerts] Poll tick failed:", e instanceof Error ? e.message : String(e)));
   pollerInterval = setInterval(() => {

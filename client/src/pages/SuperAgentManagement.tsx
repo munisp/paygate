@@ -30,10 +30,10 @@ export default function SuperAgentManagement() {
   const [msgText, setMsgText] = useState("");
 
   const { data: networks, isLoading: networksLoading, isError: networksError, refetch: refetchNetworks } =
-    trpc.superAgentV2Mgmt.listNetworks.useQuery({ limit, offset: networkPage * limit }, { staleTime: 30_000 });
+    trpc.superAgentV2Mgmt.listNetworks.useQuery({ page: networkPage + 1, limit }, { staleTime: 30_000 });
 
   const { data: sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
-    trpc.superAgentV2Mgmt.listSessions.useQuery({ limit, offset: sessionPage * limit }, { staleTime: 30_000 });
+    trpc.supportChat.listSessions.useQuery({ page: sessionPage + 1, limit }, { staleTime: 30_000 });
 
   const addSubAgent = trpc.superAgentV2Mgmt.addSubAgent.useMutation({
     onSuccess: () => {
@@ -55,7 +55,7 @@ export default function SuperAgentManagement() {
     onError: (err) => toast.error(err.message),
   });
 
-  const sendMessage = trpc.superAgentV2Mgmt.sendMessage.useMutation({
+  const sendMessage = trpc.supportChat.sendMessage.useMutation({
     onSuccess: () => { toast.success("Message sent"); setMsgOpen(false); setMsgText(""); },
     onError: (err) => toast.error(err.message),
   });
@@ -107,7 +107,7 @@ export default function SuperAgentManagement() {
             <CardContent>
               {networksLoading ? (
                 <div className="text-muted-foreground text-sm py-8 text-center">Loading agents…</div>
-              ) : !networks?.agents?.length ? (
+              ) : !networks?.networks?.length ? (
                 <div className="text-center py-12">
                   <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                   <p className="text-muted-foreground">No sub-agents yet.</p>
@@ -128,7 +128,7 @@ export default function SuperAgentManagement() {
                       </tr>
                     </thead>
                     <tbody>
-                      {networks.agents.map((agent: any) => (
+                      {networks.networks.map((agent: any) => (
                         <tr key={agent.id} className="border-b hover:bg-muted/30 transition-colors">
                           <td className="py-2 px-3 font-medium">{agent.name}</td>
                           <td className="py-2 px-3 text-muted-foreground">{agent.phone ?? "—"}</td>
@@ -168,7 +168,7 @@ export default function SuperAgentManagement() {
                   <div className="flex items-center justify-between mt-4">
                     <Button variant="outline" size="sm" disabled={networkPage === 0} onClick={() => setNetworkPage(p => p - 1)}>Previous</Button>
                     <span className="text-xs text-muted-foreground">Page {networkPage + 1}</span>
-                    <Button variant="outline" size="sm" disabled={!networks?.hasMore} onClick={() => setNetworkPage(p => p + 1)}>Next</Button>
+                    <Button variant="outline" size="sm" disabled={(networkPage + 1) * limit >= (networks?.total ?? 0)} onClick={() => setNetworkPage(p => p + 1)}>Next</Button>
                   </div>
                 </div>
               )}
@@ -231,7 +231,7 @@ export default function SuperAgentManagement() {
                   <div className="flex items-center justify-between mt-4">
                     <Button variant="outline" size="sm" disabled={sessionPage === 0} onClick={() => setSessionPage(p => p - 1)}>Previous</Button>
                     <span className="text-xs text-muted-foreground">Page {sessionPage + 1}</span>
-                    <Button variant="outline" size="sm" disabled={!sessions?.hasMore} onClick={() => setSessionPage(p => p + 1)}>Next</Button>
+                    <Button variant="outline" size="sm" disabled={(sessionPage + 1) * limit >= (sessions?.total ?? 0)} onClick={() => setSessionPage(p => p + 1)}>Next</Button>
                   </div>
                 </div>
               )}
@@ -297,7 +297,7 @@ export default function SuperAgentManagement() {
             <Button
               onClick={() => {
                 if (!msgText.trim() || !selectedSession) return;
-                sendMessage.mutate({ sessionId: selectedSession, message: msgText });
+                sendMessage.mutate({ sessionId: selectedSession, content: msgText });
               }}
               disabled={sendMessage.isPending}
             >
