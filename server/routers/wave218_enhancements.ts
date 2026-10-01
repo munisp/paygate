@@ -84,6 +84,23 @@ const domainHealthRouter = router({
       avgLatencyMs = null as unknown as number;
       return { ...d, txCount, errCount, errorRate: parseFloat(errorRate.toFixed(2)), avgLatencyMs, status, checkedAt: new Date().toISOString() };
     }));
+    // A2-HIGH-1: persist a health snapshot per domain (write-through,
+    // fire-and-forget — a monitoring write must never fail the health read).
+    void (async () => {
+      const { domainHealthSnapshots } = await import("../../drizzle/schema");
+      for (const r of results) {
+        await db.insert(domainHealthSnapshots).values({
+          domain: r.id,
+          tps: parseFloat((r.txCount / 86400).toFixed(4)),
+          errorRate: r.errorRate,
+          p50LatencyMs: 0,
+          p95LatencyMs: 0,
+          p99LatencyMs: 0,
+          uptime: r.status === "healthy" ? 100 : r.status === "warning" ? 99 : 95,
+          status: r.status,
+        } as any);
+      }
+    })().catch((e) => logger.warn("[domainHealth] domain_health_snapshots persist failed (non-fatal):", e instanceof Error ? e.message : e));
     return results;
   }),
 });
