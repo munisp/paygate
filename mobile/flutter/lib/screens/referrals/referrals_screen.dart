@@ -26,7 +26,7 @@ class __ReferralsScreenState extends State<ReferralsScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('referrals.summary');
+      final result = await api.query('referrals.stats');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

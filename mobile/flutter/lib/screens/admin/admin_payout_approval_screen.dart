@@ -26,7 +26,7 @@ class __AdminPayoutApprovalScreenState extends State<AdminPayoutApprovalScreen> 
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('payouts.pendingApprovals');
+      final result = await api.query('wave27.payoutApproval.getPendingApprovals');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

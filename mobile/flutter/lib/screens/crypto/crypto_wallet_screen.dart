@@ -26,7 +26,7 @@ class __CryptoWalletScreenState extends State<CryptoWalletScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('cryptoWallet.balance');
+      final result = await api.query('usdc.getBalance');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

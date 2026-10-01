@@ -27,8 +27,8 @@ class __DigitalGoldScreenState extends State<DigitalGoldScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('digitalGold.portfolio');
-      final history = await api.query('digitalGold.getPortfolioHistory', input: {'months': 6});
+      final result = await api.query('newFeatures.digitalGold.getPortfolio');
+      final history = await api.query('newFeatures.digitalGold.getPortfolioHistory', input: {'months': 6});
       setState(() { _data = result; _historyData = history; });
     } catch (e) {
       setState(() { _error = e.toString(); });

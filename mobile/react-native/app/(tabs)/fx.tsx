@@ -11,14 +11,24 @@ export default function FXScreen() {
   const [amount, setAmount] = useState('');
   const [toCurrency, setToCurrency] = useState('NGN');
 
-  const { data: ratesData, isLoading } = trpc.fx.getRates.useQuery({ baseCurrency: 'NGN' });
-  const { data: historyData } = trpc.fx.getConversionHistory.useQuery({ limit: 10 });
-  const convertMutation = trpc.fx.createConversion.useMutation({
+  const { data: ratesData, isLoading } = trpc.fx.getRates.useQuery({ base: 'NGN' });
+  // BLOCKED (W15b): there is NO server-side conversion-history procedure.
+  // fx.getHistory exists but returns FX *rate* history (base/target/limit), not
+  // the merchant's conversion records, so it cannot back this list honestly.
+  // The original call below is kept disabled pending a real server proc.
+  // const { data: historyData } = trpc.fx.getConversionHistory.useQuery({ limit: 10 });
+  const historyData = undefined as any;
+  // Server proc is fx.convertCurrency { fromCurrency, toCurrency, amount: int }.
+  const convertMutation = trpc.fx.convertCurrency.useMutation({
     onSuccess: () => { setAmount(''); Alert.alert('Success', 'Conversion created successfully'); },
     onError: (e) => Alert.alert('Error', e.message),
   });
 
-  const rates: any = (ratesData as any)?.rates ?? {};
+  // Server returns an array of { baseCurrency, targetCurrency, rate, fetchedAt } rows.
+  const rates: Record<string, number> = {};
+  for (const r of (ratesData as any[]) ?? []) {
+    rates[r.targetCurrency] = parseFloat(r.rate);
+  }
   const history: any[] = (historyData as any)?.conversions ?? [];
 
   const getRate = (currency: string) => {
@@ -60,10 +70,16 @@ export default function FXScreen() {
           <Text style={s.resultLabel}> NGN</Text>
         </View>
         <TouchableOpacity style={s.convertBtn}
-          onPress={() => convertMutation.mutate({ fromCurrency, toCurrency: 'NGN', amount: parseFloat(amount) || 0 })}
+          onPress={() => convertMutation.mutate({ fromCurrency, toCurrency: 'NGN', amount: Math.round(parseFloat(amount) || 0) })}
           disabled={!amount || convertMutation.isPending}>
           <Text style={s.convertBtnText}>{convertMutation.isPending ? 'Processing...' : 'Create Conversion'}</Text>
         </TouchableOpacity>
+      </View>
+      <View style={s.card}>
+        <Text style={s.sectionTitle}>Recent Conversions</Text>
+        {/* BLOCKED (W15b): no server procedure returns conversion history yet.
+            Showing an honest placeholder instead of fabricated data. */}
+        <Text style={s.historyDate}>Conversion history is not yet available from the server.</Text>
       </View>
       {history.length > 0 && (
         <View style={s.card}>

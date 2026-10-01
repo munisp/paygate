@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw, Shield, CheckCircle, XCircle, AlertTriangle, Eye } from "lucide-react";
 
 export default function AdminSecurityScore() {
-  const { data, isLoading, isError, error, refetch } = trpc.wave27.security.getScore.useQuery();
+  const { data, isLoading, isError, error, refetch } = trpc.wave27.securityScore.getScore.useQuery();
 
   // Real computed score only — "unavailable" when the query fails, never a fabricated 100.
   const score = data?.score ?? null;
