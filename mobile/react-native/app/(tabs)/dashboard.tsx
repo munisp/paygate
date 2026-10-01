@@ -29,10 +29,10 @@ const TransactionItem: React.FC<{ transaction: Transaction }> = ({ transaction }
   <View style={styles.transactionItem}>
     <View>
       <Text style={styles.transactionDescription}>{transaction.description}</Text>
-      <Text style={styles.transactionDate}>{new Date(transaction.date).toLocaleDateString()}</Text>
+      <Text style={styles.transactionDate}>{new Date(transaction.createdAt ?? transaction.date).toLocaleDateString()}</Text>
     </View>
     <View style={styles.transactionAmountContainer}>
-      <Text style={styles.transactionAmount}>₦{transaction.amount.toLocaleString()}</Text>
+      <Text style={styles.transactionAmount}>₦{((transaction.amount ?? 0) / 100).toLocaleString()}</Text>
       <Text style={[styles.transactionStatus, styles[transaction.status]]}>{transaction.status}</Text>
     </View>
   </View>
@@ -41,11 +41,20 @@ const TransactionItem: React.FC<{ transaction: Transaction }> = ({ transaction }
 export default function DashboardScreen() {
   const [searchText, setSearchText] = useState('');
 
-  const { data: summary, isLoading: isLoadingSummary, error: errorSummary } = trpc.dashboard.getSummary.useQuery();
-  const { data: transactions, isLoading: isLoadingTransactions, error: errorTransactions } = trpc.dashboard.getRecentTransactions.useQuery();
+  // Real procs: dashboard.overview -> { merchant, overview, timeSeries };
+  // recent transactions come from transactions.list ({ rows, total }).
+  const { data: overviewData, isLoading: isLoadingSummary, error: errorSummary } = trpc.dashboard.overview.useQuery({});
+  const overview = (overviewData as any)?.overview;
+  const summary = overview ? {
+    totalRevenue: ((overview.netVolume ?? overview.totalVolume ?? 0) / 100),
+    successfulTransactions: overview.successCount ?? 0,
+    pendingTransactions: overview.pendingCount ?? 0,
+  } : undefined;
+  const { data: txData, isLoading: isLoadingTransactions, error: errorTransactions } = trpc.transactions.list.useQuery({ limit: 20, offset: 0 });
+  const transactions = ((txData as any)?.rows ?? []) as any[];
 
   const filteredTransactions = transactions?.filter(transaction =>
-    transaction.description.toLowerCase().includes(searchText.toLowerCase())
+    String(transaction.description ?? '').toLowerCase().includes(searchText.toLowerCase())
   );
 
   if (isLoadingSummary || isLoadingTransactions) {

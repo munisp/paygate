@@ -29,15 +29,17 @@ export default function AdminChargebackManagement() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [evidenceText, setEvidenceText] = useState("");
 
-  const { data: chargebacks, isLoading, isError, refetch } = trpc.wave29.chargebackMgmt.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
-  const { data: stats } = trpc.wave29.chargebackMgmt.getStats.useQuery();
+  // Server exposes wave29.chargeback.{list, submitEvidence, resolve, getStats}.
+  // "updateStatus" maps to resolve({chargebackId, outcome: won|lost|withdrawn}).
+  const { data: chargebacks, isLoading, isError, refetch } = trpc.wave29.chargeback.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
+  const { data: stats } = trpc.wave29.chargeback.getStats.useQuery();
 
-  const submitEvidence = trpc.wave29.chargebackMgmt.submitEvidence.useMutation({
-    onSuccess: () => { toast.success("Evidence submitted"); setSelectedId(null); refetch(); },
+  const submitEvidence = trpc.wave29.chargeback.submitEvidence.useMutation({
+    onSuccess: () => { toast.success("Evidence submitted"); setSelectedId(null); setEvidenceText(""); refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
-  const updateStatus = trpc.wave29.chargebackMgmt.updateStatus.useMutation({
+  const updateStatus = trpc.wave29.chargeback.resolve.useMutation({
     onSuccess: () => { toast.success("Status updated"); refetch(); },
     onError: (err) => toast.error(err.message),
   });
@@ -160,14 +162,14 @@ export default function AdminChargebackManagement() {
                             <Button
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"
-                              onClick={() => updateStatus.mutate({ chargebackId: c.id, status: "won" })}
+                              onClick={() => updateStatus.mutate({ chargebackId: String(c.id), outcome: "won" })}
                             >
                               Won
                             </Button>
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => updateStatus.mutate({ chargebackId: c.id, status: "lost" })}
+                              onClick={() => updateStatus.mutate({ chargebackId: String(c.id), outcome: "lost" })}
                             >
                               Lost
                             </Button>
@@ -210,8 +212,8 @@ export default function AdminChargebackManagement() {
               className="w-full"
               disabled={!evidenceText || submitEvidence.isPending}
               onClick={() => submitEvidence.mutate({
-                chargebackId: selectedId!,
-                evidence: evidenceText,
+                chargebackId: String(selectedId!),
+                evidenceNotes: evidenceText,
               })}
             >
               Submit Evidence

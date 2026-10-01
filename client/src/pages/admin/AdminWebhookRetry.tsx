@@ -21,28 +21,48 @@ export default function AdminWebhookRetry() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const { data, isLoading, refetch } = trpc.wave27.webhookRetry.list.useQuery({
-    search: search || undefined,
-    status: statusFilter !== "all" ? statusFilter : undefined,
-  }, { staleTime: 30_000 });
+  // Server exposes getFailedDeliveries (no args; returns failed deliveries only),
+  // scheduleRetry({deliveryId, retryAfterMinutes?}) and getRetryStats. There is no
+  // bulk-retry or abandon endpoint.
+  const { data, isLoading, refetch } = trpc.wave27.webhookRetry.getFailedDeliveries.useQuery(undefined, { staleTime: 30_000 });
+  const { data: retryStats, refetch: refetchStats } = trpc.wave27.webhookRetry.getRetryStats.useQuery(undefined, { staleTime: 30_000 });
 
-  const retryMutation = trpc.wave27.webhookRetry.retry.useMutation({
-    onSuccess: () => { toast.success("Webhook retry scheduled"); refetch(); },
+  const retryMutation = trpc.wave27.webhookRetry.scheduleRetry.useMutation({
+    onSuccess: () => { toast.success("Webhook retry scheduled"); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
 
-  const retryAllMutation = trpc.wave27.webhookRetry.retryAll.useMutation({
-    onSuccess: (d) => { toast.success(`${d.count} webhooks queued for retry`); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
+  const [retryingAll, setRetryingAll] = useState(false);
+  const retryAll = async () => {
+    if (!failedOnly.length) { toast.info("No failed deliveries to retry"); return; }
+    setRetryingAll(true);
+    try {
+      await Promise.all(failedOnly.map((d: any) => retryMutation.mutateAsync({ deliveryId: String(d.id) })));
+      toast.success(`${failedOnly.length} webhooks queued for retry`);
+    } catch { /* per-item errors already toasted by onError */ }
+    setRetryingAll(false);
+  };
 
-  const abandonMutation = trpc.wave27.webhookRetry.abandon.useMutation({
-    onSuccess: () => { toast.success("Webhook abandoned"); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
+  const abandonNotAvailable = () =>
+    toast.error("Abandoning a webhook delivery is not available: the server does not expose this endpoint.");
 
-  const deliveries = data?.deliveries ?? [];
-  const stats = data?.stats ?? { pendingCount: 0, failedCount: 0, succeededToday: 0, abandonedCount: 0 };
+  const allDeliveries: any[] = Array.isArray(data) ? data : (data?.deliveries ?? []);
+  const failedOnly = allDeliveries.filter((d: any) => d.status === "failed");
+  const deliveries = allDeliveries.filter((d: any) => {
+    if (statusFilter !== "all" && d.status !== statusFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return String(d.webhook_url ?? d.endpoint_url ?? "").toLowerCase().includes(q) ||
+        String(d.event_types ?? d.event_type ?? "").toLowerCase().includes(q);
+    }
+    return true;
+  });
+  const stats = {
+    pendingCount: Number(retryStats?.scheduled_retry ?? 0),
+    failedCount: Number(retryStats?.failed ?? allDeliveries.length),
+    succeededToday: Number(retryStats?.delivered ?? 0),
+    abandonedCount: 0,
+  };
 
   return (
     <AdminLayout>
@@ -54,9 +74,9 @@ export default function AdminWebhookRetry() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
-            <Button size="sm" onClick={() => retryAllMutation.mutate()} disabled={retryAllMutation.isPending}>
+            <Button size="sm" onClick={retryAll} disabled={retryingAll}>
               <Zap className="w-4 h-4 mr-2" />
-              {retryAllMutation.isPending ? "Queuing..." : "Retry All Failed"}
+              {retryingAll ? "Queuing..." : "Retry All Failed"}
             </Button>
           </div>
         </div>
@@ -128,8 +148,8 @@ export default function AdminWebhookRetry() {
                   <tbody>
                     {deliveries.map((d: any) => (
                       <tr key={d.id} className="border-b hover:bg-gray-50">
-                        <td className="py-3 px-2 font-mono text-xs">{d.event_type}</td>
-                        <td className="py-3 px-2 text-xs max-w-[200px] truncate" title={d.endpoint_url}>{d.endpoint_url}</td>
+                        <td className="py-3 px-2 font-mono text-xs">{d.event_types ?? d.event_type}</td>
+                        <td className="py-3 px-2 text-xs max-w-[200px] truncate" title={d.webhook_url ?? d.endpoint_url}>{d.webhook_url ?? d.endpoint_url}</td>
                         <td className="py-3 px-2 text-center">
                           <span className={d.attempt_count >= 3 ? "text-red-600 font-medium" : ""}>{d.attempt_count}/{d.max_attempts ?? 5}</span>
                         </td>
@@ -148,14 +168,13 @@ export default function AdminWebhookRetry() {
                           <div className="flex gap-1">
                             {(d.status === "failed" || d.status === "pending") && (
                               <Button size="sm" variant="outline" className="text-blue-600 border-blue-200"
-                                aria-label="Refresh" onClick={() => retryMutation.mutate({ deliveryId: d.id })}
+                                aria-label="Refresh" onClick={() => retryMutation.mutate({ deliveryId: String(d.id) })}
                                 disabled={retryMutation.isPending}><RotateCcw/>
                               </Button>
                             )}
                             {d.status !== "abandoned" && d.status !== "succeeded" && (
                               <Button size="sm" variant="outline" className="text-red-600 border-red-200"
-                                onClick={() => abandonMutation.mutate({ deliveryId: d.id })}
-                                disabled={abandonMutation.isPending}>
+                                onClick={abandonNotAvailable}>
                                 <XCircle className="w-3 h-3" />
                               </Button>
                             )}

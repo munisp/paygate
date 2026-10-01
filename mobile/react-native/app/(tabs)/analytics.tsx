@@ -36,14 +36,51 @@ const chartStyles = StyleSheet.create({
 export default function AnalyticsScreen() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
-  const { data, isLoading } = trpc.analytics.getOverview.useQuery(
-    { period },
+  // Real server procs: analytics.overview / analytics.timeSeries /
+  // analytics.channelBreakdown / merchantAnalytics.hourlyHeatmap — all take
+  // { from, to } dates.
+  const range = React.useMemo(() => {
+    const to = new Date();
+    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+    return { from: new Date(to.getTime() - days * 86400000), to };
+  }, [period]);
+
+  const { data: overview, isLoading } = trpc.analytics.overview.useQuery(
+    range,
     { staleTime: 60_000 }
   );
+  const { data: timeSeries } = trpc.analytics.timeSeries.useQuery(range, { staleTime: 60_000 });
+  const { data: channels } = trpc.analytics.channelBreakdown.useQuery(range, { staleTime: 60_000 });
+  const { data: heatmap } = trpc.merchantAnalytics.hourlyHeatmap.useQuery(range, { staleTime: 60_000 });
 
-  const chartData = (data?.dailyRevenue ?? []).map((d: any) => ({
+  const totalChannelVolume = (channels ?? []).reduce((s: number, c: any) => s + (c.volume ?? 0), 0);
+  const channelBreakdown = (channels ?? []).map((c: any) => ({
+    channel: c.channel,
+    percentage: totalChannelVolume > 0 ? (c.volume / totalChannelVolume) * 100 : 0,
+  }));
+  // Aggregate hourly volume per hour-of-day for the "top periods" list.
+  const topHours = Object.values(
+    (heatmap ?? []).reduce((acc: Record<number, any>, h: any) => {
+      acc[h.hour] = acc[h.hour] ?? { hour: h.hour, revenue: 0 };
+      acc[h.hour].revenue += h.volume ?? 0;
+      return acc;
+    }, {})
+  ).sort((a: any, b: any) => b.revenue - a.revenue);
+
+  const data = {
+    totalRevenue: overview?.netVolume ?? 0,
+    totalTransactions: overview?.totalTransactions ?? 0,
+    avgTicket: (overview?.totalTransactions ?? 0) > 0
+      ? (overview?.netVolume ?? 0) / (overview!.totalTransactions as number)
+      : 0,
+    successRate: overview?.successRate ?? 0,
+    channelBreakdown,
+    topHours,
+  };
+
+  const chartData = (timeSeries ?? []).map((d: any) => ({
     label: new Date(d.date).toLocaleDateString("en", { day: "2-digit" }),
-    value: d.amount / 100,
+    value: d.volume / 100,
   }));
   const maxValue = Math.max(...chartData.map((d: any) => d.value), 1);
 

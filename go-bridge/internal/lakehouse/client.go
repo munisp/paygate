@@ -225,6 +225,9 @@ func (c *Client) ListTables(ctx context.Context) ([]string, error) {
 
 // QueryHandler handles POST /v1/lakehouse/query.
 func QueryHandler(w http.ResponseWriter, r *http.Request) {
+	if proxyToLakehouseV2(w, r, "/v2/query") {
+		return
+	}
 	var req struct {
 		SQL string `json:"sql"`
 	}
@@ -235,13 +238,7 @@ func QueryHandler(w http.ResponseWriter, r *http.Request) {
 
 	c := Get()
 	if c == nil {
-		// Lakehouse not configured — return informative stub response
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error":   "lakehouse not configured",
-			"hint":    "Set DUCKDB_PATH env var to enable analytics queries",
-			"columns": []string{},
-			"rows":    []any{},
-		})
+		failLoud(w)
 		return
 	}
 
@@ -256,9 +253,12 @@ func QueryHandler(w http.ResponseWriter, r *http.Request) {
 
 // TablesHandler handles GET /v1/lakehouse/tables.
 func TablesHandler(w http.ResponseWriter, r *http.Request) {
+	if proxyToLakehouseV2(w, r, "/v2/datasets") {
+		return
+	}
 	c := Get()
 	if c == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"tables": []string{}, "configured": false})
+		failLoud(w)
 		return
 	}
 	tables, err := c.ListTables(r.Context())
@@ -272,6 +272,9 @@ func TablesHandler(w http.ResponseWriter, r *http.Request) {
 
 // ExportHandler handles POST /v1/lakehouse/export — exports query results as Parquet.
 func ExportHandler(w http.ResponseWriter, r *http.Request) {
+	if proxyToLakehouseV2(w, r, "/v2/export") {
+		return
+	}
 	var req struct {
 		SQL        string `json:"sql"`
 		OutputPath string `json:"output_path"` // S3 URI or local path
@@ -283,7 +286,7 @@ func ExportHandler(w http.ResponseWriter, r *http.Request) {
 
 	c := Get()
 	if c == nil {
-		http.Error(w, `{"error":"lakehouse not configured"}`, http.StatusServiceUnavailable)
+		failLoud(w)
 		return
 	}
 
