@@ -96,11 +96,11 @@ export default function Analytics() {
     { staleTime: 120_000 },
   );
   const [plGroupBy, setPlGroupBy] = useState<'day'|'month'|'rail'|'cardType'>('day');
-  const { data: interchangePL, isLoading: plLoading } = trpc.analytics.interchangePL.useQuery(
+  const { data: interchangePL, isLoading: plLoading } = trpc.merchantAnalytics.interchangePL.useQuery(
     { from: range.from, to: range.to, groupBy: plGroupBy },
     { staleTime: 60_000 },
   );
-  const { data: pspHealth } = trpc.analytics.pspIntegrationHealth.useQuery(undefined, { staleTime: 30_000 });
+  const { data: pspHealth } = trpc.merchantAnalytics.pspIntegrationHealth.useQuery(undefined, { staleTime: 30_000 });
   const CHANNEL_COLORS: Record<string, string> = {
     card: "#4F46E5",
     bank_transfer: "#10B981",
