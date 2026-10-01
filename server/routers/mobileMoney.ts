@@ -157,6 +157,10 @@ const SEED_PROVIDERS = [
 export const mobileMoneyRouter = router({
 
   // ── List providers ──────────────────────────────────────────────────────────
+  // A2-HIGH-1 writer note: mobile_money_providers is a provider registry
+  // written by seed migrations (drizzle/0082_rare_the_hood.sql) and platform
+  // ops onboarding — providers are not self-serve, so there is intentionally
+  // no runtime write endpoint in this router.
   listProviders: protectedProcedure
     .input(z.object({
       country: z.string().length(2).optional(),
@@ -255,6 +259,23 @@ export const mobileMoneyRouter = router({
         currency: input.currency, msisdn: input.customerMsisdn,
         timestamp: new Date().toISOString(),
       });
+
+      // A2-HIGH-1: open a pending reconciliation record so the recon matcher
+      // (provider statement vs internal txn) has a row to match. Fire-and-
+      // forget — recon lag must never fail the collection.
+      void (async () => {
+        const { mobileMoneyRecon } = await import("../../drizzle/schema");
+        await db.insert(mobileMoneyRecon).values({
+          id: `mmr_${txn.id}`,
+          tenantId,
+          merchantId,
+          provider: input.providerCode,
+          providerRef: bridgeResult?.externalReference ?? reference,
+          amount: input.amountKobo,
+          currency: input.currency,
+          status: "pending",
+        } as any).onConflictDoNothing();
+      })().catch((e) => console.error("[mobileMoney] mobile_money_recon insert failed (non-fatal):", e instanceof Error ? e.message : e));
 
       // NO wallet credit here — a collection is only credited in the webhook
       // handler once the provider confirms the customer actually paid.
