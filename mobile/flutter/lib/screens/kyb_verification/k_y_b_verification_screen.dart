@@ -36,7 +36,7 @@ class KybVerification {
 final kybVerificationsProvider = FutureProvider.family<
     List<KybVerification>, Map<String, dynamic>>((ref, queryParams) async {
   final api = ref.read(apiServiceProvider);
-  final response = await api.get('/trpc/kyb.listVerifications', params: queryParams);
+  final response = await api.get('/trpc/kybMgmt.list', params: queryParams);
   // Assuming response.data is a List<Map<String, dynamic>>
   return (response.data as List)
       .map((e) => KybVerification.fromJson(e as Map<String, dynamic>))

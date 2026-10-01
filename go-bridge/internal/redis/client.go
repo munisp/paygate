@@ -87,6 +87,12 @@ func Init() {
 	})
 }
 
+// Enabled reports whether the client is backed by a real Redis server
+// (REDIS_URL set). When disabled, operations are no-ops (dev mode).
+func (c *Client) Enabled() bool {
+	return c != nil && c.enabled
+}
+
 // Get returns the global Redis client. Panics if Init has not been called.
 func Get() *Client {
 	if globalClient == nil {

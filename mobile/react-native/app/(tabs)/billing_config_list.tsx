@@ -27,8 +27,11 @@ export default function BillingConfigListScreen() {
   const [newConfigTier, setNewConfigTier] = useState('');
   const [newConfigPrice, setNewConfigPrice] = useState('');
 
-  const { data: configs, isLoading: isLoadingConfigs, error: errorConfigs, refetch: refetchConfigs } = trpc.billing.listConfigs.useQuery();
-  const { data: analytics, isLoading: isLoadingAnalytics, error: errorAnalytics } = trpc.billingExt.getAnalytics.useQuery();
+  // Real server procs take a tenantId (same convention as billing-engine.tsx).
+  const DEMO_TENANT_ID = 'tenant-demo-001';
+
+  const { data: configs, isLoading: isLoadingConfigs, error: errorConfigs, refetch: refetchConfigs } = trpc.billing.listVersions.useQuery({ tenantId: DEMO_TENANT_ID });
+  const { data: analytics, isLoading: isLoadingAnalytics, error: errorAnalytics } = trpc.billingExt.getAnalytics.useQuery({ tenantId: DEMO_TENANT_ID });
 
   const createConfigMutation = trpc.billing.create.useMutation({
     onSuccess: () => {
@@ -54,7 +57,11 @@ export default function BillingConfigListScreen() {
     },
   });
 
-  const deleteConfigMutation = trpc.billing.delete.useMutation({
+  // BLOCKED(W15): the server billing router has no delete procedure
+  // (getActive/listVersions/create/update/activate/... only). Left calling a
+  // nonexistent proc is not allowed, so this stays pointed at the missing
+  // endpoint and will fail loudly until a delete proc exists.
+  const deleteConfigMutation = (trpc as any).billing.delete.useMutation({
     onSuccess: () => {
       Alert.alert('Success', 'Billing configuration deleted successfully!');
       refetchConfigs();
@@ -69,17 +76,19 @@ export default function BillingConfigListScreen() {
       Alert.alert('Error', 'Please fill all fields for new configuration.');
       return;
     }
+    // billing.create schema: {tenantId, pricingModel?, feeRate?, ...,
+    // subscriptionFeeKobo?, notes?} — map the form fields onto it.
     createConfigMutation.mutate({
-      name: newConfigName,
-      tier: newConfigTier,
-      price: parseFloat(newConfigPrice),
-      features: [], // Assuming features can be added later or are default
-      isActive: true,
+      tenantId: DEMO_TENANT_ID,
+      pricingModel: 'subscription',
+      subscriptionFeeKobo: Math.round(parseFloat(newConfigPrice) * 100),
+      notes: `${newConfigName} (${newConfigTier})`,
     });
   };
 
   const handleUpdateConfig = (id: string, updates: Partial<BillingConfig>) => {
-    updateConfigMutation.mutate({ id, ...updates });
+    // billing.update requires a change reason.
+    updateConfigMutation.mutate({ id, reason: 'Mobile dashboard edit', ...(updates as any) });
   };
 
   const handleDeleteConfig = (id: string) => {
@@ -93,21 +102,21 @@ export default function BillingConfigListScreen() {
     );
   };
 
-  const filteredConfigs = configs?.filter(config =>
-    config.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    config.tier.toLowerCase().includes(searchText.toLowerCase())
+  const filteredConfigs = (configs as any[] | undefined)?.filter(config =>
+    String(config.name ?? config.pricingModel ?? '').toLowerCase().includes(searchText.toLowerCase()) ||
+    String(config.tier ?? config.notes ?? '').toLowerCase().includes(searchText.toLowerCase())
   );
 
-  const renderConfigItem = ({ item }: { item: BillingConfig }) => (
+  const renderConfigItem = ({ item }: { item: any }) => (
     <View style={styles.card}>
       <View style={styles.configHeader}>
-        <Text style={styles.configName}>{item.name}</Text>
-        <Text style={styles.configTier}>{item.tier}</Text>
+        <Text style={styles.configName}>{item.name ?? item.pricingModel ?? 'Config'}</Text>
+        <Text style={styles.configTier}>{item.tier ?? `v${item.version ?? '?'}`}</Text>
       </View>
-      <Text style={styles.configPrice}>₦{item.price.toLocaleString()}</Text>
-      <Text style={styles.configFeatures}>Features: {item.features.join(', ') || 'No specific features'}</Text>
-      <Text style={item.isActive ? styles.activeStatus : styles.inactiveStatus}>
-        {item.isActive ? 'Active' : 'Inactive'}
+      <Text style={styles.configPrice}>₦{(((item.price ?? item.subscriptionFeeKobo ?? 0)) / 100).toLocaleString()}</Text>
+      <Text style={styles.configFeatures}>{item.features ? `Features: ${item.features.join(', ')}` : (item.notes ?? 'No specific features')}</Text>
+      <Text style={(item.isActive ?? item.active) ? styles.activeStatus : styles.inactiveStatus}>
+        {(item.isActive ?? item.active) ? 'Active' : 'Inactive'}
       </Text>
       <View style={styles.configActions}>
         <TouchableOpacity onPress={() => Alert.alert('Edit', `Edit ${item.name}`)} style={styles.actionButton}>

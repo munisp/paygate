@@ -32,7 +32,7 @@ class KybVerification {
 // Riverpod provider for fetching KYB Verifications
 final kybVerificationsProvider = FutureProvider.autoDispose<List<KybVerification>>((ref) async {
   final api = ref.read(apiServiceProvider);
-  final response = await api.get('/trpc/kyb.listVerifications');
+  final response = await api.get('/trpc/kybMgmt.list');
   // Assuming the response data is a List<Map<String, dynamic>>
   return (response.data as List).map((e) => KybVerification.fromJson(e as Map<String, dynamic>)).toList();
 });
