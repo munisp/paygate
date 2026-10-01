@@ -46,31 +46,31 @@ export default function AdminKeycloak() {
   const [syncUserId, setSyncUserId] = useState("");
 
   // Real tRPC data
-  const { data: keycloakConfig, isLoading, isError } = trpc.settings.keycloak.isConfigured.useQuery();
-  const syncRolesMutation = trpc.settings.keycloak.syncRoles.useMutation({
+  const { data: keycloakConfig, isLoading, isError } = trpc.middleware.keycloak.isConfigured.useQuery();
+  const syncRolesMutation = trpc.middleware.keycloak.syncRoles.useMutation({
     onSuccess: (r) => toast.success(`Synced ${r.synced} role(s): ${(r.roles ?? []).join(", ") || "none"}${r.fallback ? " (bridge unavailable)" : ""}`),
     onError: (e) => toast.error(`Sync failed: ${e.message}`),
   });
-  const syncAllMutation = trpc.settings.keycloak.syncAllRoles.useMutation({
+  const syncAllMutation = trpc.middleware.keycloak.syncAllRoles.useMutation({
     onSuccess: (r) => toast.success(`Synced ${r.users} / ${r.total} users${r.fallback ? " (bridge unavailable)" : ""}`),
     onError: (e) => toast.error(`Bulk sync failed: ${e.message}`),
   });
-  const createClientMutation = trpc.settings.keycloak.createClient.useMutation({
+  const createClientMutation = trpc.middleware.keycloak.createClient.useMutation({
     onSuccess: (d) => { toast.success(d.fallback ? 'Client queued (bridge offline)' : 'Keycloak client created'); },
     onError: (e) => toast.error(`Create client failed: ${e.message}`),
   });
-  const createRoleMutation = trpc.settings.keycloak.createRole.useMutation({
+  const createRoleMutation = trpc.middleware.keycloak.createRole.useMutation({
     onSuccess: (d) => { toast.success(d.fallback ? 'Role queued (bridge offline)' : 'Keycloak role created'); },
     onError: (e) => toast.error(`Create role failed: ${e.message}`),
   });
-  const rotateSecretMutation = trpc.settings.keycloak.rotateClientSecret.useMutation({
+  const rotateSecretMutation = trpc.middleware.keycloak.rotateClientSecret.useMutation({
     onSuccess: (d) => {
       if (d.newSecret) toast.success(`New secret: ${d.newSecret.substring(0, 8)}…`);
       else toast.success('Secret rotation queued (bridge offline)');
     },
     onError: (e) => toast.error(`Rotate secret failed: ${e.message}`),
   });
-  const toggleProviderMutation = trpc.settings.keycloak.toggleProvider.useMutation({
+  const toggleProviderMutation = trpc.middleware.keycloak.toggleProvider.useMutation({
     onSuccess: (d) => { toast.success(d.fallback ? 'Provider toggle queued (bridge offline)' : `Provider ${d.enabled ? 'enabled' : 'disabled'}`); },
     onError: (e) => toast.error(`Toggle provider failed: ${e.message}`),
   });

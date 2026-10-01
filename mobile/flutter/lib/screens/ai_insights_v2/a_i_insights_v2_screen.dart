@@ -64,7 +64,7 @@ class AIInsight {
 final aiInsightsProvider = FutureProvider.family<List<AIInsight>, String>((ref, query) async {
   final api = ref.read(apiServiceProvider);
   try {
-    final response = await api.get('/trpc/aiInsights.list', params: {'query': query});
+    final response = await api.get('/trpc/tier1to5.aiInsights.getInsights', params: {'query': query});
     // Assuming response.data is a List<Map<String, dynamic>>
     return (response.data as List).map((e) => AIInsight.fromJson(e as Map<String, dynamic>)).toList();
   } catch (e) {
@@ -76,6 +76,8 @@ final aiInsightsProvider = FutureProvider.family<List<AIInsight>, String>((ref, 
 final createAIInsightProvider = FutureProvider.family<AIInsight, AIInsight>((ref, insight) async {
   final api = ref.read(apiServiceProvider);
   try {
+    // BLOCKED(W15): no AI-insight CRUD exists server-side
+    // (tier1to5.aiInsights only has getInsights/getCohortAnalysis/getSettlementForecast).
     final response = await api.post('/trpc/aiInsights.create', body: insight.toJson());
     return AIInsight.fromJson(response.data as Map<String, dynamic>);
   } catch (e) {
@@ -87,6 +89,7 @@ final createAIInsightProvider = FutureProvider.family<AIInsight, AIInsight>((ref
 final updateAIInsightProvider = FutureProvider.family<AIInsight, AIInsight>((ref, insight) async {
   final api = ref.read(apiServiceProvider);
   try {
+    // BLOCKED(W15): no AI-insight update proc exists server-side.
     final response = await api.post('/trpc/aiInsights.update', body: insight.toJson());
     return AIInsight.fromJson(response.data as Map<String, dynamic>);
   } catch (e) {
@@ -98,6 +101,7 @@ final updateAIInsightProvider = FutureProvider.family<AIInsight, AIInsight>((ref
 final deleteAIInsightProvider = FutureProvider.family<void, String>((ref, id) async {
   final api = ref.read(apiServiceProvider);
   try {
+    // BLOCKED(W15): no AI-insight delete proc exists server-side.
     await api.post('/trpc/aiInsights.delete', body: {'id': id});
   } catch (e) {
     throw Exception('Failed to delete AI insight: $e');

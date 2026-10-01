@@ -66,6 +66,8 @@ final documentListProvider = FutureProvider.family<List<KYBDocument>, String>((r
   final api = ref.read(apiServiceProvider);
   try {
     // Simulate API call for listing documents
+    // BLOCKED(W15): kybDocUpload.listDocuments requires a verificationId; no
+    // search/list-all KYB document proc exists. Call left untouched.
     final response = await api.get('/trpc/kyb.documentUpload.list', params: {'search': searchQuery});
     // In a real app, parse response into List<KYBDocument>
     // For now, return dummy data filtered by search query
@@ -203,8 +205,10 @@ class _KYBDocumentUploadScreenState extends ConsumerState<KYBDocumentUploadScree
 
               try {
                 if (isEditing) {
+                  // BLOCKED(W15): only kybDocUpload.reviewDocument (admin) exists; no update.
                   await api.post('/trpc/kyb.documentUpload.update', body: newDoc.toJson());
                 } else {
+                  // BLOCKED(W15): creation is kybDocUpload.getUploadUrl (needs file content + verificationId).
                   await api.post('/trpc/kyb.documentUpload.create', body: newDoc.toJson());
                 }
                 _refreshDocuments();
@@ -239,7 +243,7 @@ class _KYBDocumentUploadScreenState extends ConsumerState<KYBDocumentUploadScree
             onPressed: () async {
               final api = ref.read(apiServiceProvider);
               try {
-                await api.post('/trpc/kyb.documentUpload.delete', body: {'id': document.id});
+                await api.post('/trpc/kybDocUpload.deleteDocument', body: {'documentId': document.id});
                 _refreshDocuments();
                 Navigator.of(context).pop();
               } catch (e) {
