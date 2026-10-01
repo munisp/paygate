@@ -94,11 +94,11 @@ export default function AdminTenantBilling() {
   const [search, setSearch] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
 
-  const { data: tenantsData, isLoading, isError } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 }, { staleTime: 30_000 });
-  const { data: usageData } = trpc.wave26.usageMetering.getUsage.useQuery(
-    { tenantId: selectedTenantId! },
+  const { data: tenantsData, isLoading, isError } = trpc.tenantMgmt.list.useQuery({ page: 1, limit: 50 }, { staleTime: 30_000 });
+  const { data: usageData } = trpc.usageMetering.getUsage.useQuery(
+    { tenantId: selectedTenantId!, months: 6 },
     { enabled: !!selectedTenantId, staleTime: 30_000 });
-  const { data: invoicesData } = trpc.wave26.usageMetering.getInvoices.useQuery(
+  const { data: invoicesData } = trpc.usageMetering.getInvoices.useQuery(
     { tenantId: selectedTenantId! },
     { enabled: !!selectedTenantId, staleTime: 30_000 });
 
@@ -110,9 +110,14 @@ export default function AdminTenantBilling() {
   );
 
   const selectedTenant = tenants.find((t: any) => t.id === selectedTenantId);
-  const usage = usageData?.usage;
-  const limits = usageData?.limits;
-  const invoices = invoicesData?.invoices ?? [];
+  const usageRows: any[] = Array.isArray(usageData) ? usageData : usageData ? [usageData] : [];
+  const usage = usageRows[0];
+  const limits = {} as any;
+  const invoices = ((invoicesData ?? []) as any[]).map((inv: any) => ({
+    ...inv,
+    amountCents: inv.amountCents ?? Math.round((inv.amountUsd ?? 0) * 100),
+    createdAt: inv.createdAt ?? inv.created_at,
+  }));
 
   const formatCurrency = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;

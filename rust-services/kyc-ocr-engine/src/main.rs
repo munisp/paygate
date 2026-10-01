@@ -9,6 +9,7 @@
 /// This service handles bulk OCR workloads (100+ documents/second)
 /// that would be too slow for the Python PaddleOCR service.
 
+mod internal_auth;
 mod telemetry;
 
 use axum::{
@@ -378,10 +379,14 @@ async fn main() {
             .expect("HTTP client build failed"),
     });
 
+    let internal_key = Arc::new(internal_auth::resolve_internal_key("kyc-ocr-engine"));
+
     let app = Router::new()
         .route("/health", get(handle_health))
         .route("/ocr", post(handle_ocr))
         .route("/ocr/bulk", post(handle_bulk_ocr))
+        .layer(axum::middleware::from_fn(internal_auth::internal_key_auth_mw))
+        .layer(axum::Extension(internal_key))
         .with_state(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8012".to_string());

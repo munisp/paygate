@@ -134,6 +134,11 @@ export const nexthubSettlementRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Window is ${window.status}, not OPEN` });
       }
 
+      // A2-HIGH-1 writer note: nexthub_transfers rows are written by the
+      // external NextHub/Mojaloop-compatible hub switch (transfer
+      // prepare/fulfil path, outside this Node codebase) as transfers are
+      // committed to the current window; this router only READS them for
+      // settlement aggregation. No in-repo writer exists by design.
       // Aggregate net positions per DFSP from nexthub_transfers in this window.
       // NOTE: the previous query used `case when payer_fsp_id = payer_fsp_id`
       // (a tautology, always true) — each (payer, payee) group contributes its

@@ -21,6 +21,7 @@
 //   - Ledger codes: USD (840), EUR (978), CNY (156), INR (356), BRL (986), NGN (566)
 //   - Each cross-border transfer: DEBIT escrow → CREDIT settlement + CREDIT fee
 
+mod internal_auth;
 mod telemetry;
 
 mod mem;
@@ -340,6 +341,7 @@ async fn main() {
     }
 
     let shared: SharedState = Arc::new(store);
+    let internal_key: Arc<String> = Arc::new(internal_auth::resolve_internal_key("tigerbeetle-ledger"));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -349,6 +351,8 @@ async fn main() {
         .route("/v1/ledger/transfers", get(list_transfers).post(create_transfer))
         .route("/v1/ledger/crossborder", post(cross_border_transfer))
         .route("/v1/ledger/stats", get(ledger_stats))
+        .layer(axum::middleware::from_fn(internal_auth::internal_key_auth_mw))
+        .layer(axum::Extension(internal_key))
         .with_state(shared);
 
     let port = env::var("PORT").unwrap_or_else(|_| "8200".to_string());
