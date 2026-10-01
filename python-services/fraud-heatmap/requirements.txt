@@ -18,3 +18,7 @@ prometheus-client==0.21.0
 opentelemetry-api==1.27.0
 opentelemetry-sdk==1.27.0
 opentelemetry-exporter-otlp==1.27.0
+# OPTIONAL: GeoLibre spatial layers (A3-Gap-1). Not installable in offline
+# build environments; geo_layers.py falls back to Sedona/DBSCAN when absent.
+# Uncomment in connected builds to enable GeoLibre-backed cluster layers.
+# geolibre

@@ -3,3 +3,7 @@ uvicorn[standard]==0.32.1
 pydantic==2.8.2
 kafka-python==2.0.2
 psycopg2-binary==2.9.9
+# NOTE (A3-Gap-7): opensearch-py is intentionally NOT required. This service
+# talks to OpenSearch directly over its REST API via stdlib urllib
+# (see _opensearch_request in main.py) — no opensearch-py dependency needed.
+# If richer client features are ever required, add: opensearch-py==2.x

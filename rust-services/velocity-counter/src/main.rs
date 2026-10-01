@@ -1,6 +1,7 @@
+mod internal_auth;
 mod telemetry;
 
-use actix_web::{web, App, HttpServer, HttpResponse, middleware::Logger};
+use actix_web::{web, App, HttpRequest, HttpServer, HttpResponse, middleware::Logger};
 use redis::Client;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -25,10 +26,16 @@ struct CheckResponse {
 /// POST /check/{merchant_id}/{channel}/{window_seconds}
 /// Increments the counter and returns the new window totals.
 async fn check_and_increment(
+    req: HttpRequest,
+    key: web::Data<String>,
     path: web::Path<(String, String, u64)>,
     body: web::Json<CheckRequest>,
     state: web::Data<AppState>,
 ) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     let (merchant_id, channel, window_seconds) = path.into_inner();
     match increment_and_get(&state.redis, &merchant_id, &channel, window_seconds, body.amount_kobo) {
         Ok(result) => HttpResponse::Ok().json(CheckResponse {
@@ -45,9 +52,15 @@ async fn check_and_increment(
 /// GET /current/{merchant_id}/{channel}/{window_seconds}
 /// Returns current window totals without incrementing.
 async fn get_window_current(
+    req: HttpRequest,
+    key: web::Data<String>,
     path: web::Path<(String, String, u64)>,
     state: web::Data<AppState>,
 ) -> HttpResponse {
+    if !internal_auth::key_matches(req.headers().get("X-Internal-Key").and_then(|v| v.to_str().ok()), &key) {
+        return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
+    }
+
     let (merchant_id, channel, window_seconds) = path.into_inner();
     match get_current(&state.redis, &merchant_id, &channel, window_seconds) {
         Ok(result) => HttpResponse::Ok().json(CheckResponse {
@@ -71,11 +84,13 @@ async fn main() -> std::io::Result<()> {
     let redis_client = Client::open(redis_url.as_str()).expect("Failed to connect to Redis");
     info!("Velocity counter starting on :8090");
 
+    let internal_key = web::Data::new(internal_auth::resolve_internal_key("velocity-counter"));
     let state = web::Data::new(AppState { redis: redis_client });
 
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .app_data(internal_key.clone())
             .wrap(Logger::default())
             .route("/health", web::get().to(health))
             .route("/check/{merchant_id}/{channel}/{window_seconds}", web::post().to(check_and_increment))

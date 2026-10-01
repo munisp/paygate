@@ -6,11 +6,9 @@ import type { AppRouter } from "../../../server/routers";
 export const trpc = createTRPCReact<AppRouter>();
 
 /**
- * Shared tRPC React client factory for the auxiliary feature routers
- * (served at /api/trpc2 … /api/trpc5). Each router gets its own React
- * context so providers can be mounted independently of the main client.
- * Consolidates the boilerplate that used to be duplicated across
- * trpc2.ts … trpc5.ts.
+ * Shared tRPC React client factory for auxiliary feature routers.
+ * Each router gets its own React context so providers can be mounted
+ * independently of the main client.
  */
 export function createPaygateTrpc<TRouter extends AnyTRPCRouter>() {
   const TrpcContext = React.createContext<null>(null);
