@@ -244,12 +244,39 @@ export const dccRouter = router({
       customerId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return bridgePost('/dcc/execute', {
+      const result = await bridgePost('/dcc/execute', {
         rate_lock_id: input.rateLockId,
         payment_reference: input.paymentReference,
         customer_id: input.customerId,
         merchant_id: ctx.user.id,
-      });
+      }) as any;
+      // A2-HIGH-1: persist the executed conversion to dcc_transactions (the
+      // operational record read by crud119/orphanedTablesCRUD). Dedup on
+      // conversionId so bridge retries never double-record. Fire-and-forget —
+      // a projection write must never fail the executed payment.
+      const conversionId = result?.conversion_id ?? result?.conversionId;
+      if (conversionId) {
+        void (async () => {
+          const { getDb } = await import('./db');
+          const { dccTransactions } = await import('../drizzle/schema');
+          const db = await getDb();
+          if (!db) return;
+          await db.insert(dccTransactions).values({
+            conversionId: String(conversionId),
+            merchantId: String(ctx.user.id),
+            fromCurrency: result.from_currency ?? result.fromCurrency ?? 'NGN',
+            toCurrency: result.to_currency ?? result.toCurrency ?? 'NGN',
+            originalAmountKobo: Number(result.original_amount_kobo ?? result.originalAmountKobo ?? 0),
+            convertedAmountKobo: Number(result.converted_amount_kobo ?? result.convertedAmountKobo ?? 0),
+            midRate: String(result.mid_rate ?? result.midRate ?? '0'),
+            customerRate: String(result.customer_rate ?? result.customerRate ?? '0'),
+            marginPct: String(result.margin_pct ?? result.marginPct ?? '0'),
+            transferId: input.paymentReference,
+            status: result.status ?? 'completed',
+          } as any).onConflictDoNothing();
+        })().catch((e) => console.error('[dcc] dcc_transactions insert failed (non-fatal):', e instanceof Error ? e.message : e));
+      }
+      return result;
     }),
 
   getDCCMarginConfig: protectedProcedure
