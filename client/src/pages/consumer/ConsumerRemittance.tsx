@@ -15,18 +15,21 @@ export default function ConsumerRemittance() {
   const [amount, setAmount] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientAccount, setRecipientAccount] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
   const [recipientBank, setRecipientBank] = useState("");
   const [recipientCountry, setRecipientCountry] = useState("US");
 
   const { data: corridors, isLoading: corridorsLoading } = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
-  const { data: history } = trpc.newFeatures.internationalRemittance.getHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
+  const { data: history } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
-  const sendMutation = trpc.newFeatures.internationalRemittance.send.useMutation({
+  const utils = trpc.useUtils();
+  const sendMutation = trpc.newFeatures.internationalRemittance.initiateTransfer.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Transfer initiated — Ref: ${d.referenceId}`);
       setAmount("");
       setRecipientName("");
       setRecipientAccount("");
+      setRecipientPhone("");
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -167,20 +170,38 @@ export default function ConsumerRemittance() {
                 onChange={(e) => setRecipientAccount(e.target.value)}
               />
             </div>
+            <div>
+              <Label>Recipient Phone</Label>
+              <Input
+                placeholder="e.g. +1 555 123 4567"
+                value={recipientPhone}
+                onChange={(e) => setRecipientPhone(e.target.value)}
+              />
+            </div>
           </div>
 
           <Button
             className="w-full"
-            onClick={() => sendMutation.mutate({
-              fromCurrency,
-              toCurrency,
-              amountKobo: parseFloat(amount) * 100,
-              recipientName,
-              recipientAccount,
-              recipientBank,
-              recipientCountry,
-            })}
-            disabled={!amount || !recipientName || !recipientAccount || sendMutation.isPending}
+            onClick={async () => {
+              try {
+                const quote: any = await utils.newFeatures.internationalRemittance.getQuote.fetch({
+                  corridorId: selectedCorridor?.corridorId ?? `${fromCurrency}-${toCurrency}`,
+                  sendAmountUSD: parseFloat(amount),
+                  deliveryMethod: "bank_transfer",
+                });
+                sendMutation.mutate({
+                  quoteId: quote?.quoteId ?? "",
+                  recipientName,
+                  recipientPhone,
+                  recipientAccountNumber: recipientAccount || undefined,
+                  recipientBankCode: recipientBank || undefined,
+                  purpose: "personal",
+                });
+              } catch (e: any) {
+                toast.error(e.message ?? "Failed to get quote");
+              }
+            }}
+            disabled={!amount || !recipientName || !recipientPhone || sendMutation.isPending}
           >
             {sendMutation.isPending ? "Processing..." : `Send ${fromCurrency} ${parseFloat(amount || "0").toLocaleString()}`}
           </Button>

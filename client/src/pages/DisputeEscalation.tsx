@@ -42,12 +42,24 @@ export default function DisputeEscalation() {
   });
   const [escalateNote, setEscalateNote] = useState("");
 
-  const { data: disputes, refetch, isLoading } = trpc.wave29.disputeEscalation.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
-  const { data: detail } = trpc.wave29.disputeEscalation.getDetail.useQuery(
-    { disputeId: selectedId! },
+  // Server exposes wave29.disputeEscalation.{getEscalated, getTimeline, escalate, resolve}.
+  // There is no generic list/create here; escalated disputes come from getEscalated
+  // and new disputes are filed via wave27.consumerDispute.fileDispute.
+  const { data: disputes, refetch, isLoading } = trpc.wave29.disputeEscalation.getEscalated.useQuery(undefined, { staleTime: 30_000 });
+  const { data: detail } = trpc.wave29.disputeEscalation.getTimeline.useQuery(
+    { disputeId: String(selectedId!) },
     { enabled: !!selectedId , staleTime: 30_000 })
 
-  const createDispute = trpc.wave29.disputeEscalation.create.useMutation({
+  const REASON_MAP: Record<string, string> = {
+    unauthorized_transaction: "unauthorized",
+    wrong_amount: "wrong_amount",
+    duplicate_charge: "duplicate",
+    service_not_received: "not_received",
+    fraud: "merchant_fraud",
+    other: "other",
+  };
+
+  const createDispute = trpc.wave27.consumerDispute.fileDispute.useMutation({
     onSuccess: () => { toast.success("Dispute filed"); setShowCreate(false); refetch(); },
     onError: (err) => toast.error(err.message),
   });
@@ -137,10 +149,13 @@ export default function DisputeEscalation() {
               </div>
               <Button
                 className="w-full"
-                disabled={!form.transactionRef || !form.description || createDispute.isPending}
+                disabled={!form.transactionRef || form.description.length < 10 || !form.amountDisputed || createDispute.isPending}
                 onClick={() => createDispute.mutate({
-                  userId: 1,
-                  ...form,
+                  transactionId: form.transactionRef,
+                  reason: (REASON_MAP[form.category] ?? "other") as any,
+                  description: form.description,
+                  amount: form.amountDisputed / 100,
+                  currency: "NGN",
                 })}
               >
                 Submit Dispute
@@ -207,11 +222,11 @@ export default function DisputeEscalation() {
             <TableBody>
               {(disputes ?? []).map((d: any) => (
                 <TableRow key={d.id}>
-                  <TableCell className="font-mono text-xs">{d.transaction_ref}</TableCell>
-                  <TableCell className="text-sm">{d.category.replace(/_/g, " ")}</TableCell>
-                  <TableCell>₦{(Number(d.amount_disputed) / 100).toLocaleString()}</TableCell>
+                  <TableCell className="font-mono text-xs">{d.transaction_ref ?? d.wallet_txn_id ?? d.id}</TableCell>
+                  <TableCell className="text-sm">{(d.category ?? "").replace(/_/g, " ")}</TableCell>
+                  <TableCell>₦{(Number(d.amount_disputed || 0) / 100).toLocaleString()}</TableCell>
                   <TableCell>
-                    <Badge className={PRIORITY_COLORS[d.priority] ?? ""}>{d.priority}</Badge>
+                    <Badge className={PRIORITY_COLORS[d.priority] ?? "bg-gray-100 text-gray-700"}>{d.priority ?? "—"}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge className={STATUS_COLORS[d.status] ?? ""}>{d.status.replace(/_/g, " ")}</Badge>
@@ -227,7 +242,7 @@ export default function DisputeEscalation() {
                           variant="outline"
                           className="text-red-600"
                           onClick={() => escalate.mutate({
-                            disputeId: d.id,
+                            disputeId: String(d.id),
                             reason: "Escalated by admin",
                           })}
                         >
@@ -239,9 +254,10 @@ export default function DisputeEscalation() {
                         <Button
                           size="sm"
                           onClick={() => resolve.mutate({
-                            disputeId: d.id,
+                            disputeId: String(d.id),
                             resolution: "Resolved after investigation",
-                            refundAmount: Number(d.amount_disputed),
+                            outcome: "full_refund",
+                            refundAmount: Number(d.amount_disputed || 0) / 100,
                           })}
                         >
                           <CheckCircle className="w-3 h-3 mr-1" />

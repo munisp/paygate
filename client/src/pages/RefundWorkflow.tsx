@@ -26,15 +26,24 @@ export default function RefundWorkflow() {
   const [refundReason, setRefundReason] = useState("");
   const [showDialog, setShowDialog] = useState(false);
 
-  const { data, isLoading, refetch } = trpc.wave25.refunds.listRefundableTransactions.useQuery({
-    page,
+  const { data, isLoading, refetch } = trpc.transactions.list.useQuery({
     limit: 20,
+    offset: (page - 1) * 20,
     status: statusFilter === "all" ? undefined : statusFilter,
   }, { staleTime: 30_000 });
 
-  const { data: refundHistory } = trpc.wave25.refunds.listRefunds.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
+  const { data: refundHistoryRaw } = trpc.refunds.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const refundHistory = refundHistoryRaw ? { rows: refundHistoryRaw.items.map((r: any) => ({
+    ...r,
+    transactionId: r.transactionId ?? r.transaction_id,
+    amountKobo: r.amountKobo ?? r.amount_kobo,
+    reason: r.reason ?? r.merchantNote ?? r.merchant_note,
+    createdAt: r.createdAt ?? r.created_at,
+  })) } : undefined;
 
-  const createRefund = trpc.wave25.refunds.createRefund.useMutation({
+  const txRows = (data?.rows ?? []).map((r: any) => ({ ...r, amountKobo: r.amountKobo ?? r.amount, type: r.type ?? r.channel }));
+
+  const createRefund = trpc.refunds.create.useMutation({
     onSuccess: () => {
       toast.success("Refund initiated successfully");
       setShowDialog(false);
@@ -56,18 +65,19 @@ export default function RefundWorkflow() {
       toast.error("Please fill in all required fields");
       return;
     }
-    const tx = data?.rows.find(r => r.id === selectedTx);
+    const tx = txRows.find(r => r.id === selectedTx);
     const amountKobo = refundAmount
       ? Math.round(parseFloat(refundAmount) * 100)
       : tx?.amountKobo ?? 0;
     createRefund.mutate({
-      transactionId: selectedTx,
+      idempotencyKey: `refund-${selectedTx}-${Date.now()}`,
+      transactionRef: tx?.reference ?? selectedTx,
       amountKobo,
-      reason: refundReason,
+      merchantNote: refundReason,
     });
   };
 
-  const filtered = data?.rows.filter(r =>
+  const filtered = txRows.filter(r =>
     !search || r.id?.toLowerCase().includes(search.toLowerCase()) ||
     r.reference?.toLowerCase().includes(search.toLowerCase())
   ) ?? [];

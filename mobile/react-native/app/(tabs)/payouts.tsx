@@ -39,12 +39,24 @@ export default function PayoutsScreen() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [accountName, setAccountName] = useState("");
 
+  // Server input is { limit, offset, status? } (no `page`); returns { rows, total }.
   const { data, isLoading, refetch } = trpc.payouts.list.useQuery(
-    { page: 1, limit: 20 },
+    { limit: 50, offset: 0 },
     { staleTime: 30_000 }
   );
 
-  const verifyAccount = trpc.payouts.verifyAccount.useMutation();
+  const payouts = ((data as any)?.rows ?? []) as any[];
+  // Stats aggregated client-side from the fetched page (server returns only rows+total).
+  const totalPaid = payouts.filter(p => p.status === "completed").reduce((s, p) => s + (p.amount ?? 0), 0);
+  const pendingCount = payouts.filter(p => p.status === "pending" || p.status === "pending_approval").length;
+  const monthCount = payouts.filter(p => {
+    const d = new Date(p.createdAt);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
+
+  // Server account verification is nip.resolveAccount { bankCode(3-10), accountNumber(len 10) }.
+  const verifyAccount = trpc.nip.resolveAccount.useMutation();
   const createPayout = trpc.payouts.create.useMutation({
     onSuccess: () => {
       setShowModal(false);
@@ -97,16 +109,16 @@ export default function PayoutsScreen() {
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Total Paid</Text>
           <Text style={styles.statValue}>
-            ₦{((data?.totalPaid ?? 0) / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}
+            ₦{(totalPaid / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}
           </Text>
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Pending</Text>
-          <Text style={[styles.statValue, { color: "#f59e0b" }]}>{data?.pendingCount ?? 0}</Text>
+          <Text style={[styles.statValue, { color: "#f59e0b" }]}>{pendingCount}</Text>
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>This Month</Text>
-          <Text style={styles.statValue}>{data?.monthCount ?? 0}</Text>
+          <Text style={styles.statValue}>{monthCount}</Text>
         </View>
       </View>
 
@@ -115,7 +127,7 @@ export default function PayoutsScreen() {
         <ActivityIndicator color="#3b82f6" size="large" style={{ flex: 1 }} />
       ) : (
         <FlatList
-          data={data?.payouts ?? []}
+          data={payouts}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => <PayoutItem item={item} />}
           ListEmptyComponent={
