@@ -27,7 +27,7 @@ export default function PaymentLinkBuilder() {
     onSuccess: () => { toast.success("Payment link created."); setOpen(false); setForm({ currency: "NGN", allowCustomAmount: false, expiresInDays: 7 }); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const deleteMutation = trpc.paymentLinks.delete.useMutation({
+  const deleteMutation = trpc.paymentLinks.toggle.useMutation({
     onSuccess: () => { toast.success("Link deactivated."); refetch(); },
     onError: (e) => toast.error(e.message),
   });

@@ -15,30 +15,39 @@ export default function WebhookEventsPage() {
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  const { data, isLoading, refetch } = trpc.webhookEvents.list.useQuery({
-    status: status === "all" ? undefined : status,
-    limit,
-    offset: page * limit,
+  const { data, isLoading, refetch } = trpc.webhookDeliveries.list.useQuery({
+    limit: 200,
   }, { staleTime: 30_000 });
 
-  const retry = trpc.webhookEvents.retry.useMutation({
+  const retry = trpc.webhookDeliveries.retry.useMutation({
     onSuccess: () => { toast.success("Webhook retry queued"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
-  const events = (data?.events ?? []).filter(e =>
+  const allDeliveries: any[] = data ?? [];
+  const deliveries = allDeliveries.filter(e =>
+    status === "all" || e.status === (status === "delivered" ? "success" : status)
+  );
+  const stats = {
+    delivered: allDeliveries.filter(e => e.status === "success").length,
+    failed: allDeliveries.filter(e => e.status === "failed").length,
+    pending: allDeliveries.filter(e => e.status !== "success" && e.status !== "failed").length,
+  };
+  const events = deliveries
+    .slice(page * limit, (page + 1) * limit)
+    .filter(e =>
     !search || e.eventType.toLowerCase().includes(search.toLowerCase()) || e.id.toLowerCase().includes(search.toLowerCase())
   );
 
   const statusIcon = (s: string) => {
-    if (s === "delivered") return <CheckCircle className="w-4 h-4 text-green-500" />;
+    if (s === "success" || s === "delivered") return <CheckCircle className="w-4 h-4 text-green-500" />;
     if (s === "failed") return <XCircle className="w-4 h-4 text-red-500" />;
     return <Clock className="w-4 h-4 text-yellow-500" />;
   };
 
   const statusBadge = (s: string) => {
     const variants: Record<string, "default" | "destructive" | "secondary" | "outline"> = {
-      delivered: "default",
+      success: "default", delivered: "default",
       failed: "destructive",
       pending: "secondary",
       retrying: "outline",
@@ -65,10 +74,10 @@ export default function WebhookEventsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Events", value: data?.total ?? 0, color: "" },
-          { label: "Delivered", value: data?.stats?.delivered ?? 0, color: "text-green-600" },
-          { label: "Failed", value: data?.stats?.failed ?? 0, color: "text-red-600" },
-          { label: "Pending", value: data?.stats?.pending ?? 0, color: "text-yellow-600" },
+          { label: "Total Events", value: allDeliveries.length, color: "" },
+          { label: "Delivered", value: stats.delivered, color: "text-green-600" },
+          { label: "Failed", value: stats.failed, color: "text-red-600" },
+          { label: "Pending", value: stats.pending, color: "text-yellow-600" },
         ].map(s => (
           <Card key={s.label}>
             <CardContent className="pt-4">
@@ -133,13 +142,13 @@ export default function WebhookEventsPage() {
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className="text-xs font-mono truncate max-w-[200px]">{event.endpointUrl}</div>
+                        <div className="text-xs font-mono truncate max-w-[200px]">{event.webhookId}</div>
                       </td>
                       <td className="p-3">{statusBadge(event.status)}</td>
                       <td className="p-3 text-center">{event.attemptCount}</td>
                       <td className="p-3">
-                        <span className={`font-mono text-xs ${event.responseCode && event.responseCode >= 200 && event.responseCode < 300 ? "text-green-600" : "text-red-600"}`}>
-                          {event.responseCode ?? "—"}
+                        <span className={`font-mono text-xs ${event.responseStatus && event.responseStatus >= 200 && event.responseStatus < 300 ? "text-green-600" : "text-red-600"}`}>
+                          {event.responseStatus ?? "—"}
                         </span>
                       </td>
                       <td className="p-3 text-xs text-muted-foreground">
@@ -152,7 +161,7 @@ export default function WebhookEventsPage() {
                             variant="outline"
                             className="h-7 text-xs"
                             disabled={retry.isPending}
-                            aria-label="Refresh" onClick={() => retry.mutate({ eventId: event.id })}
+                            aria-label="Refresh" onClick={() => retry.mutate({ deliveryId: event.id })}
                           ><RotateCcw/> Retry
                           </Button>
                         )}
@@ -169,11 +178,11 @@ export default function WebhookEventsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {page * limit + 1}–{Math.min((page + 1) * limit, data?.total ?? 0)} of {data?.total ?? 0}
+          Showing {page * limit + 1}–{Math.min((page + 1) * limit, deliveries.length)} of {deliveries.length}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
-          <Button variant="outline" size="sm" disabled={(page + 1) * limit >= (data?.total ?? 0)} onClick={() => setPage(p => p + 1)}>Next</Button>
+          <Button variant="outline" size="sm" disabled={(page + 1) * limit >= deliveries.length} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       </div>
     </div>

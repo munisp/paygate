@@ -18,7 +18,7 @@ export default function EMILoansPage() {
 
   const { data, isLoading, refetch } = trpc.consumerFinancial.emiLoans.useQuery();
 
-  const calcEmi = trpc.emi.calculate.useQuery(
+  const calcEmi = trpc.emi.emi.calculate.useQuery(
     { principalKobo: form.principalKobo, annualRatePct: 24, tenureMonths: form.tenureMonths },
     { enabled: false , staleTime: 30_000 })
 
@@ -29,7 +29,7 @@ export default function EMILoansPage() {
 
   const handleCalculate = async () => {
     const result = await calcEmi.refetch();
-    if (result.data) setCalcResult(result.data);
+    if (result.data) setCalcResult({ emi: result.data.emi, totalPayable: result.data.totalPayment, totalInterest: result.data.totalInterest });
   };
 
   const formatNaira = (kobo: number) => `₦${(kobo / 100).toLocaleString()}`;

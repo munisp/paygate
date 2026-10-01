@@ -32,9 +32,14 @@ export default function SettingsScreen() {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(true);
 
-  const { data: profile, isLoading } = trpc.settings.getProfile.useQuery(undefined, { staleTime: 300_000 });
+  // Server procs are settings.get ({ user, merchant }) and
+  // settings.updateMerchant { businessName?, email?, phone?, webhookUrl? }.
+  const { data: profile, isLoading } = trpc.settings.get.useQuery(undefined, { staleTime: 300_000 });
 
-  const updateProfile = trpc.settings.updateProfile.useMutation({
+  // NOTE: this screen has no inline save handler — merchant profile edits
+  // happen on the /profile-edit route; the mutation is kept wired to the real
+  // server proc for use by that flow.
+  const updateMerchant = trpc.settings.updateMerchant.useMutation({
     onSuccess: () => Alert.alert("Success", "Profile updated"),
     onError: (e) => Alert.alert("Error", e.message),
   });

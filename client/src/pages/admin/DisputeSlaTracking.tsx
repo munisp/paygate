@@ -14,17 +14,24 @@ export default function DisputeSlaTracking() {
   const [slaFilter, setSlaFilter] = useState<string | undefined>(undefined);
 
   const { data: trackingData, refetch, isLoading } = trpc.wave31.disputeSla.list.useQuery({
-    status: statusFilter,
-    slaBreached: slaFilter === "breached" ? true : slaFilter === "at_risk" ? false : undefined,
+    breached: slaFilter === "breached" ? true : slaFilter === "at_risk" ? false : undefined,
   }, { staleTime: 30_000 });
   const { data: statsData } = trpc.wave31.disputeSla.getStats.useQuery();
 
-  const escalate = trpc.wave31.disputeSla.escalate.useMutation({
+  const escalate = trpc.disputes.escalate.useMutation({
     onSuccess: () => { toast.success("Dispute escalated"); refetch(); },
     onError: (e) => toast.error(e.message ?? "Failed to escalate dispute"),
   });
 
-  const records = (trackingData as any)?.records ?? [];
+  const records = ((trackingData as any)?.tracking ?? []).map((r: any) => ({
+    ...r,
+    sla_breached: r.breached,
+    sla_deadline: r.deadline_at,
+    dispute_type: r.sla_type,
+    status: r.dispute_status ?? r.status,
+    hours_remaining: r.deadline_at ? Math.max(0, Math.round((new Date(r.deadline_at).getTime() - Date.now()) / 3600000)) : undefined,
+    priority: r.priority ?? (r.breached ? "critical" : "medium"),
+  }));
   const stats = statsData as any;
 
   const slaStatusBadge = (record: any) => {
@@ -146,7 +153,7 @@ export default function DisputeSlaTracking() {
                   <TableCell className="text-sm">{rec.assigned_agent ?? 'Unassigned'}</TableCell>
                   <TableCell>
                     {rec.status !== 'escalated' && rec.status !== 'resolved' && (
-                      <Button size="sm" variant="outline" className="text-orange-600 text-xs" onClick={() => escalate.mutate({ id: rec.id, reason: "Manual escalation" })}>
+                      <Button size="sm" variant="outline" className="text-orange-600 text-xs" onClick={() => escalate.mutate({ id: String(rec.dispute_id), reason: "Manual escalation" })}>
                         Escalate
                       </Button>
                     )}

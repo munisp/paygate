@@ -15,12 +15,12 @@ export default function ConsumerEMI() {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [selectedEMI, setSelectedEMI] = useState<string | null>(null);
 
-  const { data: plans, isLoading: plansLoading } = trpc.newFeatures.emiCheckout.getPlans.useQuery(
+  const { data: plans, isLoading: plansLoading } = trpc.newFeatures.emiCheckout.getEMIPlans.useQuery(
     { amountKobo: parseFloat(purchaseAmount || "0", { staleTime: 30_000 }) * 100, merchantId: merchantId || undefined },
     { enabled: !!purchaseAmount && parseFloat(purchaseAmount) > 0 }
   );
 
-  const { data: schedule } = trpc.newFeatures.emiCheckout.getSchedule.useQuery(
+  const { data: schedule } = trpc.newFeatures.emiCheckout.getEMISchedule.useQuery(
     { emiId: selectedEMI! },
     { enabled: !!selectedEMI , staleTime: 30_000 })
 
