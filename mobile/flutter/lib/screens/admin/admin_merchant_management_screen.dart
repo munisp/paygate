@@ -26,7 +26,7 @@ class __AdminMerchantManagementScreenState extends State<AdminMerchantManagement
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('tenantAdmin.listMerchants');
+      final result = await api.query('tenantMgmt.list');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

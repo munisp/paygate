@@ -26,8 +26,8 @@ function ScoreGauge({ score }: { score: number }) {
 }
 
 export default function ComplianceScorecard() {
-  const { data: scorecard, refetch, isLoading, isError, error} = trpc.wave221.compliance.getScorecard.useQuery();
-  const { data: checks } = trpc.wave221.compliance.getChecks.useQuery();
+  const { data: scorecard, refetch, isLoading, isError, error} = trpc.wave221.complianceScorecard.getScorecard.useQuery();
+  const { data: checks } = trpc.wave221.complianceScorecard.getChecks.useQuery();
 
   const overallScore = scorecard?.overallScore ?? 0;
   const categories = scorecard?.categories ?? [];

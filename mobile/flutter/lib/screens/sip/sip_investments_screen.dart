@@ -26,7 +26,7 @@ class __SipInvestmentsScreenState extends State<SipInvestmentsScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('digitalGold.sipPlans');
+      final result = await api.query('newFeatures.digitalGold.listSIPs');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

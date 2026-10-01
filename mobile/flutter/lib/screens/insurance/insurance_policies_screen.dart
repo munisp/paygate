@@ -26,7 +26,7 @@ class __InsurancePoliciesScreenState extends State<InsurancePoliciesScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('insurance.policies.list');
+      final result = await api.query('insurancePolicies.list');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

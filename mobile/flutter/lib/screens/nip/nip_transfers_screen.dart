@@ -26,6 +26,8 @@ class __NipTransfersScreenState extends State<NipTransfersScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
+      // BLOCKED(W15): the nip router only exposes bank/account resolution
+      // (listBanks, resolveAccount, ...); no NIP transfer list/initiate proc exists.
       final result = await api.query('nipTransfers.list');
       setState(() { _data = result; });
     } catch (e) {

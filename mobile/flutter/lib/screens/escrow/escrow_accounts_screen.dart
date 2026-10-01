@@ -26,7 +26,7 @@ class __EscrowAccountsScreenState extends State<EscrowAccountsScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('escrow.list');
+      final result = await api.query('wave80.escrowV2.listContracts');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

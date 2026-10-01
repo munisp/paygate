@@ -26,7 +26,7 @@ class __InvoicesScreenState extends State<InvoicesScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('invoices.list');
+      final result = await api.query('usageMetering.getInvoices');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

@@ -26,7 +26,7 @@ class __LoyaltyProgramScreenState extends State<LoyaltyProgramScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('loyalty.summary');
+      final result = await api.query('loyalty.getAccount');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });
