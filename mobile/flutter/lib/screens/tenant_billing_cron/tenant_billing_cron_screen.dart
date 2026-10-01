@@ -30,6 +30,8 @@ class _TenantBillingCronScreenState extends ConsumerState<TenantBillingCronScree
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
+      // BLOCKED(W15): no billing-cron procedure exists in tenantMgmt /
+      // portalBilling / usageMetering routers.
       final result = await api.trpcQuery('tenantBilling.getCronJobs');
       final data = result['data'] ?? result;
       setState(() {

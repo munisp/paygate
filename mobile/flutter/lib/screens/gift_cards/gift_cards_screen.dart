@@ -26,6 +26,8 @@ class __GiftCardsScreenState extends State<GiftCardsScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
+      // BLOCKED(W15): no gift-card procedure exists anywhere in the server
+      // (searched server/routers.ts + server/routers/*.ts).
       final result = await api.query('giftCards.list');
       setState(() { _data = result; });
     } catch (e) {

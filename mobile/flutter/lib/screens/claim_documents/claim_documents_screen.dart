@@ -30,6 +30,8 @@ class _ClaimDocumentsScreenState extends ConsumerState<ClaimDocumentsScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
+      // BLOCKED(W15): server claimDocuments.listDocuments requires a claimId;
+      // this screen has no claim context, and no list-all-documents proc exists.
       final result = await api.trpcQuery('claimDocuments.list');
       final data = result['data'] ?? result;
       setState(() {

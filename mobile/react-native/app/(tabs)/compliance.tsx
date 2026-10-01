@@ -12,8 +12,15 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function ComplianceScreen() {
   const [activeTab, setActiveTab] = useState<'kyc' | 'kyb' | 'aml'>('kyc');
-  const { data, isLoading } = trpc.compliance.listItems.useQuery({ category: activeTab });
-  const items: any[] = (data as any)?.items ?? [];
+  // Real procs: complianceKyc.list ({status?, limit, offset}) lists KYC
+  // submissions; kybMgmt.list lists KYB verifications; str.list lists AML
+  // suspicious-transaction reports. No combined compliance.listItems exists.
+  const kycQuery = trpc.complianceKyc.list.useQuery({}, { enabled: activeTab === 'kyc' });
+  const kybQuery = trpc.kybMgmt.list.useQuery({}, { enabled: activeTab === 'kyb' });
+  const amlQuery = trpc.str.list.useQuery({}, { enabled: activeTab === 'aml' });
+  const activeQuery = activeTab === 'kyc' ? kycQuery : activeTab === 'kyb' ? kybQuery : amlQuery;
+  const { data, isLoading } = activeQuery;
+  const items: any[] = (data as any)?.items ?? (data as any)?.rows ?? (data as any)?.submissions ?? (data as any)?.verifications ?? [];
 
   return (
     <View style={s.container}>

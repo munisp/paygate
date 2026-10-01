@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { trpc } from '@/lib/trpc';
 
@@ -11,62 +11,63 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function ReconciliationScreen() {
-  const [running, setRunning] = useState(false);
-  const { data, isLoading, refetch } = trpc.reconciliation.list.useQuery({ limit: 20 });
-  const runMutation = trpc.reconciliation.runReconciliation.useMutation({
-    onSuccess: () => { setRunning(false); refetch(); Alert.alert('Success', 'Reconciliation run started'); },
-    onError: (e) => { setRunning(false); Alert.alert('Error', e.message); },
-  });
+  // Server proc is reconciliation.listAlerts (returns { alerts, total }); there
+  // is no reconciliation.list. Alerts carry pgBalance/tbBalance/delta/currency.
+  const { data, isLoading, refetch } = trpc.reconciliation.listAlerts.useQuery({ limit: 20 });
 
-  const runs: any[] = (data as any)?.runs ?? [];
+  const alerts: any[] = (data as any)?.alerts ?? [];
 
+  // BLOCKED (W15b): there is NO server procedure to trigger a reconciliation
+  // run (reconciliation.runReconciliation does not exist). The original fake
+  // call is removed; reconciliation runs are produced by the server-side
+  // ledger reconciliation job, which raises the alerts listed below.
   const handleRun = () => {
-    Alert.alert('Run Reconciliation', 'Start a new reconciliation run for today?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Run', onPress: () => { setRunning(true); runMutation.mutate({ date: new Date().toISOString().split('T')[0] }); } },
-    ]);
+    Alert.alert(
+      'Not available',
+      'Manual reconciliation runs are not supported by the server yet. This screen lists reconciliation alerts raised by the automated ledger reconciliation job.'
+    );
   };
 
   return (
     <View style={s.container}>
       <View style={s.header}>
         <Text style={s.title}>Reconciliation</Text>
-        <TouchableOpacity style={s.runBtn} onPress={handleRun} disabled={running || runMutation.isPending}>
-          <Text style={s.runBtnText}>{running ? 'Running...' : '▶ Run'}</Text>
+        <TouchableOpacity style={s.runBtn} onPress={handleRun}>
+          <Text style={s.runBtnText}>▶ Run</Text>
         </TouchableOpacity>
       </View>
       {isLoading ? <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} /> : (
         <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-          {runs.length === 0 ? (
+          {alerts.length === 0 ? (
             <View style={s.empty}>
-              <Text style={s.emptyText}>No reconciliation runs yet</Text>
-              <Text style={s.emptySubtext}>Run your first reconciliation to match transactions with settlements</Text>
+              <Text style={s.emptyText}>No reconciliation alerts</Text>
+              <Text style={s.emptySubtext}>Ledger balances are in sync — no discrepancies reported by the reconciliation job</Text>
             </View>
-          ) : runs.map((run, i) => (
-            <View key={i} style={s.card}>
+          ) : alerts.map((alert) => (
+            <View key={alert.id} style={s.card}>
               <View style={s.cardHeader}>
-                <Text style={s.runDate}>{run.date ?? run.periodStart ?? 'Unknown date'}</Text>
-                <View style={[s.badge, { backgroundColor: (STATUS_COLORS[run.status] ?? C.muted) + '22' }]}>
-                  <Text style={[s.badgeText, { color: STATUS_COLORS[run.status] ?? C.muted }]}>{run.status}</Text>
+                <Text style={s.runDate}>{new Date(alert.createdAt).toLocaleDateString()}</Text>
+                <View style={[s.badge, { backgroundColor: (STATUS_COLORS[alert.status] ?? C.muted) + '22' }]}>
+                  <Text style={[s.badgeText, { color: STATUS_COLORS[alert.status] ?? C.muted }]}>{alert.status}</Text>
                 </View>
               </View>
               <View style={s.statsRow}>
                 <View style={s.stat}>
-                  <Text style={s.statLabel}>Total Txns</Text>
-                  <Text style={s.statValue}>{(run.totalTransactions ?? run.txnCount ?? 0).toLocaleString()}</Text>
+                  <Text style={s.statLabel}>PG Balance</Text>
+                  <Text style={s.statValue}>{((alert.pgBalance ?? 0) / 100).toLocaleString()}</Text>
                 </View>
                 <View style={s.stat}>
-                  <Text style={s.statLabel}>Matched</Text>
-                  <Text style={[s.statValue, { color: C.success }]}>{(run.matchedCount ?? 0).toLocaleString()}</Text>
+                  <Text style={s.statLabel}>Ledger Balance</Text>
+                  <Text style={s.statValue}>{((alert.tbBalance ?? 0) / 100).toLocaleString()}</Text>
                 </View>
                 <View style={s.stat}>
-                  <Text style={s.statLabel}>Discrepancies</Text>
-                  <Text style={[s.statValue, { color: (run.discrepancyCount ?? 0) > 0 ? C.error : C.text }]}>
-                    {(run.discrepancyCount ?? 0).toLocaleString()}
+                  <Text style={s.statLabel}>Delta ({alert.currency ?? ''})</Text>
+                  <Text style={[s.statValue, { color: (alert.delta ?? 0) !== 0 ? C.error : C.text }]}>
+                    {((alert.delta ?? 0) / 100).toLocaleString()}
                   </Text>
                 </View>
               </View>
-              {run.notes && <Text style={s.notes}>{run.notes}</Text>}
+              {alert.notes && <Text style={s.notes}>{alert.notes}</Text>}
             </View>
           ))}
         </ScrollView>

@@ -30,6 +30,9 @@ class _OllamaChatScreenState extends ConsumerState<OllamaChatScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
+      // BLOCKED(W15): ollama router has no chat-history proc (health, listModels,
+      // chat, askFinancialAI, embed, pullModel, summarizeTransactions,
+      // explainFraudAlert only); getHistory has no equivalent.
       final result = await api.trpcQuery('aiChat.getHistory');
       final data = result['data'] ?? result;
       setState(() {

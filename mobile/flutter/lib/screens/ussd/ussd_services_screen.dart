@@ -26,7 +26,7 @@ class __UssdServicesScreenState extends State<UssdServicesScreen> {
     try {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
-      final result = await api.query('ussd.sessions.list');
+      final result = await api.query('ussdSessions.list');
       setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });

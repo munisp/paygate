@@ -30,7 +30,7 @@ class _InternationalRemittanceScreenState extends ConsumerState<InternationalRem
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('internationalRemittance.list');
+      final result = await api.trpcQuery('newFeatures.internationalRemittance.getTransferHistory');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

@@ -31,8 +31,12 @@ apisix:
     ssl_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
   enable_ipv6: false
   enable_admin: true
+  # Admin API binds on all interfaces so internal services (openappsec-waf)
+  # can reach it over the container network. It is NOT published to the host
+  # (see docker-compose.production.yml) and every request requires an
+  # admin_key below — internal-only by network topology + key auth.
   admin_listen:
-    ip: 127.0.0.1
+    ip: 0.0.0.0
     port: 9180
   # Render with envsubst at deploy time; keys come from the secret manager.
   # Hard-fail (?:) — no default admin/viewer keys are allowed.
@@ -71,7 +75,15 @@ nginx_config:
 deployment:
   role: traditional
   role_traditional:
-    config_provider: yaml
+    # etcd-backed config so the Admin API accepts dynamic route writes —
+    # required by openappsec-waf, which PUTs per-IP block routes at runtime.
+    # (Declarative yaml mode would make the Admin API read-only.)
+    config_provider: etcd
+  etcd:
+    host:
+      - "http://etcd:2379"
+    prefix: /apisix
+    timeout: 30
 
 plugin_attr:
   prometheus:
