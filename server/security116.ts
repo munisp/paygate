@@ -294,47 +294,113 @@ export function hydrateAuthFailureLog(limit = 1000): void {
   })().catch((e) => console.error("[AuthFailure] hydrate failed (non-fatal):", e instanceof Error ? e.message : e));
 }
 
-export function getRecentAuthFailures(limit = 100): AuthFailureEvent[] {
+/**
+ * M1 wave-4 residual: read from the auth_failure_events table (Postgres) —
+ * the in-memory ring buffer is only a boot-hydration target, not the source
+ * of truth. Falls back to the ring buffer when the DB is unavailable.
+ */
+export async function getRecentAuthFailures(limit = 100): Promise<AuthFailureEvent[]> {
+  try {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (database) {
+      const res: any = await database.execute(sql`
+        SELECT user_id, user_email, action, resource, ip, reason, created_at
+        FROM auth_failure_events ORDER BY created_at DESC LIMIT ${limit}
+      `);
+      const rows: any[] = res?.rows ?? res ?? [];
+      return rows.reverse().map((r) => ({
+        timestamp: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+        userId: r.user_id ?? undefined,
+        userEmail: r.user_email ?? undefined,
+        action: r.action,
+        resource: r.resource,
+        ip: r.ip ?? undefined,
+        reason: r.reason,
+      }));
+    }
+  } catch (e) {
+    console.error("[AuthFailure] DB read failed — using in-memory ring buffer:", e instanceof Error ? e.message : e);
+  }
   return authFailureLog.slice(-limit);
 }
 
 // ── 7. Adaptive Rate Limiter ──────────────────────────────────────────────────
 
-interface AdaptiveRateLimitState {
+/**
+ * M1-MEDIUM-6: Redis sorted-set sliding window (ZREMRANGEBYSCORE + ZADD +
+ * ZCARD) with the anomaly score persisted as a Redis string key — accurate
+ * across replicas. Fail-closed: Redis errors fall back to a per-replica
+ * in-process counter so the client is still throttled (never fail open).
+ */
+
+interface AdaptiveMemoryState {
   requests: number[];
   anomalyScore: number;
 }
+const adaptiveMemoryFallback = new Map<string, AdaptiveMemoryState>();
 
-const adaptiveRateLimitStore = new Map<string, AdaptiveRateLimitState>();
-
-export function checkAdaptiveRateLimit(
+export async function checkAdaptiveRateLimit(
   key: string,
   windowMs = 60_000,
   baseLimit = 100,
   anomalyMultiplier = 0.5
-): { allowed: boolean; remaining: number; anomalyScore: number } {
+): Promise<{ allowed: boolean; remaining: number; anomalyScore: number }> {
   const now = Date.now();
-  const state = adaptiveRateLimitStore.get(key) ?? { requests: [], anomalyScore: 0 };
 
-  // Prune old requests
-  state.requests = state.requests.filter(t => now - t < windowMs);
+  try {
+    const { getGuardRedis } = await import("./nonceGuard");
+    const redis = await getGuardRedis();
+    if (redis) {
+      const windowKey = `paygate:adaptive:win:${key}`;
+      const scoreKey = `paygate:adaptive:score:${key}`;
+      const member = `${now}-${Math.random().toString(36).slice(2)}`;
+
+      const pipeline = redis.pipeline();
+      pipeline.zremrangebyscore(windowKey, "-inf", now - windowMs);
+      pipeline.zadd(windowKey, now, member);
+      pipeline.zcard(windowKey);
+      pipeline.zcount(windowKey, now - 10_000, "+inf");
+      pipeline.pexpire(windowKey, windowMs);
+      pipeline.get(scoreKey);
+      const results = await pipeline.exec();
+
+      const windowCount: number = results?.[2]?.[1] ?? 1;
+      const recentBurst: number = results?.[3]?.[1] ?? 1;
+      let anomalyScore = Number(results?.[5]?.[1]) || 0;
+
+      // Detect burst anomaly (>50% of limit in last 10 seconds)
+      if (recentBurst > baseLimit * 0.5) {
+        anomalyScore = Math.min(1.0, anomalyScore + 0.1);
+      } else {
+        anomalyScore = Math.max(0, anomalyScore - 0.01);
+      }
+      await redis.set(scoreKey, String(anomalyScore), "PX", Math.max(windowMs, 300_000));
+
+      const effectiveLimit = Math.floor(baseLimit * (1 - anomalyScore * anomalyMultiplier));
+      const allowed = windowCount <= effectiveLimit;
+      const remaining = Math.max(0, effectiveLimit - windowCount);
+      return { allowed, remaining, anomalyScore };
+    }
+  } catch (err) {
+    console.warn("[adaptiveRateLimit] Redis error — in-process fallback (still throttled):", (err as Error)?.message ?? err);
+  }
+
+  // In-process fallback (per-replica, still throttled — fail closed).
+  const state = adaptiveMemoryFallback.get(key) ?? { requests: [], anomalyScore: 0 };
+  state.requests = state.requests.filter((t) => now - t < windowMs);
   state.requests.push(now);
-
-  // Detect burst anomaly (>50% of limit in last 10 seconds)
-  const recentBurst = state.requests.filter(t => now - t < 10_000).length;
+  const recentBurst = state.requests.filter((t) => now - t < 10_000).length;
   if (recentBurst > baseLimit * 0.5) {
     state.anomalyScore = Math.min(1.0, state.anomalyScore + 0.1);
   } else {
     state.anomalyScore = Math.max(0, state.anomalyScore - 0.01);
   }
-
-  adaptiveRateLimitStore.set(key, state);
-
-  // Apply anomaly multiplier to reduce limit for suspicious clients
+  adaptiveMemoryFallback.set(key, state);
   const effectiveLimit = Math.floor(baseLimit * (1 - state.anomalyScore * anomalyMultiplier));
   const allowed = state.requests.length <= effectiveLimit;
   const remaining = Math.max(0, effectiveLimit - state.requests.length);
-
   return { allowed, remaining, anomalyScore: state.anomalyScore };
 }
 

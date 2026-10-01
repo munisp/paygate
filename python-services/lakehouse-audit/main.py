@@ -49,12 +49,48 @@ S3_BUCKET = os.getenv("S3_BUCKET", "")
 S3_PREFIX = os.getenv("S3_PREFIX", "lakehouse/audit")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 DELTA_WRITE_BATCH = int(os.getenv("DELTA_WRITE_BATCH", "100"))
+# Smaller, separately configurable shutdown-sensitive batch to reduce the
+# in-memory loss window for pending events (default: min(DELTA_WRITE_BATCH, 25)).
+PENDING_FLUSH_BATCH = int(os.getenv("PENDING_FLUSH_BATCH", str(min(DELTA_WRITE_BATCH, 25))))
 
 # ─── State ────────────────────────────────────────────────────────────────────
 _total_written = 0
 _delta_available = False
 _write_lock = threading.Lock()
+# Events buffered in memory before the next Delta flush.
+# RESIDUAL LOSS WINDOW: events sit here until PENDING_FLUSH_BATCH accumulate,
+# the consumer goes idle (1s poll timeout), or shutdown flush runs. A SIGKILL
+# or hard crash can therefore still lose up to PENDING_FLUSH_BATCH-1 events
+# (bounded, configurable). atexit + SIGTERM handlers flush on graceful exit.
 _pending_events: list[dict] = []
+
+
+def _flush_pending_events(reason: str = "shutdown") -> int:
+    """Flush any buffered pending events; safe to call multiple times."""
+    global _pending_events
+    with _write_lock:
+        batch, _pending_events = _pending_events, []
+    if not batch:
+        return 0
+    written = flush_events(batch)
+    logger.info("[lakehouse] %s flush: %d pending events written", reason, written)
+    return written
+
+
+import atexit as _atexit
+import signal as _signal
+
+
+def _sigterm_handler(signum, frame):
+    _flush_pending_events(reason="sigterm")
+    raise SystemExit(0)
+
+
+_atexit.register(_flush_pending_events)
+try:
+    _signal.signal(_signal.SIGTERM, _sigterm_handler)
+except (ValueError, OSError):
+    pass  # not main thread (uvicorn workers); lifespan shutdown also flushes
 
 # ─── Delta Lake writer ────────────────────────────────────────────────────────
 
@@ -257,17 +293,13 @@ def _kafka_consumer_thread():
     consumer.subscribe([KAFKA_TOPIC])
     logger.info("[kafka] Consumer subscribed to topic=%s", KAFKA_TOPIC)
 
-    batch: list[dict] = []
-
     while True:
         try:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
                 # Flush partial batch on idle
-                if batch:
-                    flush_events(batch)
+                if _flush_pending_events(reason="idle"):
                     consumer.commit(asynchronous=False)
-                    batch = []
                 continue
             if msg.error():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
@@ -277,11 +309,12 @@ def _kafka_consumer_thread():
 
             try:
                 data = json.loads(msg.value().decode("utf-8"))
-                batch.append(data)
-                if len(batch) >= DELTA_WRITE_BATCH:
-                    flush_events(batch)
-                    consumer.commit(asynchronous=False)
-                    batch = []
+                with _write_lock:
+                    _pending_events.append(data)
+                    pending_len = len(_pending_events)
+                if pending_len >= PENDING_FLUSH_BATCH:
+                    if _flush_pending_events(reason="batch"):
+                        consumer.commit(asynchronous=False)
             except Exception as exc:
                 logger.error("[kafka] Failed to process message: %s", exc)
                 # Don't commit — message will be reprocessed on restart
@@ -309,6 +342,7 @@ async def lifespan(app: FastAPI):
     await start_kafka_consumer()
     yield
     logger.info("Lakehouse audit writer shutting down")
+    _flush_pending_events(reason="lifespan-shutdown")
 
 
 import sys, os as _os_telemetry

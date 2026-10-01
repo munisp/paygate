@@ -317,9 +317,49 @@ async def parse_fatf_jurisdictions(body: bytes) -> List[dict]:
         ]
 
 # ─── Sync Engine ──────────────────────────────────────────────────────────────
+# Sync status is persisted to the Redis hash `fatf:sync` (field per source →
+# JSON SyncResult, plus field "last_sync") so restarts don't lose sync state;
+# `_sync_status` / `_last_sync` are the hydrated in-memory view.
 _sync_status: Dict[str, SyncResult] = {}
 _is_syncing = False
 _last_sync: Optional[str] = None
+
+
+async def _persist_sync_status(redis, source_key: str, result: "SyncResult") -> None:
+    try:
+        await redis.hset("fatf:sync", source_key, json.dumps(result.dict()))
+    except Exception as e:
+        logger.warning(f"[fatf:sync] persist failed for {source_key}: {e}")
+
+
+async def _persist_last_sync(redis) -> None:
+    try:
+        if _last_sync:
+            await redis.hset("fatf:sync", "last_sync", _last_sync)
+    except Exception as e:
+        logger.warning(f"[fatf:sync] last_sync persist failed: {e}")
+
+
+async def _hydrate_sync_status() -> None:
+    """Load sync status from Redis on boot."""
+    global _last_sync
+    try:
+        redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        try:
+            data = await redis.hgetall("fatf:sync")
+        finally:
+            await redis.aclose()
+        for field, blob in data.items():
+            if field == "last_sync":
+                _last_sync = blob
+                continue
+            try:
+                _sync_status[field] = SyncResult(**json.loads(blob))
+            except Exception:
+                continue
+        logger.info(f"[startup] hydrated sync status for {len(_sync_status)} sources")
+    except Exception as e:
+        logger.warning(f"[startup] fatf:sync hydrate failed (starting cold): {e}")
 
 async def sync_source(
     source_key: str,
@@ -455,9 +495,11 @@ async def run_full_sync():
                 try:
                     result = await sync_source(source_key, source_cfg, conn, redis)
                     _sync_status[source_key] = result
+                    await _persist_sync_status(redis, source_key, result)
                 except Exception as e:
                     logger.error(f"[{source_key}] sync error: {e}")
             _last_sync = datetime.now(timezone.utc).isoformat()
+            await _persist_last_sync(redis)
         finally:
             await conn.close()
             await redis.aclose()
@@ -509,6 +551,11 @@ sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__),
 from shared.telemetry import setup_telemetry
 app = FastAPI(title="PayGate FATF/Sanctions Sync", version="1.0.0")
 setup_telemetry("fatf-sanctions-sync", app)
+
+@app.on_event("startup")
+async def _hydrate_on_boot():
+    await _hydrate_sync_status()
+
 
 @app.on_event("startup")
 async def startup():

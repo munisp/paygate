@@ -35,8 +35,51 @@ logging.basicConfig(
 
 HEARTBEAT_TTL = int(os.getenv("HEARTBEAT_TTL_SEC", "120"))
 
-# ─── In-memory kiosk registry ─────────────────────────────────────────────────
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+
+# ─── Kiosk registry (persisted in Redis, hydrated on boot) ────────────────────
+# Redis is source of truth: kiosk:reg:{id} hash holds registration data and
+# kiosk:hb:{id} (EX HEARTBEAT_TTL) tracks liveness; `kiosks` is a hydrated
+# read-through registry rebuilt on startup.
 kiosks: dict[str, dict] = {}
+
+
+async def _persist_kiosk(kiosk_id: str, data: dict) -> None:
+    """Write-through: registration hash + heartbeat key with TTL."""
+    r = await get_redis()
+    import json as _json
+    await r.hset(f"kiosk:reg:{kiosk_id}", mapping={
+        k: _json.dumps(v) for k, v in data.items()
+    })
+    await r.set(f"kiosk:hb:{kiosk_id}", str(data["last_seen_ms"]), ex=HEARTBEAT_TTL)
+
+
+async def _hydrate_registry() -> None:
+    """Load kiosk registrations from Redis on boot so restarts don't lose them."""
+    try:
+        import json as _json
+        r = await get_redis()
+        cursor = 0
+        loaded = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match="kiosk:reg:*", count=500)
+            for key in keys:
+                raw = await r.hgetall(key)
+                if not raw:
+                    continue
+                kid = key.split("kiosk:reg:", 1)[1]
+                try:
+                    kiosks[kid] = {k: _json.loads(v) for k, v in raw.items()}
+                    loaded += 1
+                except (ValueError, TypeError):
+                    logger.warning("Skipping corrupt kiosk registry entry %s", key)
+            if cursor == 0:
+                break
+        logger.info("Hydrated %d kiosk registrations from Redis", loaded)
+    except Exception as e:
+        logger.warning("Redis hydrate failed (starting cold): %s", e)
 
 
 class KioskHeartbeat(BaseModel):
@@ -112,6 +155,7 @@ def get_kiosk_status(kiosk_id: str) -> KioskStatus:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Kiosk health monitor starting")
+    await _hydrate_registry()
     yield
     logger.info("Kiosk health monitor shutting down")
 
@@ -134,6 +178,12 @@ async def heartbeat(hb: KioskHeartbeat):
         **hb.model_dump(),
         "last_seen_ms": int(time.time() * 1000),
     }
+    try:
+        await _persist_kiosk(hb.kiosk_id, kiosks[hb.kiosk_id])
+    except Exception as e:
+        # Fail loud: a heartbeat we cannot persist will be lost on restart.
+        logger.error("Failed to persist kiosk %s to Redis: %s", hb.kiosk_id, e)
+        raise HTTPException(status_code=503, detail="Persistence layer unavailable")
     return {"received": True, "kiosk_id": hb.kiosk_id}
 
 

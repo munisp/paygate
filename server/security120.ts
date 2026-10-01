@@ -119,41 +119,67 @@ export function validateFileMagicBytes(
 
 // ── 3. DDoS burst-window detection ────────────────────────────────────────────
 
+/**
+ * M1-MEDIUM-7: burst windows are now Redis-backed — the header docstring
+ * claim is finally true. Fixed window via INCR paygate:ctr:burst:{key} +
+ * PEXPIRE; exceeding the limit sets a paygate:nonce:burst:block:{key} block
+ * key with a PX TTL so the block is honoured by every replica.
+ * Fail-closed: Redis errors fall back to a per-replica in-process window so
+ * the client is still throttled (never fail open).
+ */
+
 interface BurstWindow {
   count: number;
   windowStart: number;
   blocked: boolean;
   blockUntil: number;
 }
+const burstMemoryFallback = new Map<string, BurstWindow>();
 
-const burstWindows = new Map<string, BurstWindow>();
-
-export function checkBurstWindow(
+export async function checkBurstWindow(
   key: string,
   maxPerWindow = 100,
   windowMs = 60_000,
   blockDurationMs = 300_000
-): { allowed: boolean; retryAfter?: number } {
-  const now = Date.now();
-  const existing = burstWindows.get(key);
+): Promise<{ allowed: boolean; retryAfter?: number }> {
+  try {
+    const { getGuardRedis } = await import("./nonceGuard");
+    const redis = await getGuardRedis();
+    if (redis) {
+      const blockKey = `paygate:nonce:burst:block:${key}`;
+      const blockedTtl: number = await redis.pttl(blockKey);
+      if (blockedTtl > 0) {
+        return { allowed: false, retryAfter: Math.ceil(blockedTtl / 1000) };
+      }
+      const countKey = `paygate:ctr:burst:${key}`;
+      const count: number = await redis.incr(countKey);
+      if (count === 1) await redis.pexpire(countKey, windowMs);
+      if (count > maxPerWindow) {
+        await redis.set(blockKey, "1", "PX", blockDurationMs, "NX");
+        return { allowed: false, retryAfter: Math.ceil(blockDurationMs / 1000) };
+      }
+      return { allowed: true };
+    }
+  } catch (err) {
+    console.warn("[burstWindow] Redis error — in-process fallback (still throttled):", (err as Error)?.message ?? err);
+  }
 
+  // In-process fallback (per-replica, still throttled — fail closed).
+  const now = Date.now();
+  const existing = burstMemoryFallback.get(key);
   if (existing?.blocked && now < existing.blockUntil) {
     return { allowed: false, retryAfter: Math.ceil((existing.blockUntil - now) / 1000) };
   }
-
   if (!existing || now - existing.windowStart > windowMs) {
-    burstWindows.set(key, { count: 1, windowStart: now, blocked: false, blockUntil: 0 });
+    burstMemoryFallback.set(key, { count: 1, windowStart: now, blocked: false, blockUntil: 0 });
     return { allowed: true };
   }
-
   existing.count++;
-
   if (existing.count > maxPerWindow) {
     existing.blocked = true;
     existing.blockUntil = now + blockDurationMs;
     return { allowed: false, retryAfter: Math.ceil(blockDurationMs / 1000) };
   }
-
   return { allowed: true };
 }
 
@@ -165,16 +191,19 @@ export function burstWindowMiddleware(
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
       ?? req.socket.remoteAddress
       ?? "unknown";
-    const result = checkBurstWindow(`ip:${ip}`, maxPerWindow, windowMs);
-    if (!result.allowed) {
-      res.setHeader("Retry-After", String(result.retryAfter ?? 300));
-      res.status(429).json({
-        error: "Too Many Requests",
-        retryAfter: result.retryAfter,
-      });
-      return;
-    }
-    next();
+    void checkBurstWindow(`ip:${ip}`, maxPerWindow, windowMs)
+      .then((result) => {
+        if (!result.allowed) {
+          res.setHeader("Retry-After", String(result.retryAfter ?? 300));
+          res.status(429).json({
+            error: "Too Many Requests",
+            retryAfter: result.retryAfter,
+          });
+          return;
+        }
+        next();
+      })
+      .catch(() => res.status(429).json({ error: "Too Many Requests", retryAfter: 60 })); // fail closed
   };
 }
 
@@ -267,7 +296,33 @@ export function hydrateWAFBlockLog(limit = 1000): void {
   })().catch((e) => console.error("[waf] hydrate failed (non-fatal):", e instanceof Error ? e.message : e));
 }
 
-export function getRecentWAFBlocks(limit = 100): WAFBlockEvent[] {
+/**
+ * M1 wave-4 residual: read from the waf_block_events table (Postgres) — the
+ * in-memory ring buffer is only a boot-hydration target / DB-outage fallback.
+ */
+export async function getRecentWAFBlocks(limit = 100): Promise<WAFBlockEvent[]> {
+  try {
+    const { getDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const database = await getDb();
+    if (database) {
+      const res: any = await database.execute(sql`
+        SELECT ip, path, method, reason, severity, created_at
+        FROM waf_block_events ORDER BY created_at DESC LIMIT ${limit}
+      `);
+      const rows: any[] = res?.rows ?? res ?? [];
+      return rows.map((r) => ({
+        timestamp: r.created_at instanceof Date ? r.created_at.getTime() : new Date(r.created_at).getTime(),
+        ip: r.ip,
+        path: r.path,
+        method: r.method,
+        reason: r.reason,
+        severity: r.severity ?? "high",
+      }));
+    }
+  } catch (e) {
+    console.error("[waf] DB read failed — using in-memory ring buffer:", e instanceof Error ? e.message : e);
+  }
   return wafBlockLog.slice(-limit).reverse();
 }
 
@@ -425,8 +480,10 @@ export function getSecuritySummary() {
   return {
     recentWAFBlocks: wafBlockLog.filter(e => e.timestamp > last1h).length,
     recentAuditEvents: auditTrail.filter(e => e.timestamp > last1h).length,
-    activeBurstBlocks: Array.from(burstWindows.values()).filter(w => w.blocked && w.blockUntil > now).length,
-    totalBurstWindows: burstWindows.size,
+    // Burst windows are Redis-backed (wave-5); these reflect only the
+    // per-replica in-process fallback observed by this replica.
+    activeBurstBlocks: Array.from(burstMemoryFallback.values()).filter((w: BurstWindow) => w.blocked && w.blockUntil > now).length,
+    totalBurstWindows: burstMemoryFallback.size,
   };
 }
 

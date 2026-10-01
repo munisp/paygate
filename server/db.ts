@@ -615,8 +615,10 @@ export async function upsertCustomer(data: Record<string, any>) {
 
 // ─── Payouts ──────────────────────────────────────────────────────────────────
 
-export async function createPayout(data: Record<string, any>) {
-  const database = requireDbSync();
+export async function createPayout(data: Record<string, any>, tx?: any) {
+  // A2-CRITICAL-1: accept an optional transaction handle so callers can run
+  // reserve → insert → reserved_amount atomically (see server/routers.ts).
+  const database = tx ?? requireDbSync();
   const rows = await database.insert(payouts).values(data as any).returning();
   return rows[0];
 }
@@ -3094,6 +3096,12 @@ export async function getNodalAccounts(merchantId: string | number) {
   return database.select().from(nodalAccounts).where(eq(nodalAccounts.merchantId, String(merchantId)));
 }
 
+// A2-HIGH-1 writer note: nodal_transactions rows are written by the nodal
+// account service behind the middleware bridge (Go bridge /nodal-accounts/*
+// handlers) and by inbound bank webhook processing (nodal.credit /
+// nodal.debit events) — both outside this Node codebase. This function is a
+// reader only; do not add an in-repo writer that would double-record bridge
+// activity.
 export async function getNodalTransactions(merchantIdOrAccountId: string | number) {
   const database = requireDbSync();
   const key = String(merchantIdOrAccountId);

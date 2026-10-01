@@ -273,64 +273,50 @@ export function validateIdempotencyKey(key: string): void {
 
 // ── 11. DDoS Mitigation Middleware (Sliding Window Rate Limiter) ──────────────
 
-interface RateLimitWindow {
-  count: number;
-  resetAt: number;
-}
-
-const rateLimitStore = new Map<string, RateLimitWindow>();
-
+/**
+ * M1-MEDIUM-8: reuses the shared Redis-primary sliding-window consume() from
+ * rateLimit.ts (fail-closed — Redis errors still throttle via the in-process
+ * fallback there; never fail open).
+ */
 export function ddosMitigationMiddleware(
   maxRequests: number = 100,
   windowMs: number = 60_000
 ) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
       ?? req.socket.remoteAddress
       ?? "unknown";
     const key = `ddos:${ip}`;
-    const now = Date.now();
-    const window = rateLimitStore.get(key);
-
-    if (!window || now > window.resetAt) {
-      rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+    try {
+      const { consumeRateLimit } = await import("./rateLimit");
+      const result = await consumeRateLimit(key, maxRequests, windowMs);
+      if (!result.allowed) {
+        res.setHeader("Retry-After", Math.ceil(result.ttlMs / 1000).toString());
+        res.status(429).json({
+          error: "Too Many Requests",
+          message: `Rate limit exceeded: ${maxRequests} requests per ${windowMs / 1000}s`,
+          retryAfter: Date.now() + result.ttlMs,
+        });
+        return;
+      }
       next();
-      return;
+    } catch (err) {
+      // Fail closed: a throttle we cannot evaluate rejects, never permits.
+      console.error("[ddosMitigation] limiter error — rejecting (fail-closed):", (err as Error)?.message ?? err);
+      res.status(429).json({ error: "Too Many Requests", retryAfter: 60 });
     }
-
-    window.count++;
-    if (window.count > maxRequests) {
-      res.setHeader("Retry-After", Math.ceil((window.resetAt - now) / 1000).toString());
-      res.status(429).json({
-        error: "Too Many Requests",
-        message: `Rate limit exceeded: ${maxRequests} requests per ${windowMs / 1000}s`,
-        retryAfter: window.resetAt,
-      });
-      return;
-    }
-    next();
   };
 }
 
-// Clean up stale entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, window] of rateLimitStore.entries()) {
-    if (now > window.resetAt) rateLimitStore.delete(key);
-  }
-}, 300_000);
-
 // ── 12. Ransomware Detection Middleware ───────────────────────────────────────
 
-interface BulkDeleteTracker {
-  count: number;
-  windowStart: number;
-}
-
-const bulkDeleteTracker = new Map<string, BulkDeleteTracker>();
 const BULK_DELETE_THRESHOLD = 50;
 const BULK_DELETE_WINDOW_MS = 60_000;
 
+/**
+ * M1-MEDIUM-9: Redis INCR paygate:ctr:ransomware:{userId} with a 60s TTL —
+ * shared across replicas; fail-closed (errors reject the bulk-delete op).
+ */
 export function ransomwareDetectionMiddleware(
   req: Request,
   res: Response,
@@ -348,27 +334,28 @@ export function ransomwareDetectionMiddleware(
   }
 
   const userId = (req as any).user?.id ?? "anonymous";
-  const key = `ransomware:${userId}`;
-  const now = Date.now();
-  const tracker = bulkDeleteTracker.get(key);
-
-  if (!tracker || now - tracker.windowStart > BULK_DELETE_WINDOW_MS) {
-    bulkDeleteTracker.set(key, { count: 1, windowStart: now });
+  void (async () => {
+    const { bumpCounter } = await import("./nonceGuard");
+    const count = await bumpCounter("ransomware", userId, BULK_DELETE_WINDOW_MS);
+    if (count > BULK_DELETE_THRESHOLD) {
+      console.error(`[SECURITY] Ransomware pattern detected for user ${userId}: ${count} delete ops in ${BULK_DELETE_WINDOW_MS}ms`);
+      res.status(429).json({
+        error: "Suspicious Activity Detected",
+        message: "Bulk delete operations have been temporarily suspended for security review",
+        code: "RANSOMWARE_GUARD",
+      });
+      return;
+    }
     next();
-    return;
-  }
-
-  tracker.count++;
-  if (tracker.count > BULK_DELETE_THRESHOLD) {
-    console.error(`[SECURITY] Ransomware pattern detected for user ${userId}: ${tracker.count} delete ops in ${BULK_DELETE_WINDOW_MS}ms`);
+  })().catch((err) => {
+    // Fail closed on a money/data-destruction path.
+    console.error("[SECURITY] ransomware guard error — rejecting (fail-closed):", (err as Error)?.message ?? err);
     res.status(429).json({
       error: "Suspicious Activity Detected",
       message: "Bulk delete operations have been temporarily suspended for security review",
       code: "RANSOMWARE_GUARD",
     });
-    return;
-  }
-  next();
+  });
 }
 
 // ── 13. Offline/Low-Bandwidth Resilience Headers ─────────────────────────────

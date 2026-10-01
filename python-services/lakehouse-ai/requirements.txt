@@ -8,3 +8,4 @@ boto3==1.35.0
 kafka-python==2.0.2
 numpy==1.26.4
 pandas==2.2.3
+redis==5.2.1

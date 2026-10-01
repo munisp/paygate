@@ -1411,6 +1411,91 @@ services:
           memory: 2G
 
 
+
+  # ─── APISIX API Gateway (A3-Gap-2) ─────────────────────────────────────────
+  # etcd backs the APISIX Admin API so openappsec-waf can push dynamic
+  # per-IP block routes at runtime (declarative yaml mode is read-only).
+  etcd:
+    image: bitnami/etcd:3.5.14
+    container_name: paygate_etcd
+    restart: unless-stopped
+    environment:
+      # Internal-only: no ports published to the host; reachable only on the
+      # paygate network. Enable auth before exposing etcd beyond this network.
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    volumes:
+      - etcd_data:/bitnami/etcd
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  apisix:
+    image: apache/apisix:3.9.1
+    container_name: paygate_apisix
+    restart: unless-stopped
+    depends_on:
+      etcd:
+        condition: service_healthy
+    ports:
+      # Gateway data plane — the only APISIX port published to the host.
+      - "${APISIX_GATEWAY_PORT:-9080}:9080"
+      # Admin API (9180) is intentionally NOT published — internal-only via
+      # the paygate network. config.yaml requires APISIX_ADMIN_KEY (fail-loud
+      # envsubst at render time — no default key allowed).
+    volumes:
+      - ./infra/apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./infra/apisix/routes.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9080/apisix/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── OpenAppSec WAF sidecar (A3-Gap-3) ──────────────────────────────────────
+  # Consumes blocked-IP events from Kafka, tracks them in Redis, and syncs
+  # per-IP block routes into the APISIX Admin API.
+  openappsec-waf:
+    <<: *python-defaults
+    build:
+      context: ./python-services/openappsec-waf
+      dockerfile: Dockerfile
+    container_name: paygate_openappsec_waf
+    ports:
+      - "${OPENAPPSEC_WAF_PORT:-8130}:8130"
+    environment:
+      PORT: "8130"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      OPENAPPSEC_API_URL: ${OPENAPPSEC_API_URL:-http://openappsec:8080}
+      OPENAPPSEC_API_KEY: ${OPENAPPSEC_API_KEY:-}
+      APISIX_ADMIN_URL: http://apisix:9180
+      # Fail-loud: the service refuses to start without the APISIX admin key.
+      APISIX_API_KEY: ${APISIX_ADMIN_KEY:?must be set — no default APISIX admin key allowed in production}
+      IP_BLOCK_TTL_SECS: ${IP_BLOCK_TTL_SECS:-3600}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8130/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      apisix:
+        condition: service_started
+
 volumes:
   nifi_data:
   nifi_logs:
@@ -1419,3 +1504,4 @@ volumes:
   tigerbeetle_data:
   fluvio_data:
   ollama_models:
+  etcd_data:

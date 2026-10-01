@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -100,9 +101,10 @@ type PermifyCheckResponse struct {
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 type OIDCPermifyClient struct {
-	cfg    Config
-	http   *http.Client
-	cache  map[string]*cachedToken
+	cfg     Config
+	http    *http.Client
+	cacheMu sync.RWMutex
+	cache   map[string]*cachedToken
 }
 
 type cachedToken struct {
@@ -123,7 +125,10 @@ func NewOIDCPermifyClient(cfg Config) *OIDCPermifyClient {
 // IntrospectToken validates a Bearer token against Keycloak.
 func (c *OIDCPermifyClient) IntrospectToken(ctx context.Context, token string) (*TokenIntrospectResponse, error) {
 	// Check cache
-	if cached, ok := c.cache[token]; ok && time.Now().Before(cached.expiresAt) {
+	c.cacheMu.RLock()
+	cached, ok := c.cache[token]
+	c.cacheMu.RUnlock()
+	if ok && time.Now().Before(cached.expiresAt) {
 		return cached.data, nil
 	}
 
@@ -157,10 +162,21 @@ func (c *OIDCPermifyClient) IntrospectToken(ctx context.Context, token string) (
 		return nil, fmt.Errorf("token is not active")
 	}
 
-	// Cache for 60 seconds
-	c.cache[token] = &cachedToken{
-		data:      &result,
-		expiresAt: time.Now().Add(60 * time.Second),
+	// Cache briefly — TTL capped at 60s and never beyond the token's own
+	// expiry, so revoked/expired tokens go stale for at most one minute.
+	ttl := 60 * time.Second
+	if result.Exp > 0 {
+		if d := time.Until(time.Unix(result.Exp, 0)); d < ttl {
+			ttl = d
+		}
+	}
+	if ttl > 0 {
+		c.cacheMu.Lock()
+		c.cache[token] = &cachedToken{
+			data:      &result,
+			expiresAt: time.Now().Add(ttl),
+		}
+		c.cacheMu.Unlock()
 	}
 
 	return &result, nil

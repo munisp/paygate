@@ -19,12 +19,35 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
-// Use in-memory sliding window for WAF rate limiting (independent of express-rate-limit)
-// This avoids circular dependency with ./rateLimit which uses express middleware pattern
+import { getGuardRedis } from "./nonceGuard";
+
+/**
+ * M1-MEDIUM-12: Redis sorted-set sliding window (paygate:waf:win:{ip}) shared
+ * across replicas; falls back to a per-replica in-process window when Redis is
+ * unavailable — fail-closed (the client is still throttled, never fail open).
+ * Independent of ./rateLimit's express pattern to avoid circular imports.
+ */
 const _ipWindows = new Map<string, number[]>();
 async function wafRateLimit(ip: string, maxReqs: number, windowSecs: number) {
   const now = Date.now();
   const windowMs = windowSecs * 1000;
+  try {
+    const redis = await getGuardRedis();
+    if (redis) {
+      const key = `paygate:waf:win:${ip}`;
+      const member = `${now}-${Math.random().toString(36).slice(2)}`;
+      const pipeline = redis.pipeline();
+      pipeline.zremrangebyscore(key, "-inf", now - windowMs);
+      pipeline.zadd(key, now, member);
+      pipeline.zcard(key);
+      pipeline.pexpire(key, windowMs);
+      const results = await pipeline.exec();
+      const count: number = results?.[2]?.[1] ?? 1;
+      return { allowed: count <= maxReqs, remaining: Math.max(0, maxReqs - count) };
+    }
+  } catch (err) {
+    console.warn("[waf] Redis window error — in-process fallback (still throttled):", (err as Error)?.message ?? err);
+  }
   const hits = (_ipWindows.get(ip) ?? []).filter(t => now - t < windowMs);
   hits.push(now);
   _ipWindows.set(ip, hits);
@@ -43,10 +66,21 @@ const WAF_CONFIG = {
   suspiciousIpBlockDurationMs: 15 * 60 * 1000, // 15 minutes
 };
 
-// ─── Blocked IP store (in-memory; use Redis in production) ───────────────────
-const blockedIps = new Map<string, number>(); // ip → unblock timestamp
+// ─── Blocked IP store ─────────────────────────────────────────────────────────
+// M1-MEDIUM-12: Redis waf:block:{ip} with PX TTL (shared across replicas);
+// in-process Map kept only as a Redis-outage fallback (still blocks — fail
+// closed).
+const blockedIps = new Map<string, number>(); // ip → unblock timestamp (fallback)
 
-function isIpBlocked(ip: string): boolean {
+async function isIpBlocked(ip: string): Promise<boolean> {
+  try {
+    const redis = await getGuardRedis();
+    if (redis) {
+      return (await redis.pttl(`paygate:waf:block:${ip}`)) > 0;
+    }
+  } catch (err) {
+    console.warn("[waf] Redis block-check error — in-process fallback:", (err as Error)?.message ?? err);
+  }
   const unblockAt = blockedIps.get(ip);
   if (!unblockAt) return false;
   if (Date.now() > unblockAt) {
@@ -56,7 +90,17 @@ function isIpBlocked(ip: string): boolean {
   return true;
 }
 
-function blockIp(ip: string): void {
+async function blockIp(ip: string): Promise<void> {
+  try {
+    const redis = await getGuardRedis();
+    if (redis) {
+      await redis.set(`paygate:waf:block:${ip}`, "1", "PX", WAF_CONFIG.suspiciousIpBlockDurationMs, "NX");
+      console.warn(`[waf] Blocked IP (redis): ${ip}`);
+      return;
+    }
+  } catch (err) {
+    console.warn("[waf] Redis block-set error — in-process fallback:", (err as Error)?.message ?? err);
+  }
   blockedIps.set(ip, Date.now() + WAF_CONFIG.suspiciousIpBlockDurationMs);
   console.warn(`[waf] Blocked IP: ${ip}`);
 }
@@ -175,76 +219,77 @@ function scanObject(obj: unknown, depth = 0): string | null {
 
 // ─── WAF middleware ───────────────────────────────────────────────────────────
 export function wafMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.ip ?? "unknown";
-  const ua = req.headers["user-agent"] ?? "";
-  const url = req.url;
+  void (async (): Promise<void> => {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.ip ?? "unknown";
+    const ua = req.headers["user-agent"] ?? "";
+    const url = req.url;
 
-  // 1. Check blocked IPs
-  if (isIpBlocked(ip)) {
-    res.status(429).json({ error: "Too many suspicious requests. Try again later." });
-    return;
-  }
+    // 1. Check blocked IPs
+    if (await isIpBlocked(ip)) {
+      res.status(429).json({ error: "Too many suspicious requests. Try again later." });
+      return;
+    }
 
-  // 2. Malicious user-agent detection
-  if (detectMaliciousUserAgent(ua)) {
-    blockIp(ip);
-    console.warn(`[waf] Malicious UA blocked: ${ua} from ${ip}`);
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
+    // 2. Malicious user-agent detection
+    if (detectMaliciousUserAgent(ua)) {
+      await blockIp(ip);
+      console.warn(`[waf] Malicious UA blocked: ${ua} from ${ip}`);
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
 
-  // 3. URL length check
-  if (url.length > WAF_CONFIG.maxUrlLength) {
-    res.status(414).json({ error: "URI too long" });
-    return;
-  }
+    // 3. URL length check
+    if (url.length > WAF_CONFIG.maxUrlLength) {
+      res.status(414).json({ error: "URI too long" });
+      return;
+    }
 
-  // 4. URL pattern scanning
-  const urlThreat = scanString(decodeURIComponent(url));
-  if (urlThreat) {
-    blockIp(ip);
-    console.warn(`[waf] URL threat (${urlThreat}) from ${ip}: ${url.slice(0, 200)}`);
-    res.status(400).json({ error: "Bad request" });
-    return;
-  }
-
-  // 5. Header scanning (check referer, query params)
-  const referer = req.headers.referer ?? "";
-  if (referer && scanString(referer)) {
-    res.status(400).json({ error: "Bad request" });
-    return;
-  }
-
-  // 6. Query parameter scanning
-  const queryThreat = scanObject(req.query);
-  if (queryThreat) {
-    blockIp(ip);
-    console.warn(`[waf] Query threat (${queryThreat}) from ${ip}`);
-    res.status(400).json({ error: "Bad request" });
-    return;
-  }
-
-  // 7. Body scanning (only for parsed JSON bodies)
-  if (req.body && typeof req.body === "object") {
-    const bodyThreat = scanObject(req.body);
-    if (bodyThreat) {
-      blockIp(ip);
-      console.warn(`[waf] Body threat (${bodyThreat}) from ${ip} on ${url}`);
+    // 4. URL pattern scanning
+    const urlThreat = scanString(decodeURIComponent(url));
+    if (urlThreat) {
+      await blockIp(ip);
+      console.warn(`[waf] URL threat (${urlThreat}) from ${ip}: ${url.slice(0, 200)}`);
       res.status(400).json({ error: "Bad request" });
       return;
     }
-  }
 
-  // 8. DDoS rate limiting (async, non-blocking for performance)
-  const isAuthRoute = url.startsWith("/api/oauth") || url.startsWith("/api/auth");
-  const maxReqs = isAuthRoute
-    ? WAF_CONFIG.ddosMaxRequestsPerIpStrict
-    : WAF_CONFIG.ddosMaxRequestsPerIp;
+    // 5. Header scanning (check referer, query params)
+    const referer = req.headers.referer ?? "";
+    if (referer && scanString(referer)) {
+      res.status(400).json({ error: "Bad request" });
+      return;
+    }
 
-  wafRateLimit(ip, maxReqs, WAF_CONFIG.ddosWindowSeconds)
-    .then(({ allowed, remaining }) => {
+    // 6. Query parameter scanning
+    const queryThreat = scanObject(req.query);
+    if (queryThreat) {
+      await blockIp(ip);
+      console.warn(`[waf] Query threat (${queryThreat}) from ${ip}`);
+      res.status(400).json({ error: "Bad request" });
+      return;
+    }
+
+    // 7. Body scanning (only for parsed JSON bodies)
+    if (req.body && typeof req.body === "object") {
+      const bodyThreat = scanObject(req.body);
+      if (bodyThreat) {
+        await blockIp(ip);
+        console.warn(`[waf] Body threat (${bodyThreat}) from ${ip} on ${url}`);
+        res.status(400).json({ error: "Bad request" });
+        return;
+      }
+    }
+
+    // 8. DDoS rate limiting
+    const isAuthRoute = url.startsWith("/api/oauth") || url.startsWith("/api/auth");
+    const maxReqs = isAuthRoute
+      ? WAF_CONFIG.ddosMaxRequestsPerIpStrict
+      : WAF_CONFIG.ddosMaxRequestsPerIp;
+
+    try {
+      const { allowed, remaining } = await wafRateLimit(ip, maxReqs, WAF_CONFIG.ddosWindowSeconds);
       if (!allowed) {
-        blockIp(ip);
+        await blockIp(ip);
         res.status(429).json({
           error: "Rate limit exceeded",
           retryAfter: WAF_CONFIG.ddosWindowSeconds,
@@ -253,8 +298,10 @@ export function wafMiddleware(req: Request, res: Response, next: NextFunction): 
       }
       res.setHeader("X-RateLimit-Remaining", remaining);
       next();
-    })
-    .catch(() => next()); // never block on rate-limit errors
+    } catch {
+      next(); // never block on rate-limit errors
+    }
+  })().catch(() => next()); // scan failures must not take down the request path
 }
 
 /**

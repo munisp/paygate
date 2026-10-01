@@ -24,13 +24,37 @@ import {
   Platform,
 } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 
 const BRIDGE_URL = process.env.EXPO_PUBLIC_BRIDGE_URL ?? 'https://api.paygate.ng';
+// Tokens and device id live in expo-secure-store (hardware-backed keystore),
+// never AsyncStorage (plaintext). Legacy AsyncStorage copies are deleted on read.
 const STORAGE_KEY_REFRESH = 'paygate_refresh_token';
 const STORAGE_KEY_ACCESS  = 'paygate_access_token';
 const STORAGE_KEY_DEVICE  = 'paygate_device_id';
+
+/** Read a secret from SecureStore; migrate+delete any legacy AsyncStorage copy. */
+async function getSecret(key: string): Promise<string | null> {
+  const secure = await SecureStore.getItemAsync(key);
+  if (secure) {
+    await AsyncStorage.removeItem(key).catch(() => {});
+    return secure;
+  }
+  // One-time migration path for installs that stored tokens in AsyncStorage.
+  const legacy = await AsyncStorage.getItem(key);
+  if (legacy) {
+    await SecureStore.setItemAsync(key, legacy).catch(() => {});
+    await AsyncStorage.removeItem(key).catch(() => {});
+  }
+  return legacy;
+}
+
+async function setSecret(key: string, value: string): Promise<void> {
+  await SecureStore.setItemAsync(key, value);
+  await AsyncStorage.removeItem(key).catch(() => {});
+}
 
 const C = {
   primary:    '#6366F1',
@@ -79,7 +103,7 @@ export default function BiometricAuthScreen() {
           setBiometricType('Fingerprint');
         }
 
-        const storedToken = await AsyncStorage.getItem(STORAGE_KEY_REFRESH);
+        const storedToken = await getSecret(STORAGE_KEY_REFRESH);
         setState(storedToken ? 'ready' : 'no_stored_token');
       } catch (e) {
         setState('unavailable');
@@ -110,16 +134,16 @@ export default function BiometricAuthScreen() {
 
       // Biometric passed — exchange the stored refresh_token
       setState('exchanging');
-      const refreshToken = await AsyncStorage.getItem(STORAGE_KEY_REFRESH);
+      const refreshToken = await getSecret(STORAGE_KEY_REFRESH);
       if (!refreshToken) {
         setState('no_stored_token');
         return;
       }
 
-      let deviceId = await AsyncStorage.getItem(STORAGE_KEY_DEVICE);
+      let deviceId = await getSecret(STORAGE_KEY_DEVICE);
       if (!deviceId) {
         deviceId = `rn-${Platform.OS}-${Date.now()}`;
-        await AsyncStorage.setItem(STORAGE_KEY_DEVICE, deviceId);
+        await setSecret(STORAGE_KEY_DEVICE, deviceId);
       }
 
       const response = await fetch(`${BRIDGE_URL}/v1/auth/biometric-token`, {
@@ -135,11 +159,9 @@ export default function BiometricAuthScreen() {
 
       const tokens = await response.json();
 
-      // Persist new tokens
-      await AsyncStorage.multiSet([
-        [STORAGE_KEY_ACCESS,  tokens.access_token],
-        [STORAGE_KEY_REFRESH, tokens.refresh_token ?? refreshToken],
-      ]);
+      // Persist new tokens in SecureStore; ensure no AsyncStorage copies remain
+      await setSecret(STORAGE_KEY_ACCESS, tokens.access_token);
+      await setSecret(STORAGE_KEY_REFRESH, tokens.refresh_token ?? refreshToken);
 
       setState('success');
       navigation.replace('Dashboard');

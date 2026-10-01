@@ -8,6 +8,7 @@
 
 import crypto from "crypto";
 import { URL } from "url";
+import { claimNonce } from "./nonceGuard";
 
 // ─── VULN-031: SSRF Prevention ────────────────────────────────────────────────
 const PRIVATE_IP_RANGES = [
@@ -106,10 +107,15 @@ export function assertTenantAccess(
 }
 
 // ─── VULN-035: Webhook Replay Attack Prevention ───────────────────────────────
-const WEBHOOK_NONCE_CACHE = new Map<string, number>();
 const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
-export function validateWebhookNonce(nonce: string, timestamp: number): boolean {
+/**
+ * M1-CRITICAL-4: the nonce cache is now a shared Redis claim via
+ * server/nonceGuard.ts (SET paygate:nonce:webhook30:{nonce} 1 NX PX 300000),
+ * atomic across replicas and fail-closed in production when Redis is
+ * unavailable (the Redis error propagates — callers must reject the webhook).
+ */
+export async function validateWebhookNonce(nonce: string, timestamp: number): Promise<boolean> {
   const now = Date.now();
 
   // Reject if timestamp is too old or in the future
@@ -117,23 +123,8 @@ export function validateWebhookNonce(nonce: string, timestamp: number): boolean 
     return false;
   }
 
-  // Reject if nonce already seen
-  if (WEBHOOK_NONCE_CACHE.has(nonce)) {
-    return false;
-  }
-
-  // Store nonce
-  WEBHOOK_NONCE_CACHE.set(nonce, timestamp);
-
-  // Cleanup expired nonces
-  if (WEBHOOK_NONCE_CACHE.size > 10000) {
-    const cutoff = now - WEBHOOK_REPLAY_WINDOW_MS;
-    for (const [k, v] of Array.from(WEBHOOK_NONCE_CACHE)) {
-      if (v < cutoff) WEBHOOK_NONCE_CACHE.delete(k);
-    }
-  }
-
-  return true;
+  // Atomic claim: first use → true, replay → false.
+  return claimNonce("webhook30", nonce, WEBHOOK_REPLAY_WINDOW_MS);
 }
 
 // ─── VULN-036: API Key Entropy Validation ─────────────────────────────────────

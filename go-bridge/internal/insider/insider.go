@@ -233,31 +233,52 @@ type VelocityResult struct {
 
 // CheckVelocity increments the actor's action counter and returns whether
 // the velocity limit has been exceeded.
+//
+// FAIL-CLOSED: privileged actions must not proceed when the velocity store is
+// broken.  When Redis is configured but errors, the actor is blocked.  The
+// in-memory fallback is used only in dev/test (Redis disabled).
 func (s *Service) CheckVelocity(ctx context.Context, actorID string) VelocityResult {
 	now := time.Now()
 	rc := redis.Get()
-	if rc != nil {
+	if rc != nil && rc.Enabled() {
 		return s.checkVelocityRedis(ctx, rc, actorID, now)
 	}
 	return s.checkVelocityMem(actorID, now)
 }
 
+// checkVelocityRedis uses ScriptIncrWithCap (atomic INCR+EXPIRE Lua script) —
+// no GET/SET race, and any Redis error blocks the privileged action.
 func (s *Service) checkVelocityRedis(ctx context.Context, rc *redis.Client, actorID string, now time.Time) VelocityResult {
-	pipe := func(window string, limit int, dur time.Duration) (int, bool) {
+	pipe := func(window string, limit int, dur time.Duration) (int, bool, error) {
 		key := fmt.Sprintf("insider:velocity:%s:%s", actorID, window)
-		countStr, found, _ := rc.GetString(ctx, key)
-		count := 0
-		if found {
-			count, _ = strconv.Atoi(countStr)
+		// cap at limit+1 so counters do not grow unboundedly once blocked
+		res, err := rc.Eval(ctx, redis.ScriptIncrWithCap, []string{key},
+			strconv.Itoa(limit+1), strconv.Itoa(int(dur.Seconds())))
+		if err != nil {
+			return 0, false, err
 		}
-		count++
-		_ = rc.SetEX(ctx, key, strconv.Itoa(count), dur)
-		return count, count > limit
+		count := 0
+		switch v := res.(type) {
+		case int64:
+			count = int(v)
+		case string:
+			count, _ = strconv.Atoi(v)
+		}
+		return count, count > limit, nil
 	}
 
-	min, minBlocked := pipe("1m", s.cfg.VelocityLimitPerMinute, time.Minute)
-	hr, hrBlocked := pipe("1h", s.cfg.VelocityLimitPerHour, time.Hour)
-	day, dayBlocked := pipe("1d", s.cfg.VelocityLimitPerDay, 24*time.Hour)
+	min, minBlocked, minErr := pipe("1m", s.cfg.VelocityLimitPerMinute, time.Minute)
+	hr, hrBlocked, hrErr := pipe("1h", s.cfg.VelocityLimitPerHour, time.Hour)
+	day, dayBlocked, dayErr := pipe("1d", s.cfg.VelocityLimitPerDay, 24*time.Hour)
+
+	if minErr != nil || hrErr != nil || dayErr != nil {
+		slog.Error("[insider] velocity store unavailable — blocking privileged action (fail closed)",
+			"actor_id", actorID, "min_err", minErr, "hr_err", hrErr, "day_err", dayErr)
+		return VelocityResult{
+			Blocked: true,
+			Reason:  "velocity store unavailable (fail closed)",
+		}
+	}
 
 	res := VelocityResult{PerMinute: min, PerHour: hr, PerDay: day}
 	switch {

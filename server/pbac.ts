@@ -27,6 +27,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure } from "./_core/trpc";
 import { ENV as env } from "./_core/env";
 import { logger } from "./logger";
+import { claimNonce, bumpCounter, clearGuardKey } from "./nonceGuard";
 
 // ─── Policy Definitions ───────────────────────────────────────────────────────
 
@@ -597,35 +598,31 @@ export function resourceProcedure(resource: ResourceType, action: string, resour
 // ─── Replay Attack Protection ─────────────────────────────────────────────────
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-const replayCache = new Map<string, number>(); // nonce → timestamp
-
-// Clean up expired nonces every 10 minutes
-setInterval(() => {
-  const now = Date.now();
-  Array.from(replayCache.entries()).forEach(([nonce, ts]) => {
-    if (now - ts > REPLAY_WINDOW_MS) replayCache.delete(nonce);
-  });
-}, 10 * 60 * 1000);
 
 /**
  * Validate a request nonce to prevent replay attacks on payment endpoints.
- * Throws FORBIDDEN if the nonce has been seen within the replay window.
+ * Throws CONFLICT if the nonce has been seen within the replay window.
+ *
+ * M1-CRITICAL-1: the nonce claim is a shared, atomic Redis
+ * `SET paygate:nonce:pay:{nonce} 1 NX PX 300000` (see server/nonceGuard.ts).
+ * FAIL CLOSED: in production a missing/unreachable Redis rejects the payment
+ * operation — a replay guard that cannot verify must never permit.
+ * The in-process fallback only exists for NODE_ENV !== 'production'.
  */
-export function validateNonce(nonce: string): void {
+export async function validateNonce(nonce: string): Promise<void> {
   if (!nonce || typeof nonce !== "string" || nonce.length < 16) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "A valid idempotency nonce (min 16 chars) is required for payment operations.",
     });
   }
-  const now = Date.now();
-  if (replayCache.has(nonce)) {
+  const claimed = await claimNonce("pay", nonce, REPLAY_WINDOW_MS);
+  if (!claimed) {
     throw new TRPCError({
       code: "CONFLICT",
       message: "Duplicate request detected. This nonce has already been processed.",
     });
   }
-  replayCache.set(nonce, now);
 }
 
 // ─── NIBSS / External Webhook Signature Verification ─────────────────────────
@@ -675,69 +672,78 @@ export function verifyWebhookSignature(
 
 // ─── Login Brute Force Protection ────────────────────────────────────────────
 
-const loginAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;   // 10 minutes
 
-// Clean up expired entries every 30 minutes
-setInterval(() => {
-  const now = Date.now();
-  Array.from(loginAttempts.entries()).forEach(([key, state]) => {
-    if (now - state.firstAttempt > ATTEMPT_WINDOW_MS && !state.lockedUntil) {
-      loginAttempts.delete(key);
-    } else if (state.lockedUntil && now > state.lockedUntil) {
-      loginAttempts.delete(key);
-    }
-  });
-}, 30 * 60 * 1000);
+// Advisory in-process mirror of active lockouts for getPbacHealth() reporting
+// only — the AUTHORITATIVE state lives in Redis (login:fail:/login:lock: keys).
+const advisoryLockouts = new Map<string, number>(); // identifier → lockedUntil
 
 /**
- * Record a failed login attempt and throw FORBIDDEN if the account is locked.
+ * Record a failed login attempt and throw TOO_MANY_REQUESTS if the account is
+ * locked. M1-MEDIUM-5: Redis-backed — INCR paygate:ctr:login:fail:{id} with a
+ * 10-minute window; on the 5th failure a paygate:nonce:login:lock:{id} lock key
+ * is set with a 15-minute TTL. Fail-closed: Redis errors still throttle via the
+ * shared counter fallback in nonceGuard (never fail open).
  * @param identifier - IP address or username (use both for defense in depth)
  */
-export function recordLoginAttempt(identifier: string): void {
+export async function recordLoginAttempt(identifier: string): Promise<void> {
   const now = Date.now();
-  const state = loginAttempts.get(identifier) ?? { count: 0, firstAttempt: now };
 
-  // Reset window if outside attempt window
-  if (now - state.firstAttempt > ATTEMPT_WINDOW_MS) {
-    loginAttempts.set(identifier, { count: 1, firstAttempt: now });
-    return;
-  }
-
-  // Check if locked
-  if (state.lockedUntil && now < state.lockedUntil) {
-    const remainingMs = state.lockedUntil - now;
-    const remainingMin = Math.ceil(remainingMs / 60_000);
+  if (await isLockedOut(identifier)) {
+    const remainingMin = Math.ceil(LOCKOUT_DURATION_MS / 60_000);
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message: `Account temporarily locked due to too many failed attempts. Try again in ${remainingMin} minute(s).`,
     });
   }
 
-  state.count += 1;
-  if (state.count >= MAX_LOGIN_ATTEMPTS) {
-    state.lockedUntil = now + LOCKOUT_DURATION_MS;
-    logger.warn("[PBAC] Login lockout triggered", { identifier, attempts: state.count });
+  const count = await bumpCounter("login:fail", identifier, ATTEMPT_WINDOW_MS);
+  if (count >= MAX_LOGIN_ATTEMPTS) {
+    // Claim the lock key (NX within the window) so every replica sees it.
+    await claimNonce("login:lock", identifier, LOCKOUT_DURATION_MS);
+    advisoryLockouts.set(identifier, now + LOCKOUT_DURATION_MS);
+    logger.warn("[PBAC] Login lockout triggered", { identifier, attempts: count });
+    const remainingMin = Math.ceil(LOCKOUT_DURATION_MS / 60_000);
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Account temporarily locked due to too many failed attempts. Try again in ${remainingMin} minute(s).`,
+    });
   }
-  loginAttempts.set(identifier, state);
 }
 
 /**
  * Clear login attempts on successful authentication.
  */
-export function clearLoginAttempts(identifier: string): void {
-  loginAttempts.delete(identifier);
+export async function clearLoginAttempts(identifier: string): Promise<void> {
+  advisoryLockouts.delete(identifier);
+  await clearGuardKey("login:fail", identifier, "ctr");
+  await clearGuardKey("login:lock", identifier, "nonce");
 }
 
 /**
  * Check if an identifier is currently locked out (without recording an attempt).
  */
-export function isLockedOut(identifier: string): boolean {
-  const state = loginAttempts.get(identifier);
-  if (!state?.lockedUntil) return false;
-  return Date.now() < state.lockedUntil;
+export async function isLockedOut(identifier: string): Promise<boolean> {
+  // Fast path: advisory mirror (same replica, lock set by this process).
+  const local = advisoryLockouts.get(identifier);
+  if (local && Date.now() < local) return true;
+  // Authoritative: re-claim the lock key with its full TTL — if the claim
+  // FAILS the key already exists and the identifier is locked.
+  try {
+    const claimed = await claimNonce("login:lock", identifier, LOCKOUT_DURATION_MS);
+    if (!claimed) return true;
+    // We just created the lock key as a side effect of probing — remove it so
+    // the probe itself does not lock the account.
+    await clearGuardKey("login:lock", identifier, "nonce");
+    advisoryLockouts.delete(identifier);
+    return false;
+  } catch {
+    // Fail closed on lock verification errors in production.
+    if (process.env.NODE_ENV === "production") return true;
+    return false;
+  }
 }
 
 // ─── PBAC Health Check ────────────────────────────────────────────────────────
@@ -760,14 +766,16 @@ export async function getPbacHealth(): Promise<{
   }
 
   const now = Date.now();
-  const activeLockouts = Array.from(loginAttempts.values()).filter(
-    s => s.lockedUntil && now < s.lockedUntil
+  // Advisory: nonce claims and lockouts are authoritative in Redis; these
+  // counters only reflect what this replica has observed.
+  const activeLockouts = Array.from(advisoryLockouts.values()).filter(
+    (until) => now < until
   ).length;
 
   return {
     permifyReachable,
     localMatrixActive: true,
-    replayCacheSize: replayCache.size,
+    replayCacheSize: 0, // Redis-backed since wave-5 (no per-replica replay cache)
     loginLockoutsActive: activeLockouts,
     policies: Object.keys(PBAC_POLICIES),
   };

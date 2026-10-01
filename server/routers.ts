@@ -1293,17 +1293,21 @@ const payoutsRouter = router({
       const database = await getDb();
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const reserveTotal = input.amount + feeAmount;
-      const reservedWalletId = await reservePayoutFunds(database, merchant.id, input.currency, reserveTotal);
-      if (reservedWalletId == null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `Insufficient funds (402): cannot reserve ${reserveTotal} ${input.currency} (amount + fee) for this payout`,
-        });
-      }
-
-      let payout: any;
-      try {
-        payout = await createPayout({
+      // A2-CRITICAL-1: reserve debit → payout insert → reserved_amount update
+      // run atomically in ONE transaction (same pattern as approve/reject).
+      // The guarded reserve UPDATE fails loud (PRECONDITION_FAILED) on
+      // insufficient funds; any failure rolls the whole creation back — no
+      // swallowed compensation catch can leave the wallet debited without a
+      // payout row.
+      const payout = await database.transaction(async (tx: any) => {
+        const reservedWalletId = await reservePayoutFunds(tx, merchant.id, input.currency, reserveTotal);
+        if (reservedWalletId == null) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Insufficient funds (402): cannot reserve ${reserveTotal} ${input.currency} (amount + fee) for this payout`,
+          });
+        }
+        const created = await createPayout({
           id: payoutId,
           merchantId: merchant.id,
           tenantId: merchant.tenantId ?? "ten_default",
@@ -1318,17 +1322,11 @@ const payoutsRouter = router({
           status,
           // P1-7: persist the initiator for maker-checker enforcement on approve.
           ...(requiresApproval ? { failureReason: encodePayoutMeta({ initiatorId: ctx.user.openId }) } : {}),
-        });
+        }, tx);
         // Track the reservation on the payout row (column added in migration 0101).
-        await database.execute(sql`UPDATE payouts SET reserved_amount = ${reserveTotal} WHERE id = ${payoutId}`);
-      } catch (createErr) {
-        // Fail loud: never leave funds reserved without a payout row.
-        await database.execute(sql`
-          UPDATE wallets SET balance = (balance::numeric + ${reserveTotal}::numeric)::text, updated_at = now()
-          WHERE id = ${reservedWalletId}
-        `).catch(() => {});
-        throw createErr;
-      }
+        await tx.execute(sql`UPDATE payouts SET reserved_amount = ${reserveTotal} WHERE id = ${payoutId}`);
+        return created;
+      });
 
       // Fire-and-forget Kafka event for downstream consumers
       publishPayoutEvent({
@@ -1448,13 +1446,15 @@ const payoutsRouter = router({
           const database = await getDb();
           if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
           const reserveTotal = row.amount + feeAmount;
-          const reservedWalletId = await reservePayoutFunds(database, merchant.id, row.currency, reserveTotal);
-          if (reservedWalletId == null) {
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Insufficient funds (402) to reserve ${reserveTotal} ${row.currency}` });
-          }
-          let payout: any;
-          try {
-            payout = await createPayout({
+          // A2-CRITICAL-1: reserve → insert → reserved_amount atomically in
+          // one transaction per row; failures roll back and surface in the
+          // per-row error result (no swallowed compensation catch).
+          const payout = await database.transaction(async (tx: any) => {
+            const reservedWalletId = await reservePayoutFunds(tx, merchant.id, row.currency, reserveTotal);
+            if (reservedWalletId == null) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Insufficient funds (402) to reserve ${reserveTotal} ${row.currency}` });
+            }
+            const created = await createPayout({
               id: payoutId,
               merchantId: merchant.id,
               tenantId: merchant.tenantId ?? "ten_default",
@@ -1467,15 +1467,10 @@ const payoutsRouter = router({
               narration: row.narration,
               feeAmount,
               status: "pending",
-            });
-            await database.execute(sql`UPDATE payouts SET reserved_amount = ${reserveTotal} WHERE id = ${payoutId}`);
-          } catch (rowErr) {
-            await database.execute(sql`
-              UPDATE wallets SET balance = (balance::numeric + ${reserveTotal}::numeric)::text, updated_at = now()
-              WHERE id = ${reservedWalletId}
-            `).catch(() => {});
-            throw rowErr;
-          }
+            }, tx);
+            await tx.execute(sql`UPDATE payouts SET reserved_amount = ${reserveTotal} WHERE id = ${payoutId}`);
+            return created;
+          });
           results.push({ index: i, success: true, id: payout?.id });
         } catch (e: any) {
           // VULN-008 FIX: Don't expose raw error internals
@@ -7961,6 +7956,23 @@ const subscriptionsLocalRouter = router({
         accountNumber: input.accountNumber ?? null, accountName: input.accountName ?? null,
         description: input.description ?? null, startAt, nextRunAt, status: 'active',
       });
+      // A2-HIGH-1: mirror the signup into subscription_subscribers (the
+      // subscriber-directory projection read by crud119 listSubscribers).
+      // Fire-and-forget — directory lag must never fail subscription creation.
+      if (input.customerEmail) {
+        void (async () => {
+          const { subscriptionSubscribers } = await import('../drizzle/schema');
+          await db.insert(subscriptionSubscribers).values({
+            planId: id,
+            merchantId: merchant.id,
+            customerName: input.customerName ?? input.customerEmail!,
+            customerEmail: input.customerEmail!,
+            status: 'active',
+            startDate: startAt,
+            nextBillingDate: nextRunAt,
+          } as any);
+        })().catch((e) => logger.error('[subscriptions] subscription_subscribers mirror insert failed (non-fatal):', e instanceof Error ? e.message : e));
+      }
       const { eq } = await import('drizzle-orm');
       const r = await db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
       return r[0];

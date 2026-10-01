@@ -750,6 +750,20 @@
       "when": 1787600000019,
       "tag": "0107_security_event_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1787600000020,
+      "tag": "0108_go_cache_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787600000021,
+      "tag": "0110_actor_baselines",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,7 @@
 
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { claimNonce, bumpCounter } from './nonceGuard';
 
 // ─── VULN-061: Fraud Ring Freeze Authorization ─────────────────────────────
 export function assertAdminCanFreezeRing(userRole: string): void {
@@ -84,20 +85,22 @@ export function validateInsurancePolicyDates(expiresAt: Date): void {
 }
 
 // ─── VULN-065: Webhook Event Replay Attack ────────────────────────────────
-const processedWebhookIds = new Set<string>();
 const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
-export function checkWebhookReplay(eventId: string, timestamp: number): void {
+/**
+ * M1-CRITICAL-2: the processed-ID set is now a shared Redis nonce claim
+ * (SET NX PX via server/nonceGuard.ts) — fail-closed when Redis is
+ * unavailable in production.
+ */
+export async function checkWebhookReplay(eventId: string, timestamp: number): Promise<void> {
   const now = Date.now();
   if (Math.abs(now - timestamp) > WEBHOOK_REPLAY_WINDOW_MS) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Webhook event timestamp is outside the replay window' });
   }
-  if (processedWebhookIds.has(eventId)) {
+  const claimed = await claimNonce('webhook33', eventId, WEBHOOK_REPLAY_WINDOW_MS);
+  if (!claimed) {
     throw new TRPCError({ code: 'CONFLICT', message: 'Duplicate webhook event — already processed' });
   }
-  processedWebhookIds.add(eventId);
-  // Clean up old IDs after window expires
-  setTimeout(() => processedWebhookIds.delete(eventId), WEBHOOK_REPLAY_WINDOW_MS);
 }
 
 // ─── VULN-066: Webhook Endpoint SSRF ─────────────────────────────────────
@@ -133,21 +136,15 @@ export function validateWebhookEndpointUrl(url: string): void {
 }
 
 // ─── VULN-067: Fraud Ring Data Exfiltration Rate Limit ────────────────────
-const ringExportCounts = new Map<string, { count: number; resetAt: number }>();
 const RING_EXPORT_MAX = 10;
 const RING_EXPORT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
-export function checkRingExportRateLimit(userId: string): void {
-  const now = Date.now();
-  const entry = ringExportCounts.get(userId);
-  if (!entry || entry.resetAt < now) {
-    ringExportCounts.set(userId, { count: 1, resetAt: now + RING_EXPORT_WINDOW_MS });
-    return;
-  }
-  if (entry.count >= RING_EXPORT_MAX) {
+/** M1-MEDIUM-10: Redis INCR 1h fixed window (fail-closed throttle). */
+export async function checkRingExportRateLimit(userId: string): Promise<void> {
+  const count = await bumpCounter('ring:export', userId, RING_EXPORT_WINDOW_MS);
+  if (count > RING_EXPORT_MAX) {
     throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Fraud ring export rate limit exceeded (10/hour)' });
   }
-  entry.count++;
 }
 
 // ─── VULN-068: GNN Score Manipulation ────────────────────────────────────
@@ -161,13 +158,36 @@ export function validateGnnScore(score: number): void {
 }
 
 // ─── VULN-069: EMI Loan Double-Disbursement ───────────────────────────────
-const disbursedLoanIds = new Set<string>();
-
-export function checkEmiDisbursementIdempotency(loanId: string): void {
-  if (disbursedLoanIds.has(loanId)) {
-    throw new TRPCError({ code: 'CONFLICT', message: 'EMI loan already disbursed — duplicate disbursement prevented' });
+/**
+ * M1-CRITICAL-3: the in-memory Set is deleted — double-disbursement is now
+ * enforced ATOMICALLY at the database layer. This performs a conditional
+ * status transition on emi_loans:
+ *
+ *   UPDATE emi_loans SET status='disbursed'
+ *   WHERE id = $1 AND status = 'disbursing'
+ *
+ * Two concurrent disbursement calls race on the row: exactly one UPDATE
+ * matches the WHERE clause; the loser gets rowCount=0 and is rejected with
+ * CONFLICT. No separate guard table or cache required — the row itself is
+ * the idempotency key.
+ */
+export async function checkEmiDisbursementIdempotency(loanId: string): Promise<void> {
+  const { getDb } = await import('./db');
+  const { sql } = await import('drizzle-orm');
+  const db = await getDb();
+  if (!db) {
+    // Fail closed: money path must never proceed without the DB guard.
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database unavailable — EMI disbursement rejected (fail-closed)' });
   }
-  disbursedLoanIds.add(loanId);
+  const res: any = await db.execute(sql`
+    UPDATE emi_loans SET status = 'disbursed'
+    WHERE id = ${loanId} AND status = 'disbursing'
+    RETURNING id
+  `);
+  const rows: any[] = res?.rows ?? res ?? [];
+  if (rows.length === 0) {
+    throw new TRPCError({ code: 'CONFLICT', message: 'EMI loan already disbursed or not in a disbursable state — duplicate disbursement prevented' });
+  }
 }
 
 // ─── VULN-070: Insurance Premium Underflow ────────────────────────────────
@@ -245,24 +265,18 @@ export function sanitizeSamlMetadata(metadata: string): void {
 }
 
 // ─── VULN-075: Invite Code Brute Force ────────────────────────────────────
-const inviteCodeAttempts = new Map<string, { count: number; resetAt: number }>();
 const INVITE_CODE_MAX_ATTEMPTS = 5;
 const INVITE_CODE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
-export function checkInviteCodeRateLimit(ip: string): void {
-  const now = Date.now();
-  const entry = inviteCodeAttempts.get(ip);
-  if (!entry || entry.resetAt < now) {
-    inviteCodeAttempts.set(ip, { count: 1, resetAt: now + INVITE_CODE_WINDOW_MS });
-    return;
-  }
-  if (entry.count >= INVITE_CODE_MAX_ATTEMPTS) {
+/** M1-MEDIUM-11: Redis INCR 15m fixed window (fail-closed throttle). */
+export async function checkInviteCodeRateLimit(ip: string): Promise<void> {
+  const count = await bumpCounter('invite:attempts', ip, INVITE_CODE_WINDOW_MS);
+  if (count > INVITE_CODE_MAX_ATTEMPTS) {
     throw new TRPCError({
       code: 'TOO_MANY_REQUESTS',
       message: 'Too many invite code attempts. Please wait 15 minutes.',
     });
   }
-  entry.count++;
 }
 
 // ─── VULN-076: Partner Onboarding Session Fixation ────────────────────────

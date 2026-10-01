@@ -59,14 +59,20 @@ BRIDGE_URL = os.getenv("BRIDGE_URL", "")
 BRIDGE_INTERNAL_KEY = os.getenv("BRIDGE_INTERNAL_KEY", "")
 
 # ─── Token cache ──────────────────────────────────────────────────────────────
+# Shared across workers/restarts via Redis key mpesa:token (JSON blob with
+# expiry margin already applied). A SET NX lock (mpesa:token:refresh) prevents
+# a refresh stampede when the token expires. In-memory dict is L1 fallback.
 _token_cache: dict = {"token": None, "expires_at": 0}
 
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
 
-async def get_access_token() -> str:
-    now = time.time()
-    if _token_cache["token"] and now < _token_cache["expires_at"]:
-        return _token_cache["token"]
+_TOKEN_EXPIRY_MARGIN_S = 60  # refresh this many seconds before actual expiry
+_TOKEN_LOCK_TTL_S = 15
 
+
+async def _fetch_token_from_daraja() -> dict:
     credentials = base64.b64encode(f"{CONSUMER_KEY}:{CONSUMER_SECRET}".encode()).decode()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -76,9 +82,53 @@ async def get_access_token() -> str:
         )
         resp.raise_for_status()
         data = resp.json()
-        _token_cache["token"] = data["access_token"]
-        _token_cache["expires_at"] = now + int(data.get("expires_in", 3600)) - 60
+        return {
+            "token": data["access_token"],
+            "expires_at": time.time() + int(data.get("expires_in", 3600)) - _TOKEN_EXPIRY_MARGIN_S,
+        }
+
+
+async def get_access_token() -> str:
+    import json as _json
+    import asyncio as _asyncio
+    now = time.time()
+    if _token_cache["token"] and now < _token_cache["expires_at"]:
         return _token_cache["token"]
+
+    # Try shared Redis cache first (survives restarts, shared across workers).
+    try:
+        r = await get_redis()
+        raw = await r.get("mpesa:token")
+        if raw:
+            cached = _json.loads(raw)
+            if cached.get("token") and now < float(cached.get("expires_at", 0)):
+                _token_cache.update(cached)
+                return cached["token"]
+        # Acquire refresh lock to avoid a stampede of concurrent refreshes.
+        got_lock = await r.set("mpesa:token:refresh", "1", ex=_TOKEN_LOCK_TTL_S, nx=True)
+        if not got_lock:
+            # Another worker is refreshing; wait briefly and re-read.
+            for _ in range(10):
+                await _asyncio.sleep(0.5)
+                raw = await r.get("mpesa:token")
+                if raw:
+                    cached = _json.loads(raw)
+                    if cached.get("token") and time.time() < float(cached.get("expires_at", 0)):
+                        _token_cache.update(cached)
+                        return cached["token"]
+            # Fall through and refresh anyway after timeout.
+        fresh = await _fetch_token_from_daraja()
+        _token_cache.update(fresh)
+        ttl = max(int(fresh["expires_at"] - time.time()), 1)
+        await r.set("mpesa:token", _json.dumps(fresh), ex=ttl)
+        await r.delete("mpesa:token:refresh")
+        return fresh["token"]
+    except Exception as e:
+        logger.warning(f"[redis] token cache unavailable, using local cache: {e}")
+
+    fresh = await _fetch_token_from_daraja()
+    _token_cache.update(fresh)
+    return fresh["token"]
 
 
 def generate_password() -> tuple[str, str]:

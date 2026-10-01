@@ -49,7 +49,22 @@ FUNDS = [
 ]
 
 # Small in-process NAV cache: { fund_id: (nav, source, fetched_at_epoch) }
+# Bounded: entries expire after NAV_CACHE_TTL_SECONDS and the cache is capped
+# at NAV_CACHE_MAX_ENTRIES (FIFO eviction) to prevent unbounded growth.
 _nav_cache: dict = {}
+NAV_CACHE_MAX_ENTRIES = int(os.getenv("NAV_CACHE_MAX_ENTRIES", "1000"))
+
+
+def _nav_cache_put(fund_id: str, nav: float, source: str) -> None:
+    now = time.time()
+    # Drop expired entries first, then enforce the size bound.
+    expired = [k for k, v in _nav_cache.items()
+               if (now - v[2]) >= NAV_CACHE_TTL_SECONDS]
+    for k in expired:
+        _nav_cache.pop(k, None)
+    while len(_nav_cache) >= NAV_CACHE_MAX_ENTRIES:
+        _nav_cache.pop(next(iter(_nav_cache)))
+    _nav_cache[fund_id] = (nav, source, now)
 
 
 async def _cowrywise_nav(fund: dict) -> Optional[float]:
@@ -117,7 +132,7 @@ async def get_live_nav(fund: dict, pool) -> tuple[Optional[float], Optional[str]
         nav = await _db_nav(fund["id"], pool)
         source = "nav_table" if nav is not None else None
     if nav is not None:
-        _nav_cache[fund["id"]] = (nav, source, time.time())
+        _nav_cache_put(fund["id"], nav, source)
     return nav, source
 
 

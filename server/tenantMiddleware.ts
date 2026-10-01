@@ -7,8 +7,10 @@ import { TRPCError } from "@trpc/server";
 import { getDb, execRaw } from "./db";
 import { eq, and } from "drizzle-orm";
 
-// ─── In-memory rate limit store (per-tenant) ─────────────────────────────────
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+// ─── Per-tenant rate limit (M1-MEDIUM-13) ────────────────────────────────────
+// Redis INCR paygate:ctr:tenant:rl:{tenantId} + 60s TTL via nonceGuard —
+// shared across replicas; the in-process fallback keeps throttling (fail
+// closed, never open).
 
 const PLAN_RATE_LIMITS: Record<string, number> = {
   starter: 100,    // 100 req/min
@@ -17,50 +19,34 @@ const PLAN_RATE_LIMITS: Record<string, number> = {
   enterprise: 10000, // 10000 req/min
 };
 
+const TENANT_RL_WINDOW_MS = 60_000; // 1 minute window
+
 /**
  * Check and increment rate limit for a tenant.
  * Returns true if the request should be allowed, false if rate-limited.
  */
-export function checkTenantRateLimit(tenantId: string, plan: string): boolean {
+export async function checkTenantRateLimit(tenantId: string, plan: string): Promise<boolean> {
   const limit = PLAN_RATE_LIMITS[plan] ?? 100;
-  const now = Date.now();
-  const windowMs = 60_000; // 1 minute window
-
-  const entry = rateLimitStore.get(tenantId);
-  if (!entry || now > entry.resetAt) {
-    rateLimitStore.set(tenantId, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-
-  if (entry.count >= limit) {
-    return false;
-  }
-
-  entry.count++;
-  return true;
+  const { bumpCounter } = await import("./nonceGuard");
+  const count = await bumpCounter("tenant:rl", tenantId, TENANT_RL_WINDOW_MS);
+  return count <= limit;
 }
 
 /**
  * Get remaining rate limit for a tenant.
  */
-export function getTenantRateLimitInfo(tenantId: string, plan: string): {
+export async function getTenantRateLimitInfo(tenantId: string, plan: string): Promise<{
   limit: number;
   remaining: number;
   resetAt: number;
-} {
+}> {
   const limit = PLAN_RATE_LIMITS[plan] ?? 100;
-  const now = Date.now();
-  const windowMs = 60_000;
-
-  const entry = rateLimitStore.get(tenantId);
-  if (!entry || now > entry.resetAt) {
-    return { limit, remaining: limit, resetAt: now + windowMs };
-  }
-
+  const { peekCounter } = await import("./nonceGuard");
+  const count = await peekCounter("tenant:rl", tenantId);
   return {
     limit,
-    remaining: Math.max(0, limit - entry.count),
-    resetAt: entry.resetAt,
+    remaining: Math.max(0, limit - count),
+    resetAt: Date.now() + TENANT_RL_WINDOW_MS,
   };
 }
 
@@ -172,9 +158,9 @@ export function tenantGuard() {
       const tenant = await validateTenant(tenantId);
 
       // Rate limit check
-      const allowed = checkTenantRateLimit(tenantId, tenant.plan);
+      const allowed = await checkTenantRateLimit(tenantId, tenant.plan);
       if (!allowed) {
-        const info = getTenantRateLimitInfo(tenantId, tenant.plan);
+        const info = await getTenantRateLimitInfo(tenantId, tenant.plan);
         res.setHeader("X-RateLimit-Limit", info.limit);
         res.setHeader("X-RateLimit-Remaining", 0);
         res.setHeader("X-RateLimit-Reset", Math.ceil(info.resetAt / 1000));
@@ -191,15 +177,9 @@ export function tenantGuard() {
 
 /**
  * Cleanup stale rate limit entries (call periodically).
+ * M1-MEDIUM-13: no-op — entries now live in Redis with TTL expiry (or the
+ * nonceGuard in-process fallback, which self-cleans on its own interval).
  */
 export function cleanupRateLimitStore(): void {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitStore.entries()) {
-    if (now > entry.resetAt) {
-      rateLimitStore.delete(key);
-    }
-  }
+  /* Redis TTLs handle expiry — nothing to sweep here. */
 }
-
-// Run cleanup every 5 minutes
-setInterval(cleanupRateLimitStore, 5 * 60 * 1000);

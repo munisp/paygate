@@ -80,6 +80,61 @@ actor_history: Dict[str, List[Dict]] = defaultdict(list)
 # role -> list of action counts per actor (for peer-group Isolation Forest)
 role_cohort: Dict[str, List[Dict]] = defaultdict(list)
 
+# ─── Redis persistence (write-through; hashes ueba:actor:{id} / ueba:cohort:{role}) ──
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+import json as _json
+
+_ACTOR_HISTORY_CAP = 500
+
+
+async def _persist_actor_history(actor_id: str) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"ueba:actor:{actor_id}",
+                     mapping={"json": _json.dumps(actor_history[actor_id][-_ACTOR_HISTORY_CAP:])})
+    except Exception as e:
+        logger.warning("redis actor history persist failed for %s: %s", actor_id, e)
+
+
+async def _persist_role_cohort(role: str) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"ueba:cohort:{role}",
+                     mapping={"json": _json.dumps(role_cohort[role][-_ACTOR_HISTORY_CAP:])})
+    except Exception as e:
+        logger.warning("redis role cohort persist failed for %s: %s", role, e)
+
+
+async def _hydrate_state() -> None:
+    """Hydrate actor history and role cohorts from Redis on boot."""
+    try:
+        r = await get_redis()
+        n_actors = n_cohorts = 0
+        for pattern, target in (("ueba:actor:*", actor_history), ("ueba:cohort:*", role_cohort)):
+            cursor = 0
+            while True:
+                cursor, keys = await r.scan(cursor=cursor, match=pattern, count=500)
+                for key in keys:
+                    raw = await r.hgetall(key)
+                    blob = raw.get("json")
+                    if not blob:
+                        continue
+                    try:
+                        target[key.split(":", 2)[2]] = _json.loads(blob)
+                        if pattern.startswith("ueba:actor"):
+                            n_actors += 1
+                        else:
+                            n_cohorts += 1
+                    except (ValueError, TypeError):
+                        continue
+                if cursor == 0:
+                    break
+        logger.info("hydrated %d actor histories, %d role cohorts from Redis", n_actors, n_cohorts)
+    except Exception as e:
+        logger.warning("redis hydrate failed (starting cold): %s", e)
+
 # ─── Request/response models ───────────────────────────────────────────────────
 
 class ActionEvent(BaseModel):
@@ -318,6 +373,7 @@ async def push_baseline_update(actor_id: str, action: str, value: float,
 async def lifespan(app: FastAPI):
     logger.info("UEBA service starting on port %d", PORT)
     logger.info("Rust engine URL: %s", RUST_ENGINE_URL)
+    await _hydrate_state()
     yield
     logger.info("UEBA service shutting down")
 
@@ -352,6 +408,7 @@ async def analyse(event: ActionEvent):
     # Keep last 500 events per actor
     if len(actor_history[event.actor_id]) > 500:
         actor_history[event.actor_id] = actor_history[event.actor_id][-500:]
+    await _persist_actor_history(event.actor_id)
 
     # Update role cohort
     cohort_entry = next(
@@ -367,6 +424,7 @@ async def analyse(event: ActionEvent):
             "action": event.action,
             "count": 1,
         })
+    await _persist_role_cohort(event.role)
 
     # Temporal anomaly
     temporal_score = temporal_anomaly_score(

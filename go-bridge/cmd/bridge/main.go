@@ -16,7 +16,9 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +41,7 @@ import (
 	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/pgdb"
+	"github.com/paygate/go-bridge/internal/ratelimit"
 	"github.com/paygate/go-bridge/internal/redis"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 	"github.com/paygate/go-bridge/internal/telemetry"
@@ -242,19 +245,19 @@ func main() {
 	})
 
 	// Wallet operations
-	mux.HandleFunc("POST /v1/wallets/debit", authMiddleware(handlers.Debit))
-	mux.HandleFunc("POST /v1/wallets/credit", authMiddleware(handlers.Credit))
+	mux.HandleFunc("POST /v1/wallets/debit", authMiddleware(auditMoneyMiddleware(handlers.Debit)))
+	mux.HandleFunc("POST /v1/wallets/credit", authMiddleware(auditMoneyMiddleware(handlers.Credit)))
 	mux.HandleFunc("POST /v1/wallets/balance", authMiddleware(handlers.Balance))
-	mux.HandleFunc("POST /v1/wallets/p2p-transfer", authMiddleware(handlers.P2PTransfer))
+	mux.HandleFunc("POST /v1/wallets/p2p-transfer", authMiddleware(auditMoneyMiddleware(handlers.P2PTransfer)))
 
 	// Settlement operations
-	mux.HandleFunc("POST /v1/settlements/trigger", authMiddleware(handlers.TriggerSettlement))
+	mux.HandleFunc("POST /v1/settlements/trigger", authMiddleware(auditMoneyMiddleware(handlers.TriggerSettlement)))
 	// NIBSS PTSP batch confirmation webhook (HMAC-verified, no auth middleware)
 	mux.HandleFunc("POST /v1/pos/settlement/confirm", handlers.PTSPConfirmationWebhook)
 
 	// Transaction operations
-	mux.HandleFunc("POST /v1/transactions/record", authMiddleware(handlers.RecordTransaction))
-	mux.HandleFunc("POST /v1/transactions/refund", authMiddleware(handlers.RefundTransaction))
+	mux.HandleFunc("POST /v1/transactions/record", authMiddleware(auditMoneyMiddleware(handlers.RecordTransaction)))
+	mux.HandleFunc("POST /v1/transactions/refund", authMiddleware(auditMoneyMiddleware(handlers.RefundTransaction)))
 
 	// Dispute operations
 	mux.HandleFunc("POST /v1/disputes/submit", authMiddleware(handlers.SubmitDispute))
@@ -689,121 +692,121 @@ func main() {
 	// — see go-services/mojaloop-fspiop-adapter/cmd/adapter/main.go. The adapter
 	// has no /v1/parties surface; its lookup surface is the transfer-status GET.
 	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/health"))
-	mux.HandleFunc("/v1/mojaloop/transfers", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
-	mux.HandleFunc("/v1/mojaloop/quotes", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/quote"))
-	mux.HandleFunc("/v1/mojaloop/parties/", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
+	mux.HandleFunc("/v1/mojaloop/transfers", authMiddleware(handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer")))
+	mux.HandleFunc("/v1/mojaloop/quotes", authMiddleware(handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/quote")))
+	mux.HandleFunc("/v1/mojaloop/parties/", authMiddleware(handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer")))
 	// cips-gateway (Go) listens on 8098 and serves POST /v1/transfers and
 	// GET /v1/transfers/{id} — see go-services/cips-gateway/cmd/gateway/main.go.
 	mux.HandleFunc("/v1/cips/health", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/health"))
-	mux.HandleFunc("/v1/cips/transfer", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
-	mux.HandleFunc("/v1/cips/status/", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
+	mux.HandleFunc("/v1/cips/transfer", authMiddleware(handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers")))
+	mux.HandleFunc("/v1/cips/status/", authMiddleware(handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers")))
 	// upi-gateway (Go) listens on 8099; VPA resolution is POST /v1/vpa/lookup —
 	// see go-services/upi-gateway/cmd/gateway/main.go.
 	mux.HandleFunc("/v1/upi/health", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/health"))
-	mux.HandleFunc("/v1/upi/pay", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/pay"))
-	mux.HandleFunc("/v1/upi/collect", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/collect"))
-	mux.HandleFunc("/v1/upi/vpa/resolve", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/vpa/lookup"))
+	mux.HandleFunc("/v1/upi/pay", authMiddleware(handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/pay")))
+	mux.HandleFunc("/v1/upi/collect", authMiddleware(handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/collect")))
+	mux.HandleFunc("/v1/upi/vpa/resolve", authMiddleware(handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/vpa/lookup")))
 	// pix-gateway (Go) listens on 8100 and serves /v1/payments + /v1/keys/lookup
 	// — see go-services/pix-gateway/cmd/gateway/main.go.
 	mux.HandleFunc("/v1/pix/health", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/health"))
-	mux.HandleFunc("/v1/pix/payment", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/payments"))
-	mux.HandleFunc("/v1/pix/key/resolve", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/keys/lookup"))
+	mux.HandleFunc("/v1/pix/payment", authMiddleware(handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/payments")))
+	mux.HandleFunc("/v1/pix/key/resolve", authMiddleware(handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/keys/lookup")))
 
 	// ─── Rust Microservices ───────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/billing/health", handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/health"))
-	mux.HandleFunc("/v1/billing/invoice", handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/v1/invoice"))
-	mux.HandleFunc("/v1/billing/subscription", handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/v1/subscription"))
+	mux.HandleFunc("/v1/billing/invoice", authMiddleware(handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/v1/invoice")))
+	mux.HandleFunc("/v1/billing/subscription", authMiddleware(handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/v1/subscription")))
 	mux.HandleFunc("/v1/credit-scoring/health", handlers.ProxyToService("CREDIT_SCORING_URL", "http://localhost:8211", "/health"))
-	mux.HandleFunc("/v1/credit-scoring/score", handlers.ProxyToService("CREDIT_SCORING_URL", "http://localhost:8211", "/v1/score"))
+	mux.HandleFunc("/v1/credit-scoring/score", authMiddleware(handlers.ProxyToService("CREDIT_SCORING_URL", "http://localhost:8211", "/v1/score")))
 	mux.HandleFunc("/v1/inventory/health", handlers.ProxyToService("INVENTORY_ENGINE_URL", "http://localhost:8212", "/health"))
-	mux.HandleFunc("/v1/inventory/items", handlers.ProxyToService("INVENTORY_ENGINE_URL", "http://localhost:8212", "/v1/items"))
+	mux.HandleFunc("/v1/inventory/items", authMiddleware(handlers.ProxyToService("INVENTORY_ENGINE_URL", "http://localhost:8212", "/v1/items")))
 	mux.HandleFunc("/v1/kyc-ocr/health", handlers.ProxyToService("KYC_OCR_ENGINE_URL", "http://localhost:8213", "/health"))
-	mux.HandleFunc("/v1/kyc-ocr/extract", handlers.ProxyToService("KYC_OCR_ENGINE_URL", "http://localhost:8213", "/v1/extract"))
+	mux.HandleFunc("/v1/kyc-ocr/extract", authMiddleware(handlers.ProxyToService("KYC_OCR_ENGINE_URL", "http://localhost:8213", "/v1/extract")))
 	mux.HandleFunc("/v1/loyalty-ledger/health", handlers.ProxyToService("LOYALTY_LEDGER_URL", "http://localhost:8214", "/health"))
-	mux.HandleFunc("/v1/loyalty-ledger/accounts", handlers.ProxyToService("LOYALTY_LEDGER_URL", "http://localhost:8214", "/v1/accounts"))
+	mux.HandleFunc("/v1/loyalty-ledger/accounts", authMiddleware(handlers.ProxyToService("LOYALTY_LEDGER_URL", "http://localhost:8214", "/v1/accounts")))
 	mux.HandleFunc("/v1/tigerbeetle-recon/health", handlers.ProxyToService("TIGERBEETLE_RECON_URL", "http://localhost:8215", "/health"))
-	mux.HandleFunc("/v1/tigerbeetle-recon/reconcile", handlers.ProxyToService("TIGERBEETLE_RECON_URL", "http://localhost:8215", "/v1/reconcile"))
+	mux.HandleFunc("/v1/tigerbeetle-recon/reconcile", authMiddleware(handlers.ProxyToService("TIGERBEETLE_RECON_URL", "http://localhost:8215", "/v1/reconcile")))
 	mux.HandleFunc("/v1/wallet-ffi/health", handlers.ProxyToService("WALLET_FFI_URL", "http://localhost:8216", "/health"))
-	mux.HandleFunc("/v1/wallet-ffi/balance", handlers.ProxyToService("WALLET_FFI_URL", "http://localhost:8216", "/v1/balance"))
+	mux.HandleFunc("/v1/wallet-ffi/balance", authMiddleware(handlers.ProxyToService("WALLET_FFI_URL", "http://localhost:8216", "/v1/balance")))
 	mux.HandleFunc("/v1/cross-border-fraud/health", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/health"))
-	mux.HandleFunc("/v1/cross-border-fraud/score", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/v1/score"))
+	mux.HandleFunc("/v1/cross-border-fraud/score", authMiddleware(handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/v1/score")))
 	// tigerbeetle-ledger (Rust) listens on 8200 and serves /v1/ledger/* — see
 	// rust-services/tigerbeetle-ledger/src/main.rs and k8s/middleware-stack.yaml.
 	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/health"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/accounts"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/transfers"))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", authMiddleware(handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/accounts")))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", authMiddleware(handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/transfers")))
 
 	// ─── Python Microservices ─────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/ai-insights/health", handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/health"))
-	mux.HandleFunc("/v1/ai-insights/query", handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/v1/query"))
+	mux.HandleFunc("/v1/ai-insights/query", authMiddleware(handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/v1/query")))
 	mux.HandleFunc("/v1/aml-monitor/health", handlers.ProxyToService("AML_MONITOR_URL", "http://localhost:8221", "/health"))
-	mux.HandleFunc("/v1/aml-monitor/screen", handlers.ProxyToService("AML_MONITOR_URL", "http://localhost:8221", "/v1/screen"))
+	mux.HandleFunc("/v1/aml-monitor/screen", authMiddleware(handlers.ProxyToService("AML_MONITOR_URL", "http://localhost:8221", "/v1/screen")))
 	mux.HandleFunc("/v1/cashback/health", handlers.ProxyToService("CASHBACK_REWARDS_URL", "http://localhost:8222", "/health"))
-	mux.HandleFunc("/v1/cashback/calculate", handlers.ProxyToService("CASHBACK_REWARDS_URL", "http://localhost:8222", "/v1/calculate"))
+	mux.HandleFunc("/v1/cashback/calculate", authMiddleware(handlers.ProxyToService("CASHBACK_REWARDS_URL", "http://localhost:8222", "/v1/calculate")))
 	mux.HandleFunc("/v1/cohort/health", handlers.ProxyToService("COHORT_ANALYTICS_URL", "http://localhost:8223", "/health"))
-	mux.HandleFunc("/v1/cohort/analyze", handlers.ProxyToService("COHORT_ANALYTICS_URL", "http://localhost:8223", "/v1/analyze"))
+	mux.HandleFunc("/v1/cohort/analyze", authMiddleware(handlers.ProxyToService("COHORT_ANALYTICS_URL", "http://localhost:8223", "/v1/analyze")))
 	mux.HandleFunc("/v1/credit-scoring-py/health", handlers.ProxyToService("CREDIT_SCORING_PY_URL", "http://localhost:8224", "/health"))
-	mux.HandleFunc("/v1/credit-scoring-py/score", handlers.ProxyToService("CREDIT_SCORING_PY_URL", "http://localhost:8224", "/v1/score"))
+	mux.HandleFunc("/v1/credit-scoring-py/score", authMiddleware(handlers.ProxyToService("CREDIT_SCORING_PY_URL", "http://localhost:8224", "/v1/score")))
 	mux.HandleFunc("/v1/emi/health", handlers.ProxyToService("EMI_SERVICE_URL", "http://localhost:8225", "/health"))
-	mux.HandleFunc("/v1/emi/schedule", handlers.ProxyToService("EMI_SERVICE_URL", "http://localhost:8225", "/v1/schedule"))
+	mux.HandleFunc("/v1/emi/schedule", authMiddleware(handlers.ProxyToService("EMI_SERVICE_URL", "http://localhost:8225", "/v1/schedule")))
 	mux.HandleFunc("/v1/fraud-heatmap/health", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/health"))
-	mux.HandleFunc("/v1/fraud-heatmap/data", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/v1/data"))
+	mux.HandleFunc("/v1/fraud-heatmap/data", authMiddleware(handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/v1/data")))
 	// fraud-scoring (Python/FastAPI) listens on 8083 — see
 	// python-services/fraud-scoring/main.py. (8100 is pix-gateway's port.)
 	mux.HandleFunc("/v1/fraud-scoring/health", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/health"))
-	mux.HandleFunc("/v1/fraud-scoring/score", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/v1/score"))
+	mux.HandleFunc("/v1/fraud-scoring/score", authMiddleware(handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/v1/score")))
 	mux.HandleFunc("/v1/fx-rate/health", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/health"))
-	mux.HandleFunc("/v1/fx-rate/rates", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/v1/rates"))
+	mux.HandleFunc("/v1/fx-rate/rates", authMiddleware(handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/v1/rates")))
 	mux.HandleFunc("/v1/insurance/health", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/health"))
-	mux.HandleFunc("/v1/insurance/quote", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/v1/quote"))
+	mux.HandleFunc("/v1/insurance/quote", authMiddleware(handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/v1/quote")))
 	mux.HandleFunc("/v1/iso20022/health", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/health"))
-	mux.HandleFunc("/v1/iso20022/parse", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/v1/parse"))
+	mux.HandleFunc("/v1/iso20022/parse", authMiddleware(handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/v1/parse")))
 	mux.HandleFunc("/v1/kiosk/health", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/health"))
-	mux.HandleFunc("/v1/kiosk/status", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/v1/status"))
+	mux.HandleFunc("/v1/kiosk/status", authMiddleware(handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/v1/status")))
 	mux.HandleFunc("/v1/kyc-ocr-py/health", handlers.ProxyToService("KYC_OCR_PY_URL", "http://localhost:8231", "/health"))
-	mux.HandleFunc("/v1/kyc-ocr-py/verify", handlers.ProxyToService("KYC_OCR_PY_URL", "http://localhost:8231", "/v1/verify"))
+	mux.HandleFunc("/v1/kyc-ocr-py/verify", authMiddleware(handlers.ProxyToService("KYC_OCR_PY_URL", "http://localhost:8231", "/v1/verify")))
 	mux.HandleFunc("/v1/lakehouse-audit/health", handlers.ProxyToService("LAKEHOUSE_AUDIT_URL", "http://localhost:8232", "/health"))
-	mux.HandleFunc("/v1/lakehouse-audit/query", handlers.ProxyToService("LAKEHOUSE_AUDIT_URL", "http://localhost:8232", "/v1/query"))
+	mux.HandleFunc("/v1/lakehouse-audit/query", authMiddleware(handlers.ProxyToService("LAKEHOUSE_AUDIT_URL", "http://localhost:8232", "/v1/query")))
 	mux.HandleFunc("/v1/liveness/health", handlers.ProxyToService("LIVENESS_DETECTION_URL", "http://localhost:8233", "/health"))
-	mux.HandleFunc("/v1/liveness/check", handlers.ProxyToService("LIVENESS_DETECTION_URL", "http://localhost:8233", "/v1/check"))
+	mux.HandleFunc("/v1/liveness/check", authMiddleware(handlers.ProxyToService("LIVENESS_DETECTION_URL", "http://localhost:8233", "/v1/check")))
 	mux.HandleFunc("/v1/mpesa/health", handlers.ProxyToService("MPESA_CONNECTOR_URL", "http://localhost:8234", "/health"))
-	mux.HandleFunc("/v1/mpesa/stk-push", handlers.ProxyToService("MPESA_CONNECTOR_URL", "http://localhost:8234", "/v1/stk-push"))
+	mux.HandleFunc("/v1/mpesa/stk-push", authMiddleware(handlers.ProxyToService("MPESA_CONNECTOR_URL", "http://localhost:8234", "/v1/stk-push")))
 	mux.HandleFunc("/v1/pension/health", handlers.ProxyToService("PENSION_NPS_URL", "http://localhost:8235", "/health"))
-	mux.HandleFunc("/v1/pension/enroll", handlers.ProxyToService("PENSION_NPS_URL", "http://localhost:8235", "/v1/enroll"))
+	mux.HandleFunc("/v1/pension/enroll", authMiddleware(handlers.ProxyToService("PENSION_NPS_URL", "http://localhost:8235", "/v1/enroll")))
 	mux.HandleFunc("/v1/push/health", handlers.ProxyToService("PUSH_SERVICE_URL", "http://localhost:8236", "/health"))
-	mux.HandleFunc("/v1/push/send", handlers.ProxyToService("PUSH_SERVICE_URL", "http://localhost:8236", "/v1/send"))
+	mux.HandleFunc("/v1/push/send", authMiddleware(handlers.ProxyToService("PUSH_SERVICE_URL", "http://localhost:8236", "/v1/send")))
 	mux.HandleFunc("/v1/reconciliation-engine/health", handlers.ProxyToService("RECONCILIATION_ENGINE_URL", "http://localhost:8237", "/health"))
-	mux.HandleFunc("/v1/reconciliation-engine/run", handlers.ProxyToService("RECONCILIATION_ENGINE_URL", "http://localhost:8237", "/v1/run"))
+	mux.HandleFunc("/v1/reconciliation-engine/run", authMiddleware(handlers.ProxyToService("RECONCILIATION_ENGINE_URL", "http://localhost:8237", "/v1/run")))
 	mux.HandleFunc("/v1/settlement-forecast/health", handlers.ProxyToService("SETTLEMENT_FORECAST_URL", "http://localhost:8238", "/health"))
-	mux.HandleFunc("/v1/settlement-forecast/predict", handlers.ProxyToService("SETTLEMENT_FORECAST_URL", "http://localhost:8238", "/v1/predict"))
+	mux.HandleFunc("/v1/settlement-forecast/predict", authMiddleware(handlers.ProxyToService("SETTLEMENT_FORECAST_URL", "http://localhost:8238", "/v1/predict")))
 	mux.HandleFunc("/v1/spark/health", handlers.ProxyToService("SPARK_COMPACTION_URL", "http://localhost:8239", "/health"))
-	mux.HandleFunc("/v1/spark/compact", handlers.ProxyToService("SPARK_COMPACTION_URL", "http://localhost:8239", "/v1/compact"))
+	mux.HandleFunc("/v1/spark/compact", authMiddleware(handlers.ProxyToService("SPARK_COMPACTION_URL", "http://localhost:8239", "/v1/compact")))
 	mux.HandleFunc("/v1/usdc-lakehouse/health", handlers.ProxyToService("USDC_LAKEHOUSE_URL", "http://localhost:8240", "/health"))
-	mux.HandleFunc("/v1/usdc-lakehouse/ingest", handlers.ProxyToService("USDC_LAKEHOUSE_URL", "http://localhost:8240", "/v1/ingest"))
+	mux.HandleFunc("/v1/usdc-lakehouse/ingest", authMiddleware(handlers.ProxyToService("USDC_LAKEHOUSE_URL", "http://localhost:8240", "/v1/ingest")))
 	mux.HandleFunc("/v1/ussd-gw/health", handlers.ProxyToService("USSD_GATEWAY_URL", "http://localhost:8241", "/health"))
-	mux.HandleFunc("/v1/ussd-gw/session", handlers.ProxyToService("USSD_GATEWAY_URL", "http://localhost:8241", "/v1/session"))
+	mux.HandleFunc("/v1/ussd-gw/session", authMiddleware(handlers.ProxyToService("USSD_GATEWAY_URL", "http://localhost:8241", "/v1/session")))
 	mux.HandleFunc("/v1/wealth/health", handlers.ProxyToService("WEALTH_MANAGEMENT_URL", "http://localhost:8242", "/health"))
-	mux.HandleFunc("/v1/wealth/portfolio", handlers.ProxyToService("WEALTH_MANAGEMENT_URL", "http://localhost:8242", "/v1/portfolio"))
+	mux.HandleFunc("/v1/wealth/portfolio", authMiddleware(handlers.ProxyToService("WEALTH_MANAGEMENT_URL", "http://localhost:8242", "/v1/portfolio")))
 	mux.HandleFunc("/v1/vector-store/health", handlers.ProxyToService("VECTOR_STORE_URL", "http://localhost:8243", "/health"))
-	mux.HandleFunc("/v1/vector-store/search", handlers.ProxyToService("VECTOR_STORE_URL", "http://localhost:8243", "/v1/search"))
+	mux.HandleFunc("/v1/vector-store/search", authMiddleware(handlers.ProxyToService("VECTOR_STORE_URL", "http://localhost:8243", "/v1/search")))
 	mux.HandleFunc("/v1/knowledge-graph/health", handlers.ProxyToService("KNOWLEDGE_GRAPH_URL", "http://localhost:8244", "/health"))
-	mux.HandleFunc("/v1/knowledge-graph/query", handlers.ProxyToService("KNOWLEDGE_GRAPH_URL", "http://localhost:8244", "/v1/query"))
+	mux.HandleFunc("/v1/knowledge-graph/query", authMiddleware(handlers.ProxyToService("KNOWLEDGE_GRAPH_URL", "http://localhost:8244", "/v1/query")))
 	mux.HandleFunc("/v1/gnn-fraud/health", handlers.ProxyToService("GNN_FRAUD_URL", "http://localhost:8140", "/health"))
-	mux.HandleFunc("/v1/gnn-fraud/predict", handlers.ProxyToService("GNN_FRAUD_URL", "http://localhost:8140", "/v1/predict"))
+	mux.HandleFunc("/v1/gnn-fraud/predict", authMiddleware(handlers.ProxyToService("GNN_FRAUD_URL", "http://localhost:8140", "/v1/predict")))
 	mux.HandleFunc("/v1/wealth-advisor/health", handlers.ProxyToService("WEALTH_ADVISOR_URL", "http://localhost:8245", "/health"))
-	mux.HandleFunc("/v1/wealth-advisor/advise", handlers.ProxyToService("WEALTH_ADVISOR_URL", "http://localhost:8245", "/v1/advise"))
+	mux.HandleFunc("/v1/wealth-advisor/advise", authMiddleware(handlers.ProxyToService("WEALTH_ADVISOR_URL", "http://localhost:8245", "/v1/advise")))
 	mux.HandleFunc("/v1/cips-upi-pix-fx/health", handlers.ProxyToService("CIPS_UPI_PIX_FX_URL", "http://localhost:8246", "/health"))
-	mux.HandleFunc("/v1/cips-upi-pix-fx/rates", handlers.ProxyToService("CIPS_UPI_PIX_FX_URL", "http://localhost:8246", "/v1/rates"))
+	mux.HandleFunc("/v1/cips-upi-pix-fx/rates", authMiddleware(handlers.ProxyToService("CIPS_UPI_PIX_FX_URL", "http://localhost:8246", "/v1/rates")))
 	mux.HandleFunc("/v1/opensearch/health", handlers.ProxyToService("OPENSEARCH_SERVICE_URL", "http://localhost:8247", "/health"))
-	mux.HandleFunc("/v1/opensearch/search", handlers.ProxyToService("OPENSEARCH_SERVICE_URL", "http://localhost:8247", "/v1/search"))
-	mux.HandleFunc("/v1/opensearch/index", handlers.ProxyToService("OPENSEARCH_SERVICE_URL", "http://localhost:8247", "/v1/index"))
+	mux.HandleFunc("/v1/opensearch/search", authMiddleware(handlers.ProxyToService("OPENSEARCH_SERVICE_URL", "http://localhost:8247", "/v1/search")))
+	mux.HandleFunc("/v1/opensearch/index", authMiddleware(handlers.ProxyToService("OPENSEARCH_SERVICE_URL", "http://localhost:8247", "/v1/index")))
 	mux.HandleFunc("/v1/art-reasoning/health", handlers.ProxyToService("ART_REASONING_URL", "http://localhost:8248", "/health"))
-	mux.HandleFunc("/v1/art-reasoning/reason", handlers.ProxyToService("ART_REASONING_URL", "http://localhost:8248", "/v1/reason"))
+	mux.HandleFunc("/v1/art-reasoning/reason", authMiddleware(handlers.ProxyToService("ART_REASONING_URL", "http://localhost:8248", "/v1/reason")))
 	mux.HandleFunc("/v1/cocoindex/health", handlers.ProxyToService("COCOINDEX_URL", "http://localhost:8249", "/health"))
-	mux.HandleFunc("/v1/cocoindex/index", handlers.ProxyToService("COCOINDEX_URL", "http://localhost:8249", "/v1/index"))
+	mux.HandleFunc("/v1/cocoindex/index", authMiddleware(handlers.ProxyToService("COCOINDEX_URL", "http://localhost:8249", "/v1/index")))
 	mux.HandleFunc("/v1/lakehouse-ai/health", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/health"))
-	mux.HandleFunc("/v1/lakehouse-ai/train", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/train"))
-	mux.HandleFunc("/v1/lakehouse-ai/infer", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/infer"))
+	mux.HandleFunc("/v1/lakehouse-ai/train", authMiddleware(handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/train")))
+	mux.HandleFunc("/v1/lakehouse-ai/infer", authMiddleware(handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/infer")))
 
 	// ── Bandwidth Probe & Resilience Endpoints ─────────────────────────────────
 	mux.HandleFunc("/v1/bandwidth/ping", handlers.ProbePing)
@@ -916,7 +919,75 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			fmt.Fprintf(w, `{"error":"unauthorized","code":401}`)
 			return
 		}
+		// A4-HIGH-4: Redis-backed per-caller rate limiting on every
+		// authenticated route. Fail-loud: 503 when Redis is unavailable.
+		if !ratelimit.Allow(w, r) {
+			return
+		}
 		next(w, r)
+	}
+}
+
+
+// ─── Money-route audit logging (A4-HIGH-4) ───────────────────────────────────
+
+// auditStatusRecorder captures the response status code for audit logging.
+type auditStatusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sr *auditStatusRecorder) WriteHeader(code int) {
+	sr.status = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+// auditMoneyMiddleware emits one structured audit log entry per money-movement
+// request: hashed caller key id, path, amount (when present in the JSON body),
+// response status, and latency. The request body is restored unchanged for the
+// downstream handler.
+func auditMoneyMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		caller := r.Header.Get("X-Internal-Key")
+		if caller == "" {
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				caller = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
+		callerSum := sha256.Sum256([]byte(caller))
+		callerHash := hex.EncodeToString(callerSum[:8])
+
+		var amount json.RawMessage
+		if r.Body != nil && r.Method == http.MethodPost {
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			_ = r.Body.Close()
+			if err != nil {
+				slog.Error("[audit] failed reading request body", "path", r.URL.Path, "err", err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"error":"unreadable request body","code":400}`)
+				return
+			}
+			r.Body = io.NopCloser(strings.NewReader(string(body)))
+			var probe struct {
+				Amount json.RawMessage `json:"amount"`
+			}
+			if len(body) > 0 && json.Unmarshal(body, &probe) == nil {
+				amount = probe.Amount
+			}
+		}
+
+		rec := &auditStatusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next(rec, r)
+		slog.Info("[audit] money-route request",
+			"caller_key_hash", callerHash,
+			"path", r.URL.Path,
+			"method", r.Method,
+			"amount", string(amount),
+			"status", rec.status,
+			"latency_ms", time.Since(start).Milliseconds(),
+		)
 	}
 }
 

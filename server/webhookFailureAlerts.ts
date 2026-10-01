@@ -77,6 +77,27 @@ async function hydrateAcknowledgedIds(): Promise<void> {
   }
 }
 
+/**
+ * M1 wave-4 residual: the authoritative ack source is webhook_alert_acks in
+ * Postgres — fetch the acked IDs per poll instead of trusting the per-replica
+ * Set (which only mirrors this process's acks + boot hydration). Falls back to
+ * the in-memory Set when the DB read fails.
+ */
+async function fetchAcknowledgedIds(): Promise<Set<string>> {
+  try {
+    const drizzle = await getDb();
+    if (drizzle) {
+      const { sql } = await import("drizzle-orm");
+      const res: any = await drizzle.execute(sql`SELECT delivery_id FROM webhook_alert_acks`);
+      const rows: any[] = res?.rows ?? res ?? [];
+      return new Set(rows.map((r) => String(r.delivery_id)));
+    }
+  } catch (e) {
+    console.error("[webhookFailureAlerts] ack read failed — using in-memory Set:", e instanceof Error ? e.message : String(e));
+  }
+  return acknowledgedIds;
+}
+
 export function acknowledgeAlert(deliveryId: string): void {
   acknowledgedIds.add(deliveryId);
   acknowledgedIds.add(`dlq:${deliveryId}`); // also ack the dead-letter form
@@ -127,8 +148,9 @@ async function pollDeadLetters(): Promise<WebhookFailureAlert[]> {
 
   const rows: any[] = Array.isArray(result) ? result : (result as any).rows ?? [];
 
+  const acked = await fetchAcknowledgedIds();
   return rows
-    .filter((r) => !acknowledgedIds.has(`dlq:${r.id}`))
+    .filter((r) => !acked.has(`dlq:${r.id}`))
     .map((r) => ({
       id: `dlq:${r.id}`,
       merchantId: r.merchant_id,
@@ -173,8 +195,9 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
 
     const rows: any[] = Array.isArray(result) ? result : (result as any).rows ?? [];
 
+    const acked = await fetchAcknowledgedIds();
     const alerts: WebhookFailureAlert[] = rows
-      .filter((r) => !acknowledgedIds.has(r.id))
+      .filter((r) => !acked.has(r.id))
       .map((r) => ({
         id: r.id,
         merchantId: r.merchant_id,
@@ -226,7 +249,7 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
             failureCount: a.attemptCount,
             lastError: a.errorMessage,
             lastAttemptedAt: new Date(a.failedAt),
-            acknowledged: acknowledgedIds.has(a.id),
+            acknowledged: acked.has(a.id),
           } as any);
         }
       })().catch((e) => console.error("[webhookFailureAlerts] webhook_failure_alerts persist failed (non-fatal):", e instanceof Error ? e.message : String(e)));

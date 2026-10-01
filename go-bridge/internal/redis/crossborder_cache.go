@@ -10,7 +10,11 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/paygate/go-bridge/internal/pgdb"
 )
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -40,7 +44,10 @@ func getEnv(key, fallback string) string {
 // ─── In-memory fallback ───────────────────────────────────────────────────────
 // Used when Redis is unavailable (dev/test environments).
 
-var _memCache = make(map[string]memEntry)
+var (
+	_memCache   = make(map[string]memEntry)
+	_memCacheMu sync.RWMutex
+)
 
 type memEntry struct {
 	value     string
@@ -48,12 +55,16 @@ type memEntry struct {
 }
 
 func memGet(key string) (string, bool) {
+	_memCacheMu.RLock()
 	e, ok := _memCache[key]
+	_memCacheMu.RUnlock()
 	if !ok {
 		return "", false
 	}
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
+		_memCacheMu.Lock()
 		delete(_memCache, key)
+		_memCacheMu.Unlock()
 		return "", false
 	}
 	return e.value, true
@@ -64,11 +75,15 @@ func memSet(key, value string, ttl time.Duration) {
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
+	_memCacheMu.Lock()
 	_memCache[key] = memEntry{value: value, expiresAt: exp}
+	_memCacheMu.Unlock()
 }
 
 func memDel(key string) {
+	_memCacheMu.Lock()
 	delete(_memCache, key)
+	_memCacheMu.Unlock()
 }
 
 func memIncr(key string, ttl time.Duration) int64 {
@@ -81,6 +96,34 @@ func memIncr(key string, ttl time.Duration) int64 {
 	memSet(key, strconv.FormatInt(count, 10), ttl)
 	return count
 }
+
+// ─── Backend resolution (Redis → Postgres → memory) ──────────────────────────
+
+// rc returns the global Redis client when it is initialised and backed by a
+// real server, else nil.  Never panics even if Init() was not called.
+func rc() *Client {
+	if globalClient != nil && globalClient.Enabled() {
+		return globalClient
+	}
+	return nil
+}
+
+// isProduction reports whether the process runs with ENV/APP_ENV=production.
+func isProduction() bool {
+	env := strings.ToLower(os.Getenv("ENV"))
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	return env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod"
+}
+
+// durableBackendAvailable reports whether at least one durable backend
+// (Redis or Postgres) is reachable for money/idempotency writes.
+func durableBackendAvailable() bool {
+	return rc() != nil || pgdb.Enabled()
+}
+
+// errNoDurableBackend is returned by money-path writes when both Redis and
+// Postgres are unavailable in production.  Callers MUST reject the operation.
+var errNoDurableBackend = fmt.Errorf("crossborder cache: no durable backend (Redis and Postgres both unavailable) — refusing in-memory-only write in production")
 
 // ─── Cache Client ─────────────────────────────────────────────────────────────
 
@@ -96,6 +139,12 @@ func NewCacheClient(cfg Config) *CacheClient {
 
 // SetIdempotencyKey stores an idempotency key with the transfer result.
 // Returns false if the key already exists (duplicate request).
+//
+// Write path (durable, in order): Redis SET NX (atomic check-and-set) and
+// Postgres write-through (idempotency_keys).  The in-memory map is a read
+// cache only.  FAIL-LOUD: in production, when both Redis and Postgres are
+// unavailable, an error is returned and the caller must reject the operation —
+// money paths are never served from memory alone.
 func (c *CacheClient) SetIdempotencyKey(ctx context.Context, key string, result interface{}, ttl time.Duration) (bool, error) {
 	cacheKey := fmt.Sprintf("idempotency:%s", key)
 
@@ -109,23 +158,91 @@ func (c *CacheClient) SetIdempotencyKey(ctx context.Context, key string, result 
 		return false, fmt.Errorf("marshal result: %w", err)
 	}
 
+	usedDurable := false
+
+	if r := rc(); r != nil {
+		// SET NX EX — atomic duplicate detection across all bridge replicas.
+		res, err := r.Eval(ctx, ScriptSetNXWithTTL, []string{cacheKey},
+			string(data), fmt.Sprintf("%d", int(ttl.Seconds())))
+		if err != nil {
+			// Redis is configured but failing — fail loud on the idempotency path.
+			return false, fmt.Errorf("redis SET NX idempotency key: %w", err)
+		}
+		usedDurable = true
+		if !luaTruthy(res) {
+			slog.Debug("Idempotency key already exists (redis)", "key", key)
+			memSet(cacheKey, string(data), ttl)
+			return false, nil
+		}
+	}
+
+	if pgdb.Enabled() {
+		created, err := pgdb.UpsertIdempotencyKey(ctx, key, data, ttl)
+		if err != nil {
+			return false, err // fail loud — durable idempotency record is required
+		}
+		usedDurable = true
+		if !created && rc() == nil {
+			// Postgres is the dedup authority only when Redis did not already answer.
+			slog.Debug("Idempotency key already exists (pg)", "key", key)
+			memSet(cacheKey, string(data), ttl)
+			return false, nil
+		}
+	}
+
+	if !usedDurable {
+		if isProduction() {
+			return false, errNoDurableBackend
+		}
+		slog.Warn("Idempotency key stored in-memory only (dev mode — no Redis/Postgres)", "key", key)
+	}
+
 	memSet(cacheKey, string(data), ttl)
 	return true, nil
 }
 
 // GetIdempotencyResult retrieves the cached result for an idempotency key.
+// Read path: memory → Postgres → Redis.  A miss at every layer is a true miss.
 func (c *CacheClient) GetIdempotencyResult(ctx context.Context, key string) (map[string]interface{}, bool) {
 	cacheKey := fmt.Sprintf("idempotency:%s", key)
-	val, ok := memGet(cacheKey)
-	if !ok {
-		return nil, false
+	if val, ok := memGet(cacheKey); ok {
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(val), &result); err == nil {
+			return result, true
+		}
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(val), &result); err != nil {
-		return nil, false
+	if pgdb.Enabled() {
+		raw, found, err := pgdb.GetIdempotencyKey(ctx, key)
+		if err != nil {
+			slog.Error("pg idempotency lookup failed", "key", key, "err", err)
+		} else if found {
+			memSet(cacheKey, string(raw), time.Hour)
+			var result map[string]interface{}
+			if err := json.Unmarshal(raw, &result); err == nil {
+				return result, true
+			}
+		}
 	}
-	return result, true
+
+	if r := rc(); r != nil {
+		val, found, err := r.GetString(ctx, cacheKey)
+		if err != nil {
+			slog.Error("redis idempotency lookup failed", "key", key, "err", err)
+			return nil, false
+		}
+		if !found {
+			return nil, false
+		}
+		memSet(cacheKey, val, time.Hour)
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(val), &result); err != nil {
+			return nil, false
+		}
+		return result, true
+	}
+
+	return nil, false
 }
 
 // ─── FX Rate Cache ────────────────────────────────────────────────────────────
@@ -175,6 +292,8 @@ func (c *CacheClient) GetFXRate(ctx context.Context, corridor, rail string) (*FX
 // GetAllFXRates returns all cached FX rates.
 func (c *CacheClient) GetAllFXRates(ctx context.Context) []FXRate {
 	rates := make([]FXRate, 0)
+	_memCacheMu.RLock()
+	defer _memCacheMu.RUnlock()
 	for key, entry := range _memCache {
 		if len(key) > 3 && key[:3] == "fx:" {
 			var rate FXRate
@@ -234,7 +353,26 @@ type RateLimitResult struct {
 // CheckRateLimit checks and increments a rate limit counter.
 func (c *CacheClient) CheckRateLimit(ctx context.Context, identifier string, limit int64, windowSecs int) RateLimitResult {
 	cacheKey := fmt.Sprintf("ratelimit:%s", identifier)
-	count := memIncr(cacheKey, time.Duration(windowSecs)*time.Second)
+	ttl := time.Duration(windowSecs) * time.Second
+
+	var count int64
+	if r := rc(); r != nil {
+		n, err := r.IncrWithTTL(ctx, cacheKey, ttl)
+		if err != nil {
+			// Fail closed: a broken rate-limiter must not silently allow traffic.
+			slog.Error("redis rate limit INCR failed — rejecting request (fail closed)", "identifier", identifier, "err", err)
+			return RateLimitResult{
+				Allowed:    false,
+				Count:      limit + 1,
+				Limit:      limit,
+				WindowSecs: windowSecs,
+				ResetAt:    time.Now().Add(ttl).Unix(),
+			}
+		}
+		count = n
+	} else {
+		count = memIncr(cacheKey, ttl)
+	}
 
 	return RateLimitResult{
 		Allowed:    count <= limit,
@@ -259,7 +397,10 @@ type TransferState struct {
 	UpdatedAt  time.Time              `json:"updated_at"`
 }
 
-// SetTransferState caches the state of a cross-border transfer.
+// SetTransferState persists the state of a cross-border transfer.
+// Write path: Redis + Postgres write-through (transfer_state table); memory is
+// a read cache only.  FAIL-LOUD: any durable-backend error is returned, and in
+// production with both backends unavailable the write is refused outright.
 func (c *CacheClient) SetTransferState(ctx context.Context, state TransferState) error {
 	cacheKey := fmt.Sprintf("transfer:state:%s", state.TransferID)
 	state.UpdatedAt = time.Now()
@@ -269,23 +410,75 @@ func (c *CacheClient) SetTransferState(ctx context.Context, state TransferState)
 		return fmt.Errorf("marshal transfer state: %w", err)
 	}
 
+	usedDurable := false
+
+	if r := rc(); r != nil {
+		if err := r.SetEX(ctx, cacheKey, string(data), 24*time.Hour); err != nil {
+			return fmt.Errorf("redis set transfer state: %w", err)
+		}
+		usedDurable = true
+	}
+
+	if pgdb.Enabled() {
+		if err := pgdb.UpsertTransferState(ctx, state.TransferID, data); err != nil {
+			return err // fail loud — durable transfer state is required
+		}
+		usedDurable = true
+	}
+
+	if !usedDurable {
+		if isProduction() {
+			return errNoDurableBackend
+		}
+		slog.Warn("Transfer state stored in-memory only (dev mode — no Redis/Postgres)", "transfer_id", state.TransferID)
+	}
+
 	memSet(cacheKey, string(data), 24*time.Hour)
 	return nil
 }
 
 // GetTransferState retrieves the cached state of a cross-border transfer.
+// Read path: memory → Postgres → Redis.  A miss at every layer is a true miss.
 func (c *CacheClient) GetTransferState(ctx context.Context, transferID string) (*TransferState, bool) {
 	cacheKey := fmt.Sprintf("transfer:state:%s", transferID)
-	val, ok := memGet(cacheKey)
-	if !ok {
-		return nil, false
+	if val, ok := memGet(cacheKey); ok {
+		var state TransferState
+		if err := json.Unmarshal([]byte(val), &state); err == nil {
+			return &state, true
+		}
 	}
 
-	var state TransferState
-	if err := json.Unmarshal([]byte(val), &state); err != nil {
-		return nil, false
+	if pgdb.Enabled() {
+		raw, found, err := pgdb.GetTransferState(ctx, transferID)
+		if err != nil {
+			slog.Error("pg transfer state lookup failed", "transfer_id", transferID, "err", err)
+		} else if found {
+			memSet(cacheKey, string(raw), time.Hour)
+			var state TransferState
+			if err := json.Unmarshal(raw, &state); err == nil {
+				return &state, true
+			}
+		}
 	}
-	return &state, true
+
+	if r := rc(); r != nil {
+		val, found, err := r.GetString(ctx, cacheKey)
+		if err != nil {
+			slog.Error("redis transfer state lookup failed", "transfer_id", transferID, "err", err)
+			return nil, false
+		}
+		if !found {
+			return nil, false
+		}
+		memSet(cacheKey, val, time.Hour)
+		var state TransferState
+		if err := json.Unmarshal([]byte(val), &state); err != nil {
+			return nil, false
+		}
+		return &state, true
+	}
+
+	return nil, false
 }
 
 // ─── Pub/Sub for Real-time Events ────────────────────────────────────────────
@@ -367,14 +560,32 @@ func (c *CacheClient) SetSession(ctx context.Context, sessionID string, data map
 	if err != nil {
 		return fmt.Errorf("marshal session: %w", err)
 	}
+	if r := rc(); r != nil {
+		if err := r.SetEX(ctx, cacheKey, string(raw), ttl); err != nil {
+			return fmt.Errorf("redis set session: %w", err)
+		}
+	}
 	memSet(cacheKey, string(raw), ttl)
 	return nil
 }
 
-// GetSession retrieves a user session.
+// GetSession retrieves a user session.  Read path: memory → Redis.
 func (c *CacheClient) GetSession(ctx context.Context, sessionID string) (map[string]interface{}, bool) {
 	cacheKey := fmt.Sprintf("session:%s", sessionID)
 	val, ok := memGet(cacheKey)
+	if !ok && rc() != nil {
+		v, found, err := rc().GetString(ctx, cacheKey)
+		if err != nil {
+			slog.Error("redis session lookup failed", "session_id", sessionID, "err", err)
+			return nil, false
+		}
+		if !found {
+			return nil, false
+		}
+		val = v
+		memSet(cacheKey, v, time.Hour)
+		ok = true
+	}
 	if !ok {
 		return nil, false
 	}
@@ -387,7 +598,13 @@ func (c *CacheClient) GetSession(ctx context.Context, sessionID string) (map[str
 
 // DeleteSession removes a user session.
 func (c *CacheClient) DeleteSession(ctx context.Context, sessionID string) {
-	memDel(fmt.Sprintf("session:%s", sessionID))
+	cacheKey := fmt.Sprintf("session:%s", sessionID)
+	if r := rc(); r != nil {
+		if err := r.Del(ctx, cacheKey); err != nil {
+			slog.Error("redis session delete failed", "session_id", sessionID, "err", err)
+		}
+	}
+	memDel(cacheKey)
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -395,6 +612,8 @@ func (c *CacheClient) DeleteSession(ctx context.Context, sessionID string) {
 // Stats returns cache statistics.
 func (c *CacheClient) Stats(ctx context.Context) map[string]interface{} {
 	var fxCount, idempCount, sessionCount, transferCount, eventCount int
+	_memCacheMu.RLock()
+	defer _memCacheMu.RUnlock()
 	for key := range _memCache {
 		switch {
 		case len(key) > 3 && key[:3] == "fx:":

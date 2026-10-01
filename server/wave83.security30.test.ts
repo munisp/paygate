@@ -186,28 +186,28 @@ describe.skipIf(!PG_AVAILABLE)("VULN-034: Tenant Data Leakage Prevention", () =>
 
 // ─── VULN-035: Webhook Replay Attack ─────────────────────────────────────────
 describe.skipIf(!PG_AVAILABLE)("VULN-035: Webhook Replay Attack Prevention", () => {
-  it("accepts valid nonce within time window", () => {
+  it("accepts valid nonce within time window", async () => {
     const nonce = `nonce-${Date.now()}-${Math.random()}`;
-    const result = validateWebhookNonce(nonce, Date.now());
+    const result = await validateWebhookNonce(nonce, Date.now());
     expect(result).toBe(true);
   });
 
-  it("rejects duplicate nonce", () => {
+  it("rejects duplicate nonce", async () => {
     const nonce = `nonce-dup-${Date.now()}-${Math.random()}`;
-    expect(validateWebhookNonce(nonce, Date.now())).toBe(true);
-    expect(validateWebhookNonce(nonce, Date.now())).toBe(false);
+    expect(await validateWebhookNonce(nonce, Date.now())).toBe(true);
+    expect(await validateWebhookNonce(nonce, Date.now())).toBe(false);
   });
 
-  it("rejects timestamp older than 5 minutes", () => {
+  it("rejects timestamp older than 5 minutes", async () => {
     const nonce = `nonce-old-${Date.now()}`;
     const oldTimestamp = Date.now() - 6 * 60 * 1000;
-    expect(validateWebhookNonce(nonce, oldTimestamp)).toBe(false);
+    expect(await validateWebhookNonce(nonce, oldTimestamp)).toBe(false);
   });
 
-  it("rejects future timestamp beyond 5 minutes", () => {
+  it("rejects future timestamp beyond 5 minutes", async () => {
     const nonce = `nonce-future-${Date.now()}`;
     const futureTimestamp = Date.now() + 6 * 60 * 1000;
-    expect(validateWebhookNonce(nonce, futureTimestamp)).toBe(false);
+    expect(await validateWebhookNonce(nonce, futureTimestamp)).toBe(false);
   });
 });
 

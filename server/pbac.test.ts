@@ -98,30 +98,30 @@ describe("checkPermission — local matrix fallback", () => {
 // ─── 3. Nonce Replay Attack Protection ───────────────────────────────────────
 
 describe("validateNonce — replay attack protection", () => {
-  it("accepts a valid nonce on first use", () => {
+  it("accepts a valid nonce on first use", async () => {
     const nonce = "secure-nonce-abc-123-xyz-456-789";
-    expect(() => validateNonce(nonce)).not.toThrow();
+    await expect(validateNonce(nonce)).resolves.toBeUndefined();
   });
 
-  it("rejects a nonce that has already been used", () => {
+  it("rejects a nonce that has already been used", async () => {
     const nonce = "replay-test-nonce-abc-123-xyz-789";
-    validateNonce(nonce); // First use — should succeed
-    expect(() => validateNonce(nonce)).toThrowError(/Duplicate request/);
+    await validateNonce(nonce); // First use — should succeed
+    await expect(validateNonce(nonce)).rejects.toThrowError(/Duplicate request/);
   });
 
-  it("rejects nonces shorter than 16 characters", () => {
-    expect(() => validateNonce("short")).toThrowError(/valid idempotency nonce/);
+  it("rejects nonces shorter than 16 characters", async () => {
+    await expect(validateNonce("short")).rejects.toThrowError(/valid idempotency nonce/);
   });
 
-  it("rejects empty nonce", () => {
-    expect(() => validateNonce("")).toThrowError(/valid idempotency nonce/);
+  it("rejects empty nonce", async () => {
+    await expect(validateNonce("")).rejects.toThrowError(/valid idempotency nonce/);
   });
 
-  it("accepts different nonces independently", () => {
+  it("accepts different nonces independently", async () => {
     const nonce1 = "unique-nonce-aaa-111-bbb-222-ccc";
     const nonce2 = "unique-nonce-ddd-333-eee-444-fff";
-    expect(() => validateNonce(nonce1)).not.toThrow();
-    expect(() => validateNonce(nonce2)).not.toThrow();
+    await expect(validateNonce(nonce1)).resolves.toBeUndefined();
+    await expect(validateNonce(nonce2)).resolves.toBeUndefined();
   });
 });
 
@@ -177,48 +177,48 @@ describe("verifyWebhookSignature — NIBSS HMAC-SHA256", () => {
 // ─── 5. Login Brute Force Protection ─────────────────────────────────────────
 
 describe("recordLoginAttempt — brute force protection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Clear state between tests
-    clearLoginAttempts("test-user@example.com");
-    clearLoginAttempts("attacker@example.com");
+    await clearLoginAttempts("test-user@example.com");
+    await clearLoginAttempts("attacker@example.com");
   });
 
-  it("does not throw on first failed attempt", () => {
-    expect(() => recordLoginAttempt("test-user@example.com")).not.toThrow();
+  it("does not throw on first failed attempt", async () => {
+    await expect(recordLoginAttempt("test-user@example.com")).resolves.toBeUndefined();
   });
 
-  it("does not throw on 4 failed attempts", () => {
+  it("does not throw on 4 failed attempts", async () => {
     for (let i = 0; i < 4; i++) {
-      expect(() => recordLoginAttempt("test-user@example.com")).not.toThrow();
+      await expect(recordLoginAttempt("test-user@example.com")).resolves.toBeUndefined();
     }
   });
 
-  it("locks out after 5 failed attempts", () => {
+  it("locks out after 5 failed attempts", async () => {
     for (let i = 0; i < 5; i++) {
-      try { recordLoginAttempt("attacker@example.com"); } catch { /* expected on 5th */ }
+      try { await recordLoginAttempt("attacker@example.com"); } catch { /* expected on 5th */ }
     }
-    expect(isLockedOut("attacker@example.com")).toBe(true);
+    await expect(isLockedOut("attacker@example.com")).resolves.toBe(true);
   });
 
-  it("throws TOO_MANY_REQUESTS when locked out", () => {
+  it("throws TOO_MANY_REQUESTS when locked out", async () => {
     // Trigger lockout
     for (let i = 0; i < 5; i++) {
-      try { recordLoginAttempt("attacker@example.com"); } catch { /* ignore */ }
+      try { await recordLoginAttempt("attacker@example.com"); } catch { /* ignore */ }
     }
     // Next attempt should throw
-    expect(() => recordLoginAttempt("attacker@example.com")).toThrowError(/locked/i);
+    await expect(recordLoginAttempt("attacker@example.com")).rejects.toThrowError(/locked/i);
   });
 
-  it("clearLoginAttempts removes lockout", () => {
+  it("clearLoginAttempts removes lockout", async () => {
     for (let i = 0; i < 5; i++) {
-      try { recordLoginAttempt("attacker@example.com"); } catch { /* ignore */ }
+      try { await recordLoginAttempt("attacker@example.com"); } catch { /* ignore */ }
     }
-    expect(isLockedOut("attacker@example.com")).toBe(true);
-    clearLoginAttempts("attacker@example.com");
-    expect(isLockedOut("attacker@example.com")).toBe(false);
+    await expect(isLockedOut("attacker@example.com")).resolves.toBe(true);
+    await clearLoginAttempts("attacker@example.com");
+    await expect(isLockedOut("attacker@example.com")).resolves.toBe(false);
   });
 
-  it("isLockedOut returns false for unknown identifier", () => {
-    expect(isLockedOut("never-tried@example.com")).toBe(false);
+  it("isLockedOut returns false for unknown identifier", async () => {
+    await expect(isLockedOut("never-tried@example.com")).resolves.toBe(false);
   });
 });

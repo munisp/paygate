@@ -24,7 +24,7 @@ async fn score(req: HttpRequest, key: web::Data<String>, engine: EngineData, bod
         return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
     }
 
-    let response = engine.score(&body);
+    let response = engine.score(&body).await;
     HttpResponse::Ok().json(response)
 }
 
@@ -33,7 +33,7 @@ async fn update_baseline(req: HttpRequest, key: web::Data<String>, engine: Engin
         return HttpResponse::Unauthorized().json(json!({"error": "unauthorized", "code": 401}));
     }
 
-    engine.update_baseline(&body);
+    engine.update_baseline(&body).await;
     HttpResponse::Ok().json(json!({"status": "updated"}))
 }
 
@@ -64,7 +64,29 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(8300);
 
     let internal_key = web::Data::new(internal_auth::resolve_internal_key("insider-threat-engine"));
-    let engine = Arc::new(BehaviouralEngine::new());
+
+    // Durable baseline store: Postgres write-through + lazy-load when
+    // DATABASE_URL is set. Without it the engine runs in-memory-only (dev).
+    let pg_store = match env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => {
+            match insider_threat_engine::pg::PgBaselineStore::connect(&url).await {
+                Ok(store) => {
+                    log::info!("actor baselines: durable Postgres write-through enabled");
+                    Some(store)
+                }
+                Err(e) => {
+                    log::error!("DATABASE_URL is set but Postgres connect failed: {e}. Falling back to in-memory baselines (NON-DURABLE).");
+                    None
+                }
+            }
+        }
+        _ => {
+            log::warn!("DATABASE_URL unset — actor baselines are IN-MEMORY ONLY (lost on restart). Dev mode.");
+            None
+        }
+    };
+
+    let engine = Arc::new(BehaviouralEngine::new(pg_store));
     log::info!("insider-threat-engine starting on port {}", port);
 
     HttpServer::new(move || {

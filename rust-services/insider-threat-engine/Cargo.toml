@@ -32,7 +32,8 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
-dashmap = "6"         # concurrent hash map for actor baselines
+dashmap = "6"         # concurrent hash map for actor baselines (L1 cache)
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }  # durable baseline store
 statrs = "0.17"       # statistical distributions for Z-score
 
 [profile.release]

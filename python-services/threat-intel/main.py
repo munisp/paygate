@@ -13,6 +13,7 @@ Exposes REST endpoints consumed by the Node.js backend (server/_core/index.ts).
 """
 
 import io
+import json
 import os
 import time
 import hashlib
@@ -122,6 +123,83 @@ REDIS_TRAINING_KEY = "threat_intel:iso_forest:training_buffer"
 REDIS_BAD_IPS_KEY = "threat_intel:known_bad_ips"
 REDIS_LOGIN_FAIL_PREFIX = "threat_intel:login_fail:"
 REDIS_REQUEST_PREFIX = "threat_intel:requests:"
+REDIS_TX_PREFIX = "threat_intel:tx_window:"
+REDIS_GEO_PREFIX = "threat_intel:geo_window:"
+TRAINING_BUFFER_CAP = 10000  # max samples retained in Redis training buffer
+
+
+def _redis_zadd_window(key: str, member: str, score: float, window_s: float, ttl_s: int) -> bool:
+    """Add to a Redis sliding-window ZSET and prune expired entries.
+
+    Returns True on success; False when Redis is unavailable (caller falls back
+    to the in-memory deque).
+    """
+    r = _get_redis()
+    if r is None:
+        return False
+    try:
+        r.zadd(key, {member: score})
+        r.zremrangebyscore(key, 0, score - window_s)
+        r.expire(key, ttl_s)
+        return True
+    except Exception as e:
+        log.warning("redis_zadd_window_failed", key=key, error=str(e))
+        return False
+
+
+def _redis_zcount_window(key: str, since_s: float) -> Optional[int]:
+    """Count ZSET entries scored at/after since_s; None when unavailable."""
+    r = _get_redis()
+    if r is None:
+        return None
+    try:
+        return int(r.zcount(key, since_s, "+inf"))
+    except Exception as e:
+        log.warning("redis_zcount_window_failed", key=key, error=str(e))
+        return None
+
+
+def _redis_zrange_window(key: str, since_s: float) -> Optional[list]:
+    """Return (score, member) pairs since since_s; None when unavailable."""
+    r = _get_redis()
+    if r is None:
+        return None
+    try:
+        return r.zrangebyscore(key, since_s, "+inf", withscores=True)
+    except Exception as e:
+        log.warning("redis_zrange_window_failed", key=key, error=str(e))
+        return None
+
+
+def _redis_save_training_sample(features: list[float]) -> None:
+    """Append a feature vector to the Redis training buffer (capped list)."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        r.rpush(REDIS_TRAINING_KEY, json.dumps(features))
+        r.ltrim(REDIS_TRAINING_KEY, -TRAINING_BUFFER_CAP, -1)
+    except Exception as e:
+        log.warning("redis_training_save_failed", error=str(e))
+
+
+def _redis_load_training_buffer() -> None:
+    """Hydrate the in-memory training buffer from Redis on startup."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        items = r.lrange(REDIS_TRAINING_KEY, -TRAINING_BUFFER_CAP, -1)
+        for item in items:
+            if isinstance(item, bytes):
+                item = item.decode()
+            try:
+                _iso_training_buffer.append([float(x) for x in json.loads(item)])
+            except (ValueError, TypeError):
+                continue
+        log.info("training_buffer_loaded_from_redis", samples=len(_iso_training_buffer))
+    except Exception as e:
+        log.warning("redis_training_load_failed", error=str(e))
 
 def _redis_save_model(model) -> bool:
     """Serialise Isolation Forest model to Redis using joblib."""
@@ -241,6 +319,7 @@ app.add_middleware(
 async def _startup():
     """Load persisted state from Redis on startup."""
     _redis_load_bad_ips()
+    _redis_load_training_buffer()
     # Pre-warm model from Redis if available
     _get_iso_forest()
 
@@ -333,11 +412,24 @@ def _check_geo_velocity(account_id: str, ip: str) -> tuple[bool, Optional[str]]:
         return False, None
 
     now = time.time()
+    cutoff = now - 1800  # 30 minutes
+
+    # Redis sliding window (source of truth when available)
+    geo_key = f"{REDIS_GEO_PREFIX}{account_id}"
+    if _redis_zadd_window(geo_key, f"{now}:{country}", now, 1800, 3600):
+        entries = _redis_zrange_window(geo_key, cutoff)
+        if entries is not None:
+            countries_seen = {m.decode().split(":", 2)[-1] if isinstance(m, bytes)
+                              else str(m).split(":", 2)[-1] for m, _ in entries}
+            if len(countries_seen) > 1:
+                log.warning("geo_velocity_anomaly", account_id=account_id, countries=list(countries_seen))
+                return True, country
+            return False, country
+
     window = _geo_windows[account_id]
     window.append((now, country))
 
     # Check for country change within 30 minutes
-    cutoff = now - 1800  # 30 minutes
     recent = [(ts, c) for ts, c in window if ts >= cutoff]
     countries_seen = {c for _, c in recent}
 
@@ -439,8 +531,12 @@ def analyze_transaction(
     # 3. Add to training buffer and update velocity window
     features = _extract_features(tx)
     _iso_training_buffer.append(features)
+    del _iso_training_buffer[:-TRAINING_BUFFER_CAP]
+    _redis_save_training_sample(features)
     now = time.time()
     _tx_windows[tx.account_id].append((now, tx.amount))
+    _redis_zadd_window(f"{REDIS_TX_PREFIX}{tx.account_id}",
+                       f"{now}:{tx.amount}", now, 3600, 7200)
 
     # 4. ML anomaly detection (if model trained)
     model = _get_iso_forest()
@@ -519,8 +615,13 @@ def analyze_login(
             window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
             window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
     else:
-        window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
-        window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
+        c10 = _redis_zcount_window(f"{REDIS_LOGIN_FAIL_PREFIX}{event.identifier}", now_s - 600)
+        c60 = _redis_zcount_window(f"{REDIS_LOGIN_FAIL_PREFIX}{event.identifier}", now_s - 3600)
+        if c10 is not None and c60 is not None:
+            window_10min, window_1h = c10, c60
+        else:
+            window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
+            window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
 
     # Thresholds
     is_brute_force = window_10min >= 5 or window_1h >= 15
@@ -562,9 +663,15 @@ def analyze_ddos(
     now_s = (event.timestamp_ms or int(time.time() * 1000)) / 1000
     _request_windows[event.ip].append(now_s)
 
-    # Count requests in last 60 seconds
-    recent = [t for t in _request_windows[event.ip] if now_s - t <= 60]
-    rpm = len(recent)
+    # Count requests in last 60 seconds (Redis ZSET window when available)
+    req_key = f"{REDIS_REQUEST_PREFIX}{event.ip}"
+    if _redis_zadd_window(req_key, f"{now_s}:{event.path}", now_s, 60, 120):
+        count = _redis_zcount_window(req_key, now_s - 60)
+        rpm = count if count is not None else sum(
+            1 for t in _request_windows[event.ip] if now_s - t <= 60)
+    else:
+        recent = [t for t in _request_windows[event.ip] if now_s - t <= 60]
+        rpm = len(recent)
 
     # Baseline: 10 req/min is normal; 50+ is suspicious; 200+ is DDoS
     baseline_rpm = 10.0
@@ -618,7 +725,9 @@ def analyze_ip_reputation(
 
     # High request rate (DDoS indicator)
     now_s = time.time()
-    recent_requests = sum(1 for t in _request_windows[ip] if now_s - t <= 60)
+    recent_requests = _redis_zcount_window(f"{REDIS_REQUEST_PREFIX}{ip}", now_s - 60)
+    if recent_requests is None:
+        recent_requests = sum(1 for t in _request_windows[ip] if now_s - t <= 60)
     if recent_requests >= 200:
         risk_factors.append(f"Extremely high request rate: {recent_requests} req/min")
         reputation_score += 0.6
@@ -627,7 +736,9 @@ def analyze_ip_reputation(
         reputation_score += 0.3
 
     # High login failure rate
-    recent_fails = sum(1 for t in _login_fail_windows[ip] if now_s - t <= 600)
+    recent_fails = _redis_zcount_window(f"{REDIS_LOGIN_FAIL_PREFIX}{ip}", now_s - 600)
+    if recent_fails is None:
+        recent_fails = sum(1 for t in _login_fail_windows[ip] if now_s - t <= 600)
     if recent_fails >= 5:
         risk_factors.append(f"High login failure rate: {recent_fails} failures in 10min")
         reputation_score += 0.4

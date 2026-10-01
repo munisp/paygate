@@ -66,6 +66,41 @@ if not BRIDGE_URL and ALLOW_SIMULATION:
 
 sessions: dict[str, dict] = {}
 
+# ─── Session persistence (Redis ussd:gw:sess:{id}, EX 300; dict is L1) ───────
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+import json as _json
+
+SESSION_TTL_S = int(os.getenv("USSD_SESSION_TTL_S", "300"))
+
+
+async def _load_session(session_id: str) -> None:
+    """Hydrate a session from Redis into the L1 dict if not present."""
+    if session_id in sessions:
+        return
+    try:
+        r = await get_redis()
+        raw = await r.get(f"ussd:gw:sess:{session_id}")
+        if raw:
+            sessions[session_id] = _json.loads(raw)
+    except Exception as e:
+        logger.warning(f"[redis] session load failed for {session_id}: {e}")
+
+
+async def _save_session(session_id: str) -> None:
+    """Write-through session state to Redis with TTL."""
+    data = sessions.get(session_id)
+    try:
+        r = await get_redis()
+        if data is None:
+            await r.delete(f"ussd:gw:sess:{session_id}")
+        else:
+            await r.set(f"ussd:gw:sess:{session_id}",
+                        _json.dumps(data, default=str), ex=SESSION_TTL_S)
+    except Exception as e:
+        logger.warning(f"[redis] session save failed for {session_id}: {e}")
+
 MAIN_MENU = (
     "CON Welcome to PayGate\n"
     "1. Check Balance\n"
@@ -347,7 +382,9 @@ async def ussd_callback(
     serviceCode: str = Form(default=""),
 ):
     try:
+        await _load_session(sessionId)
         response = handle_ussd(sessionId, phoneNumber, text, serviceCode)
+        await _save_session(sessionId)
         logger.info(f"[ussd] session={sessionId} phone={phoneNumber} text={repr(text)} -> {response[:50]}")
         return PlainTextResponse(response)
     except Exception as e:

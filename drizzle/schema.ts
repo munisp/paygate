@@ -7182,6 +7182,11 @@ export const sipExecutions = pgTable("sip_executions", {
 });
 export type SipExecution = typeof sipExecutions.$inferSelect;
 
+// A2-HIGH-1 writer note: legacy plan catalog superseded by
+// subscription_plans_v2 (subscriptionPlansV2, written by
+// server/routers/crud119.ts subscriptionV2Router.createPlan) and by inline
+// plan fields on `subscriptions` (server/routers.ts subscriptionsLocalRouter).
+// No in-repo reader or writer remains; kept for historical rows only.
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
   merchantId: text("merchant_id").notNull(),

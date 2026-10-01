@@ -83,8 +83,43 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
 PORT = int(os.getenv("PORT", "8133"))
 
-# ─── In-memory trace store (use DB in production) ────────────────────────────
+# ─── Trace store: small hot in-memory buffer + Redis list `art:traces` ───────
+# Redis (RPUSH + LTRIM cap 10k) is the durable write-through store; `_traces`
+# is a bounded hot buffer for fast lookups of recent traces.
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+
+_TRACES_HOT_BUFFER = int(os.getenv("ART_TRACES_HOT_BUFFER", "500"))
+_TRACES_REDIS_CAP = int(os.getenv("ART_TRACES_REDIS_CAP", "10000"))
 _traces: Dict[str, Dict] = {}
+
+
+async def _persist_trace(result: Dict) -> None:
+    try:
+        import json as _json
+        r = await get_redis()
+        await r.rpush("art:traces", _json.dumps(result, default=str))
+        await r.ltrim("art:traces", -_TRACES_REDIS_CAP, -1)
+    except Exception as e:
+        logger.warning(f"[redis] trace persist failed for {result.get('trace_id')}: {e}")
+
+
+async def _hydrate_traces() -> None:
+    """Reload the most recent traces from Redis into the hot buffer on boot."""
+    try:
+        import json as _json
+        r = await get_redis()
+        items = await r.lrange("art:traces", -_TRACES_HOT_BUFFER, -1)
+        for item in items:
+            try:
+                entry = _json.loads(item)
+                _traces[entry["trace_id"]] = entry
+            except (ValueError, KeyError, TypeError):
+                continue
+        logger.info(f"[startup] hydrated {len(_traces)} traces from Redis")
+    except Exception as e:
+        logger.warning(f"[redis] trace hydrate failed (starting cold): {e}")
 
 
 class UpstreamServiceUnavailable(Exception):
@@ -427,6 +462,9 @@ async def run_react_loop(question: str, context: Optional[str] = None) -> Dict:
     }
 
     _traces[trace_id] = result
+    while len(_traces) > _TRACES_HOT_BUFFER:
+        _traces.pop(next(iter(_traces)))
+    await _persist_trace(result)
     return result
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
@@ -459,6 +497,7 @@ class DisputeResolutionRequest(BaseModel):
 async def lifespan(app: FastAPI):
     logger.info("[startup] ART Reasoning service starting...")
     logger.info(f"[startup] Max steps: {MAX_STEPS}, LLM: {LLM_API_URL}")
+    await _hydrate_traces()
     yield
     logger.info("[shutdown] ART Reasoning service stopping...")
 

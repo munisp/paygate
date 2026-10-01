@@ -4,11 +4,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,7 +108,14 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	invoiceID := uuid.New().String()
-	invoiceNumber := generateInvoiceNumber()
+	invoiceNumber, err := generateInvoiceNumber(ctx)
+	if err != nil {
+		// Fail loud: a non-atomic or unavailable invoice number sequence must
+		// never produce duplicate/guessed invoice numbers.
+		slog.Error("invoice number sequence unavailable", "err", err)
+		http.Error(w, `{"error":"failed to allocate invoice number"}`, http.StatusInternalServerError)
+		return
+	}
 	dueDate := time.Now().UTC().AddDate(0, 0, dueDays)
 	paymentURL := fmt.Sprintf("%s/pay/invoice/%s", getPortalBaseURL(), invoiceID)
 
@@ -364,11 +375,33 @@ func ListMerchantInvoices(w http.ResponseWriter, r *http.Request) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-var invoiceCounter int64 = 100000
+// generateInvoiceNumber allocates the next invoice number atomically via the
+// Postgres sequence invoice_number_seq (SELECT nextval).  Fail-loud: any
+// database error is returned and the caller rejects the request — no silent
+// in-memory fallback on this money path.
+//
+// In dev/test mode (pgdb disabled) a process-local atomic counter is used and
+// a warning is logged; production (ENV=production) refuses the fallback.
+var invoiceFallbackCounter int64 = 100000
 
-func generateInvoiceNumber() string {
-	invoiceCounter++
-	return fmt.Sprintf("INV-%d-%06d", time.Now().Year(), invoiceCounter)
+func generateInvoiceNumber(ctx context.Context) (string, error) {
+	n, err := pgdb.NextInvoiceNumber(ctx)
+	if err != nil {
+		if errors.Is(err, pgdb.ErrDisabled) && !isProductionEnv() {
+			n := atomic.AddInt64(&invoiceFallbackCounter, 1)
+			slog.Warn("pgdb disabled — using in-memory invoice number counter (dev only)")
+			return fmt.Sprintf("INV-%d-%06d", time.Now().Year(), n), nil
+		}
+		return "", fmt.Errorf("allocate invoice number: %w", err)
+	}
+	return fmt.Sprintf("INV-%d-%06d", time.Now().Year(), n), nil
+}
+
+// isProductionEnv reports whether ENV/APP_ENV selects production.
+func isProductionEnv() bool {
+	env := strings.ToLower(os.Getenv("ENV"))
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	return env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod"
 }
 
 func getPortalBaseURL() string {

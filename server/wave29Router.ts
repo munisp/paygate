@@ -1244,6 +1244,14 @@ const slaMonitoringAliasRouter = router({
           INSERT INTO sla_metrics (service_name, status, response_time_ms, message, recorded_at)
           VALUES ($1, $2, $3, $4, NOW())
         `, [input.serviceName, input.status, input.responseTimeMs, input.message ?? null]);
+        // A2-HIGH-1: a degraded/down ping IS an incident — record it in
+        // sla_incident_reports (read by getIncidents above).
+        if (input.status !== "ok") {
+          await execRaw(db, `
+            INSERT INTO sla_incident_reports (service_name, message, started_at, duration_ms)
+            VALUES ($1, $2, NOW(), $3)
+          `, [input.serviceName, input.message ?? `status=${input.status}`, input.responseTimeMs]);
+        }
       } catch {
         // Table may not exist in all environments — silently succeed
       }

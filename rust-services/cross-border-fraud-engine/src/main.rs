@@ -17,8 +17,6 @@ mod telemetry;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, middleware};
 use chrono::{DateTime, Utc, Timelike};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use tracing::{info, warn, error};
 use uuid::Uuid;
 
@@ -137,27 +135,31 @@ struct RailCheck {
 
 // ─── Country Risk Scores ──────────────────────────────────────────────────────
 
-fn get_country_risk_score(currency: &str) -> f64 {
-    // Risk scores based on FATF, Basel AML Index, and sanctions lists
-    // Lower score = lower risk
-    let risk_map: HashMap<&str, f64> = [
-        // Low risk
-        ("USD", 5.0), ("EUR", 5.0), ("GBP", 5.0), ("JPY", 5.0),
-        ("CHF", 5.0), ("CAD", 5.0), ("AUD", 5.0), ("SGD", 5.0),
-        // Medium-low risk
-        ("CNY", 15.0), ("CNH", 15.0),  // China — CIPS
-        ("INR", 10.0),                  // India — UPI
-        ("BRL", 10.0),                  // Brazil — PIX
-        ("ZAR", 12.0), ("KES", 15.0), ("GHS", 18.0),
-        // Medium risk
-        ("NGN", 25.0), ("EGP", 20.0), ("PKR", 30.0), ("BDT", 25.0),
-        ("VND", 20.0), ("PHP", 18.0), ("IDR", 18.0), ("MYR", 12.0),
-        // Higher risk
-        ("RUB", 45.0), ("IRR", 85.0), ("KPW", 95.0), ("SYP", 90.0),
-        ("MMK", 55.0), ("SDG", 70.0), ("YER", 75.0), ("LYD", 65.0),
-    ].iter().cloned().collect();
+// Risk scores based on FATF, Basel AML Index, and sanctions lists.
+// Lower score = lower risk. Static table — no per-call HashMap allocation.
+static COUNTRY_RISK_SCORES: &[(&str, f64)] = &[
+    // Low risk
+    ("USD", 5.0), ("EUR", 5.0), ("GBP", 5.0), ("JPY", 5.0),
+    ("CHF", 5.0), ("CAD", 5.0), ("AUD", 5.0), ("SGD", 5.0),
+    // Medium-low risk
+    ("CNY", 15.0), ("CNH", 15.0),  // China — CIPS
+    ("INR", 10.0),                  // India — UPI
+    ("BRL", 10.0),                  // Brazil — PIX
+    ("ZAR", 12.0), ("KES", 15.0), ("GHS", 18.0),
+    // Medium risk
+    ("NGN", 25.0), ("EGP", 20.0), ("PKR", 30.0), ("BDT", 25.0),
+    ("VND", 20.0), ("PHP", 18.0), ("IDR", 18.0), ("MYR", 12.0),
+    // Higher risk
+    ("RUB", 45.0), ("IRR", 85.0), ("KPW", 95.0), ("SYP", 90.0),
+    ("MMK", 55.0), ("SDG", 70.0), ("YER", 75.0), ("LYD", 65.0),
+];
 
-    *risk_map.get(currency).unwrap_or(&30.0)
+fn get_country_risk_score(currency: &str) -> f64 {
+    COUNTRY_RISK_SCORES
+        .iter()
+        .find(|(c, _)| *c == currency)
+        .map(|(_, s)| *s)
+        .unwrap_or(30.0)
 }
 
 // ─── Rail-Specific Validators ─────────────────────────────────────────────────
@@ -489,8 +491,6 @@ fn score_transaction(req: &FraudScoringRequest) -> FraudScoringResponse {
 
 struct AppState {
     config: Config,
-    // In-memory score cache (production: use Redis)
-    score_cache: Arc<RwLock<HashMap<String, FraudScoringResponse>>>,
 }
 
 // ─── HTTP Handlers ─────────────────────────────────────────────────────────────
@@ -555,13 +555,9 @@ async fn handle_batch_score(
     }))
 }
 
-async fn handle_metrics(
-    state: web::Data<AppState>,
-) -> HttpResponse {
-    let cache_size = state.score_cache.read().map(|c| c.len()).unwrap_or(0);
+async fn handle_metrics() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "service": "cross-border-fraud-engine",
-        "cache_entries": cache_size,
         "supported_rails": ["mojaloop", "cips", "upi", "pix", "brics_pay", "swift"],
         "uptime_ts": Utc::now().to_rfc3339(),
     }))
@@ -605,10 +601,7 @@ async fn main() -> std::io::Result<()> {
         "Cross-Border Fraud Engine starting"
     );
 
-    let state = web::Data::new(AppState {
-        config,
-        score_cache: Arc::new(RwLock::new(HashMap::new())),
-    });
+    let state = web::Data::new(AppState { config });
 
     HttpServer::new(move || {
         App::new()

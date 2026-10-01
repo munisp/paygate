@@ -493,6 +493,10 @@ const complianceReportRouter = router({
         `, [input.startDate, input.endDate]);
         data = result;
       } else if (input.reportType === "fraud_incidents") {
+        // A2-HIGH-1 writer note: fraud_cases rows are opened by the external
+        // fraud-scoring/case-management service (GNN scoring sidecar /
+        // middleware risk engine) — no writer exists in this Node codebase.
+        // This report is a reader only.
         const result = await execRaw(db, `
           SELECT
             DATE_TRUNC('day', created_at) as date,

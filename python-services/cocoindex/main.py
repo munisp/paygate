@@ -83,6 +83,44 @@ _pipeline_state: Dict[str, Any] = {
     "watermarks": {},  # source → last processed timestamp
 }
 
+# ─── Watermark persistence (Redis hash coco:watermark:{source}) ──────────────
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+
+
+async def _persist_watermark(source: str, value: str) -> None:
+    """Persist watermark after each successful extraction."""
+    try:
+        r = await get_redis()
+        await r.hset(f"coco:watermark:{source}", mapping={
+            "watermark": value,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        logger.warning(f"[redis] watermark persist failed for {source}: {e}")
+
+
+async def _hydrate_watermarks() -> None:
+    """Load watermarks from Redis on boot so restarts resume incrementally."""
+    try:
+        r = await get_redis()
+        cursor = 0
+        loaded = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match="coco:watermark:*", count=500)
+            for key in keys:
+                data = await r.hgetall(key)
+                wm = data.get("watermark")
+                if wm:
+                    _pipeline_state["watermarks"][key.split("coco:watermark:", 1)[1]] = wm
+                    loaded += 1
+            if cursor == 0:
+                break
+        logger.info(f"[startup] hydrated {loaded} watermarks from Redis")
+    except Exception as e:
+        logger.warning(f"[redis] watermark hydrate failed (starting cold): {e}")
+
 # ─── CocoIndex-style Pipeline Definitions ─────────────────────────────────────
 class PipelineStage:
     """Base class for pipeline stages."""
@@ -113,7 +151,9 @@ class ExtractPostgres(PipelineStage):
             await conn.close()
             result = [dict(r) for r in rows]
             if result:
-                _pipeline_state["watermarks"][self.table] = str(result[-1][self.timestamp_col])
+                new_watermark = str(result[-1][self.timestamp_col])
+                _pipeline_state["watermarks"][self.table] = new_watermark
+                await _persist_watermark(self.table, new_watermark)
             logger.info(f"[extract] {self.table}: {len(result)} new records since {watermark}")
             return result
         except Exception as e:
@@ -413,6 +453,7 @@ async def scheduler_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("[startup] CocoIndex ETL pipeline starting...")
+    await _hydrate_watermarks()
     # Run initial pipeline on startup
     asyncio.create_task(run_all_pipelines())
     # Start scheduler
@@ -470,6 +511,11 @@ async def reset_watermark(source: str):
     """Reset watermark for a source to force full re-index."""
     if source in _pipeline_state["watermarks"]:
         del _pipeline_state["watermarks"][source]
+        try:
+            r = await get_redis()
+            await r.delete(f"coco:watermark:{source}")
+        except Exception as e:
+            logger.warning(f"[redis] watermark delete failed for {source}: {e}")
     return {"reset": source}
 
 # ─── Mandatory internal service-to-service auth (fail closed) ───────────────

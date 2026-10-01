@@ -148,25 +148,27 @@ async fn replay_check_handler(
         }));
     }
 
-    // Check Redis nonce store
+    // Check Redis nonce store — FAIL CLOSED. Replay protection for payment and
+    // webhook nonce paths must never silently degrade: if the nonce store is
+    // absent or errors, reject with 503 so the caller cannot treat the request
+    // as replay-safe.
     if let Some(ref mut conn) = state.redis {
         match check_replay(conn, &req.nonce, req.timestamp_secs, &state.replay_config).await {
             Ok(result) => Ok(Json(result)),
             Err(e) => {
-                warn!("Redis replay check failed: {}", e);
-                // Fail open on Redis errors (don't block legitimate requests)
-                Ok(Json(crypto_guard::replay::ReplayCheckResult {
-                    is_replay: false,
-                    reason: Some(format!("Redis unavailable, replay check skipped: {}", e)),
-                }))
+                warn!("Redis replay check failed (fail-closed, rejecting): {}", e);
+                Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    format!("replay protection unavailable (Redis error): {}", e),
+                ))
             }
         }
     } else {
-        // No Redis — only timestamp validation
-        Ok(Json(crypto_guard::replay::ReplayCheckResult {
-            is_replay: false,
-            reason: Some("Redis unavailable, only timestamp validated".to_string()),
-        }))
+        // No Redis configured/connected — cannot verify nonce uniqueness.
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "replay protection unavailable (Redis not connected); nonce uniqueness cannot be verified".to_string(),
+        ))
     }
 }
 
@@ -223,12 +225,12 @@ async fn main() {
                 Some(conn)
             }
             Err(e) => {
-                warn!("Failed to connect to Redis: {}. Replay protection will use timestamp-only mode.", e);
+                warn!("Failed to connect to Redis: {}. /replay/check will FAIL CLOSED (503) until Redis is available.", e);
                 None
             }
         },
         Err(e) => {
-            warn!("Invalid Redis URL: {}. Replay protection will use timestamp-only mode.", e);
+            warn!("Invalid Redis URL: {}. /replay/check will FAIL CLOSED (503) until Redis is available.", e);
             None
         }
     };

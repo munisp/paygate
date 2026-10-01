@@ -115,10 +115,87 @@ COCOINDEX_URL = os.getenv("COCOINDEX_URL", "http://cocoindex:8131")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 PORT = int(os.getenv("PORT", "8134"))
 
-# ─── In-memory stores (replace with DB/S3 in production) ─────────────────────
+# ─── In-memory stores (L1 cache; Redis write-through is source of truth) ─────
 _feature_store: Dict[str, Dict] = {}
 _model_registry: Dict[str, List[Dict]] = {}
 _audit_log: List[Dict] = []
+
+# Redis persistence: models lakeai:model:{name}:{version}, jobs lakeai:job:{id},
+# features lakeai:feat:{name}:{version} (write-through hashes; hydrated on boot).
+import sys as _sys, os as _os_shared
+_sys.path.insert(0, _os_shared.path.join(_os_shared.path.dirname(__file__), '..'))
+from shared.redis_client import get_redis
+
+
+async def _persist_model(entry: Dict) -> None:
+    try:
+        r = await get_redis()
+        key = f"lakeai:model:{entry.get('name', 'unknown')}:{entry.get('version', 'unknown')}"
+        await r.hset(key, mapping={"json": json.dumps(entry, default=str)})
+    except Exception as e:
+        logger.warning(f"[redis] model persist failed: {e}")
+
+
+async def _persist_feature(features: Dict) -> None:
+    try:
+        r = await get_redis()
+        name = features.get("entity_id", "unknown")
+        version = features.get("computed_at", "latest")
+        await r.hset(f"lakeai:feat:{name}:{version}",
+                     mapping={"json": json.dumps(features, default=str)})
+    except Exception as e:
+        logger.warning(f"[redis] feature persist failed: {e}")
+
+
+async def _persist_job(job: Dict) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"lakeai:job:{job['job_id']}",
+                     mapping={"json": json.dumps(job, default=str)})
+    except Exception as e:
+        logger.warning(f"[redis] job persist failed: {e}")
+
+
+async def _hydrate_state() -> None:
+    """Hydrate model registry, training jobs, and feature store from Redis."""
+    try:
+        r = await get_redis()
+        cursor = 0
+        n_models = n_jobs = n_feats = 0
+        for pattern, kind in (("lakeai:model:*", "model"),
+                              ("lakeai:job:*", "job"),
+                              ("lakeai:feat:*", "feat")):
+            cursor = 0
+            while True:
+                cursor, keys = await r.scan(cursor=cursor, match=pattern, count=500)
+                for key in keys:
+                    raw = await r.hgetall(key)
+                    blob = raw.get("json")
+                    if not blob:
+                        continue
+                    try:
+                        entry = json.loads(blob)
+                    except (ValueError, TypeError):
+                        continue
+                    if kind == "model":
+                        name = entry.get("name") or key.split(":")[2]
+                        _model_registry.setdefault(name, [])
+                        if not any(v.get("version") == entry.get("version")
+                                   for v in _model_registry[name]):
+                            _model_registry[name].append(entry)
+                        n_models += 1
+                    elif kind == "job":
+                        _training_jobs[entry.get("job_id", key.split("lakeai:job:", 1)[1])] = entry
+                        n_jobs += 1
+                    else:
+                        _feature_store[entry.get("entity_id", key)] = entry
+                        n_feats += 1
+                if cursor == 0:
+                    break
+        logger.info(f"[startup] hydrated {n_models} models, {n_jobs} jobs, "
+                    f"{n_feats} features from Redis")
+    except Exception as e:
+        logger.warning(f"[redis] hydrate failed (starting cold): {e}")
 _pipeline_status: Dict[str, Any] = {
     "last_run": None,
     "runs": 0,
@@ -250,8 +327,8 @@ def compute_merchant_features(merchant: Dict) -> Dict:
     }
 
 # ─── Model Registry ───────────────────────────────────────────────────────────
-def register_model_version(name: str, version: str, metrics: Dict, artifact_path: str) -> Dict:
-    """Register a model version in the registry."""
+async def register_model_version(name: str, version: str, metrics: Dict, artifact_path: str) -> Dict:
+    """Register a model version in the registry (write-through to Redis)."""
     entry = {
         "name": name,
         "version": version,
@@ -263,6 +340,7 @@ def register_model_version(name: str, version: str, metrics: Dict, artifact_path
     if name not in _model_registry:
         _model_registry[name] = []
     _model_registry[name].append(entry)
+    await _persist_model(entry)
     logger.info(f"[registry] Registered {name} v{version}: {metrics}")
     return entry
 
@@ -331,14 +409,60 @@ async def log_ai_decision(
     }
     _audit_log.append(entry)
 
-    # Write to S3 in background (batch in production)
-    if len(_audit_log) % 100 == 0:
-        await write_parquet_to_s3(_audit_log[-100:], "audit/decisions")
+    # Write to S3 per batch (AUDIT_FLUSH_BATCH controls the loss window)
+    if len(_audit_log) % AUDIT_FLUSH_BATCH == 0:
+        await write_parquet_to_s3(_audit_log[-AUDIT_FLUSH_BATCH:], "audit/decisions")
 
     # Publish to Kafka
     await publish_to_kafka("paygate.ai.decisions", entry)
 
     return entry
+
+
+AUDIT_FLUSH_BATCH = int(os.getenv("AUDIT_FLUSH_BATCH", "100"))
+
+
+def _flush_audit_log_sync():
+    """Best-effort synchronous flush of pending audit entries on shutdown.
+
+    Registered via atexit + SIGTERM so entries buffered since the last batch
+    flush are not lost. Residual loss window: a SIGKILL or crash between
+    batches can still lose up to AUDIT_FLUSH_BATCH-1 entries.
+    """
+    if not _audit_log or not S3_ENDPOINT:
+        return
+    s3 = get_s3_client()
+    if not s3:
+        return
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        import io
+        table = pa.Table.from_pylist(_audit_log)
+        buf = io.BytesIO()
+        pq.write_table(table, buf)
+        buf.seek(0)
+        key = f"audit/decisions/{datetime.now(timezone.utc).strftime('%Y/%m/%d/%H%M%S')}-shutdown-{uuid.uuid4().hex[:8]}.parquet"
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=buf.getvalue())
+        logger.info(f"[s3] Shutdown flush wrote {len(_audit_log)} audit records → {key}")
+    except Exception as e:
+        logger.warning(f"[s3] Shutdown audit flush failed: {e}")
+
+
+import atexit as _atexit
+import signal as _signal
+
+
+def _sigterm_flush(signum, frame):
+    _flush_audit_log_sync()
+    raise SystemExit(0)
+
+
+_atexit.register(_flush_audit_log_sync)
+try:
+    _signal.signal(_signal.SIGTERM, _sigterm_flush)
+except (ValueError, OSError):
+    pass  # not in main thread (e.g. uvicorn worker) — lifespan shutdown covers it
 
 # ─── Full Inference Pipeline ──────────────────────────────────────────────────
 class FraudScoringUnavailable(Exception):
@@ -365,6 +489,7 @@ async def run_fraud_inference_pipeline(tx: Dict) -> Dict:
     # Step 1: Feature computation
     features = compute_transaction_features(tx)
     _feature_store[transaction_id] = features
+    await _persist_feature(features)
 
     # Step 2: Fraud scoring — fail loud on any error; never fabricate a score
     score_payload = {
@@ -568,10 +693,12 @@ class AuditLogRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("[startup] Lakehouse AI service starting...")
-    _init_model_registry()
+    await _hydrate_state()
+    await _init_model_registry()
     logger.info(f"[startup] Model registry initialized with {len(_model_registry)} models")
     yield
     logger.info("[shutdown] Lakehouse AI service stopping...")
+    _flush_audit_log_sync()
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 import sys, os as _os_telemetry
@@ -617,6 +744,7 @@ async def compute_features(req: FeatureRequest):
 
     entity_id = features.get("entity_id", str(uuid.uuid4()))
     _feature_store[entity_id] = features
+    await _persist_feature(features)
 
     # Write to Parquet
     await write_parquet_to_s3([features], f"features/{req.entity_type}")
@@ -657,7 +785,7 @@ async def list_models():
 @app.post("/v1/models/register")
 async def register_model(req: ModelRegistrationRequest):
     """Register a new model version."""
-    entry = register_model_version(req.name, req.version, req.metrics, req.artifact_path)
+    entry = await register_model_version(req.name, req.version, req.metrics, req.artifact_path)
     return entry
 
 @app.get("/v1/models/{name}/latest")
@@ -794,6 +922,7 @@ async def trigger_training(request: Request, background_tasks: BackgroundTasks):
         "started_at": None,
         "completed_at": None,
     }
+    await _persist_job(_training_jobs[job_id])
 
     background_tasks.add_task(_run_training_job, job_id, model_type, epochs, hidden_dims)
     logger.info(f"[training] Job {job_id} queued for {model_type}")
@@ -807,6 +936,7 @@ async def _run_training_job(job_id: str, model_type: str, epochs: int, hidden_di
         return
     job["status"] = "running"
     job["started_at"] = time.time()
+    await _persist_job(job)
     best_acc = 0.0
     try:
         import numpy as np
@@ -862,12 +992,14 @@ async def _run_training_job(job_id: str, model_type: str, epochs: int, hidden_di
             await asyncio.sleep(0.01)
     job["status"] = "completed"
     job["completed_at"] = time.time()
+    await _persist_job(job)
     # Register the trained model
     model_name = model_type.replace("_", "-")
     version = f"auto-{int(time.time())}"
     if model_name not in _model_registry:
         _model_registry[model_name] = []
-    _model_registry[model_name].append({
+    new_entry = {
+        "name": model_name,
         "version": version,
         "metrics": {"accuracy": round(best_acc, 4), "train_loss": job["train_loss"], "val_loss": job["val_loss"]},
         "artifact_path": f"s3://paygate-models/{model_name}/{version}/model.pt",
@@ -875,7 +1007,9 @@ async def _run_training_job(job_id: str, model_type: str, epochs: int, hidden_di
         "status": "active",
         "hidden_dims": hidden_dims,
         "epochs": epochs,
-    })
+    }
+    _model_registry[model_name].append(new_entry)
+    await _persist_model(new_entry)
     logger.info(f"[training] Job {job_id} completed. Best accuracy: {best_acc:.4f}")
 
 @app.get("/v1/training/jobs")

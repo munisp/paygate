@@ -1,28 +1,27 @@
-# Wave 4 — Full-Stack Alignment & Integration Audit/Remediation
+# PayGate — Wave 5: In-Memory Map Audit & Persistence Remediation
 
 ## Goal
-1. Frontend↔Backend parity: every tRPC router/procedure has UI; every UI page/feature has backing endpoints; zero orphans either direction (web PWA + Flutter + React Native).
-2. DB integration: every feature is wired to Postgres CRUD (drizzle) — no in-memory-only or stub persistence on production paths.
-3. Middleware/integration matrix: verify real wiring (not stubs) for Kafka, Dapr, Fluvio, Temporal, Postgres, Keycloak, Permify, Redis, Mojaloop, OpenSearch, OpenAppSec, APISIX, TigerBeetle, Apache Sedona, GeoLibre (opengeos), lakehouse — across TS/Go/Rust/Python components.
+Find every in-memory store (`new Map(`, `new Set(`, module-level caches, `sync.Map`, `map[...]...` globals, `HashMap`/`RwLock` statics, Python dict/module globals) across TS/JS, Go, Rust, Python. Classify each:
+- **CRITICAL** — business data (money, ledger, transactions, accounts, mandates, balances, idempotency keys) → must persist to Postgres (real table) or TigerBeetle/Redis per domain.
+- **MEDIUM** — session/auth/security state (rate-limit counters, OTP, tokens, replay guards, audit) → Redis (shared, TTL) or DB write-through (per 0107 pattern).
+- **BENIGN** — pure cache with a correct miss path (fail-open lookup cache) → keep, document; or bounded with eviction.
+- **TEST-ONLY** — in test files → leave.
 
-## Stage 1 — Parallel audits (explore agents, read-only)
-- A1 Router↔UI parity: enumerate all tRPC routers/procedures (server/routers.ts + server/routers/*) vs client/src/pages+App.tsx routes vs mobile/flutter screens vs mobile/react-native app routes. Output: procedures-without-UI, pages-without-endpoints, per-platform gaps.
-- A2 DB/CRUD integration: for each domain feature, verify drizzle-backed CRUD exists and is called (server/db.ts + drizzle/schema.ts); flag in-memory maps/arrays used as primary persistence on production paths; flag tables with no reader/writer and writers with no table.
-- A3 Integration matrix: for each of the 15 listed integrations, find client/SDK code, config, wiring point (mount/middleware/env), and classify REAL / PARTIAL / STUB / ABSENT per language (TS server, go-bridge, rust-services, python). Include Sedona/GeoLibre/lakehouse geo-analytics stack — check python services.
-- A4 Middleware ordering & coverage: verify security/observability middleware actually mounted (openappsec, apisix gateway config, keycloak auth, permify checks, redis cache/ratelimit) on all ingress paths (tRPC, REST, SSE, webhooks, go-bridge).
+## Discipline (carried)
+FIX_ALL_IN_SCOPE. No mocks/stubs/placeholders on production paths. Fail-loud. PGlite-backed tests where feasible. Adversarial verification. Gates per language. Report BLOCKED honestly.
 
-## Stage 2 — Fixers (coder agents, disjoint ownership)
-- W13: server wiring gaps from A2/A3/A4 (server/**, drizzle/0107 if needed)
-- W14: web client gaps from A1 (client/**)
-- W15: mobile gaps from A1 (mobile/**)
-- W16: go/rust/python integration gaps from A3 (go-bridge/**, rust-services/**, python/**)
-Dispatch only for findings confirmed REAL gaps; stubs that are intentional documented boundaries are reported, not rewritten.
+## Stage 1 — Audit (4 parallel read-only auditors)
+- M1: server/ + client/ TS/JS (excluding node_modules, dist) — every Map/Set/module cache; for each: file:line, what it stores, read/write paths, restart impact, classification, persistence target.
+- M2: go-bridge/ Go — package-level maps/slices holding state, sync.Map, in-mem fallbacks.
+- M3: rust-services/ Rust — statics, lazy_static/OnceLock, HashMap in AppState, in-mem stores (note baseline-broken crates).
+- M4: python-services/ + mobile (Dart/Kotlin/Swift if present) — module globals, in-mem stores, and mobile persistence gaps (in-memory caches that should be disk/secure storage).
+Output: unified table (file:line | language | stores | classification | persistence target | fix sketch).
 
-## Stage 3 — Gates & delivery
-- Gates: server tsc, client tsc (4GB), go build/vet, cargo check, targeted vitest
-- Apply any new migration to paygate_monitor + snapshot
-- Commit, push via PAT (git push, single commit), verify remote tip
-- Final report .md + .docx with REF tags
+## Stage 2 — Fixes (disjoint ownership)
+- W17: server CRITICAL items → real drizzle tables + migrations 0108+, write-through + hydration (0107 pattern), PGlite/vitest coverage.
+- W18: server MEDIUM items → Redis-backed (fail-closed for money-path counters; fail-open only for pure caches) or DB write-through.
+- W19: go-bridge + rust-services fixes (respect baseline-broken crates: pattern parity + honest report).
+- W20: python + mobile fixes.
 
-## Constraints
-Fail-loud; no mocks/placeholders on production paths; don't weaken tests; FUSE/NOEXEC/bootstrap_env.sh; money bigint kobo; PBAC semantics preserved.
+## Stage 3 — Gates + commit + push + report
+Gates: server tsc, vitest money paths, go build/vet, cargo check (4 compilable crates), py_compile. Commit wave 5, push (PAT if fresh one provided, else MCP), report .md + .docx.

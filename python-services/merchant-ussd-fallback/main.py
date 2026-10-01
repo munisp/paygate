@@ -154,8 +154,25 @@ def _bridge_headers() -> dict:
     return {"X-Internal-Key": BRIDGE_KEY, "Content-Type": "application/json"}
 
 
-def _check_rate_limit(phone: str) -> bool:
+# Sessions, rate limits and OTPs are persisted in Redis (source of truth);
+# the in-memory dicts above are retained only as a degraded-mode fallback.
+import json as _json_mod
+
+
+async def _check_rate_limit(phone: str) -> bool:
     now = time.time()
+    if _redis_client is not None:
+        try:
+            key = f"ussd:ratelimit:{phone}"
+            count = await _redis_client.incr(key)
+            if int(count) == 1:
+                await _redis_client.expire(key, RATE_LIMIT_WINDOW)
+            if int(count) > RATE_LIMIT_MAX:
+                _metrics["rate_limited"] += 1
+                return False
+            return True
+        except Exception as exc:
+            logger.warning("Redis rate-limit failed, using in-memory fallback: %s", exc)
     window = [ts for ts in _rate_limits.get(phone, []) if now - ts < RATE_LIMIT_WINDOW]
     if len(window) >= RATE_LIMIT_MAX:
         _metrics["rate_limited"] += 1
@@ -165,7 +182,17 @@ def _check_rate_limit(phone: str) -> bool:
     return True
 
 
-def _get_session(session_id: str) -> dict:
+async def _get_session(session_id: str) -> dict:
+    if _redis_client is not None:
+        try:
+            raw = await _redis_client.get(f"ussd:sess:{session_id}")
+            if raw:
+                if isinstance(raw, bytes):
+                    raw = raw.decode()
+                return _json_mod.loads(raw)
+            return {}
+        except Exception as exc:
+            logger.warning("Redis session get failed, using in-memory fallback: %s", exc)
     session = _sessions.get(session_id, {})
     if session and time.time() - session.get("_created", 0) > SESSION_TTL:
         _sessions.pop(session_id, None)
@@ -173,13 +200,24 @@ def _get_session(session_id: str) -> dict:
     return session
 
 
-def _set_session(session_id: str, data: dict) -> None:
+async def _set_session(session_id: str, data: dict) -> None:
     data["_created"] = data.get("_created", time.time())
     _sessions[session_id] = data
+    if _redis_client is not None:
+        try:
+            await _redis_client.set(f"ussd:sess:{session_id}",
+                                    _json_mod.dumps(data, default=str), ex=SESSION_TTL)
+        except Exception as exc:
+            logger.warning("Redis session set failed: %s", exc)
 
 
-def _clear_session(session_id: str) -> None:
+async def _clear_session(session_id: str) -> None:
     _sessions.pop(session_id, None)
+    if _redis_client is not None:
+        try:
+            await _redis_client.delete(f"ussd:sess:{session_id}")
+        except Exception as exc:
+            logger.warning("Redis session delete failed: %s", exc)
 
 # ─── Language preference helpers ──────────────────────────────────────────────
 async def _get_lang_pref(phone: str) -> Optional[str]:
@@ -303,7 +341,7 @@ async def handle_merchant_ussd(
     `lang` is persisted in the session so multi-step flows stay localised.
     """
     _metrics["ussd_sessions"] += 1
-    session = _get_session(session_id)
+    session = await _get_session(session_id)
 
     # Honour session language over request language mid-flow
     session_lang = session.get("lang", lang) if session else lang
@@ -326,7 +364,7 @@ async def handle_merchant_ussd(
             session_lang = persisted_lang
             logger.info("Loaded persisted lang pref for %s: %s", phone, persisted_lang)
         else:
-            _set_session(session_id, {"phone": phone, "menu": "lang_select", "lang": session_lang})
+            await _set_session(session_id, {"phone": phone, "menu": "lang_select", "lang": session_lang})
             return (
                 f"CON {t('en', 'lang_select_header', default='PayGate Merchant - Select language:')}\n"
                 f"1. {t('en', 'lang_select_1', default='English')}\n"
@@ -338,7 +376,7 @@ async def handle_merchant_ussd(
 
     # ── Root menu ──────────────────────────────────────────────────────────────
     if depth == 0:
-        _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
+        await _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
         return (
             f"CON {t(session_lang, 'app_name', default='PayGate Merchant')}\n"
             f"1. {t(session_lang, 'menu_balance_label', default='Settlement Balance')}\n"
@@ -369,7 +407,7 @@ async def handle_merchant_ussd(
         # Language selected — persist to Redis and update session
         session_lang = selected_code
         await _set_lang_pref(phone, session_lang)
-        _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
+        await _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
         return (
             f"CON {t(session_lang, 'app_name', default='PayGate Merchant')}\n"
             f"1. {t(session_lang, 'menu_balance_label', default='Settlement Balance')}\n"
@@ -383,7 +421,7 @@ async def handle_merchant_ussd(
 
     if depth == 1:
         if choice == "0":
-            _clear_session(session_id)
+            await _clear_session(session_id)
             return f"END {t(session_lang, 'goodbye', default='Thank you for using PayGate.')}"
 
         if choice == "1":
@@ -404,7 +442,7 @@ async def handle_merchant_ussd(
             payouts = (data or {}).get("payouts", [])
             if not payouts:
                 return f"END {t(session_lang, 'no_pending_payouts', default='No pending payouts found.')}"
-            _set_session(session_id, {
+            await _set_session(session_id, {
                 "phone": phone, "menu": "payout", "payouts": payouts, "lang": session_lang,
             })
             items = "\n".join(
@@ -433,7 +471,7 @@ async def handle_merchant_ussd(
             )
 
         if choice == "4":
-            _set_session(session_id, {"phone": phone, "menu": "paylink", "lang": session_lang})
+            await _set_session(session_id, {"phone": phone, "menu": "paylink", "lang": session_lang})
             return f"CON {t(session_lang, 'enter_amount', default='Enter amount in Naira (e.g. 5000)')}"
 
         if choice == "5":
@@ -451,7 +489,7 @@ async def handle_merchant_ussd(
             )
 
         if choice == "6":
-            _set_session(session_id, {"phone": phone, "menu": "freeze", "lang": session_lang})
+            await _set_session(session_id, {"phone": phone, "menu": "freeze", "lang": session_lang})
             return (
                 f"CON {t(session_lang, 'freeze_warning', default='EMERGENCY ACCOUNT FREEZE')}\n"
                 f"{t(session_lang, 'freeze_description', default='This will block all incoming payments.')}\n"
@@ -465,13 +503,13 @@ async def handle_merchant_ussd(
     if session.get("menu") == "payout" and depth == 2:
         payouts = session.get("payouts", [])
         if choice == "0":
-            _clear_session(session_id)
+            await _clear_session(session_id)
             return f"END {t(session_lang, 'goodbye', default='Thank you for using PayGate.')}"
         try:
             idx = int(choice) - 1
             if 0 <= idx < len(payouts):
                 payout = payouts[idx]
-                _set_session(session_id, {
+                await _set_session(session_id, {
                     **session, "menu": "payout_confirm", "selected_payout": payout,
                 })
                 return (
@@ -494,7 +532,7 @@ async def handle_merchant_ussd(
             result = await bridge_post("/v1/merchant/approve-payout", {
                 "phone": phone, "payout_id": payout.get("id"), "channel": "ussd",
             })
-            _clear_session(session_id)
+            await _clear_session(session_id)
             if result and result.get("success"):
                 await send_sms(
                     phone,
@@ -509,13 +547,13 @@ async def handle_merchant_ussd(
             result = await bridge_post("/v1/merchant/reject-payout", {
                 "phone": phone, "payout_id": payout.get("id"), "channel": "ussd",
             })
-            _clear_session(session_id)
+            await _clear_session(session_id)
             return (
                 f"END {t(session_lang, 'payout_rejected', default='Payout rejected.')}"
                 if result
                 else f"END {t(session_lang, 'payout_rejection_failed', default='Rejection failed.')}"
             )
-        _clear_session(session_id)
+        await _clear_session(session_id)
         return f"END {t(session_lang, 'transfer_cancelled', default='Cancelled.')}"
 
     # ── Payment link ───────────────────────────────────────────────────────────
@@ -528,7 +566,7 @@ async def handle_merchant_ussd(
             result = await bridge_post("/v1/merchant/generate-payment-link", {
                 "phone": phone, "amount_kobo": amount_kobo, "channel": "ussd",
             })
-            _clear_session(session_id)
+            await _clear_session(session_id)
             if result and result.get("link"):
                 await send_sms(phone, f"PayGate: Your payment link for {_mask_amount(amount_kobo)}: {result['link']}")
                 return (
@@ -545,7 +583,7 @@ async def handle_merchant_ussd(
             result = await bridge_post("/v1/merchant/emergency-freeze", {
                 "phone": phone, "channel": "ussd",
             })
-            _clear_session(session_id)
+            await _clear_session(session_id)
             if result and result.get("success"):
                 await send_sms(
                     phone,
@@ -553,33 +591,78 @@ async def handle_merchant_ussd(
                 )
                 return f"END {t(session_lang, 'freeze_success', default='Account frozen. SMS confirmation sent. Contact support to unfreeze.')}"
             return f"END {t(session_lang, 'freeze_error', default='Freeze failed. Contact support immediately.')}"
-        _clear_session(session_id)
+        await _clear_session(session_id)
         return f"END {t(session_lang, 'freeze_cancelled', default='Freeze cancelled.')}"
 
-    _clear_session(session_id)
+    await _clear_session(session_id)
     return f"END {t(session_lang, 'session_timeout', default='Session expired. Please dial again.')}"
 
 
 # ─── SMS OTP fallback ─────────────────────────────────────────────────────────
+# OTPs are NEVER stored in plaintext: only an HMAC-SHA256 digest is persisted
+# (Redis key ussd:otp:{phone}, EX OTP_TTL). Verification uses constant-time
+# comparison. OTP_HMAC_SECRET must be set — the OTP path fails loud otherwise.
 _otp_store: dict[str, dict] = {}
 OTP_TTL = 300
+OTP_HMAC_SECRET = os.getenv("OTP_HMAC_SECRET", "")
 
 
-def _generate_otp(phone: str) -> str:
-    import random
-    otp = f"{random.randint(100000, 999999)}"
-    _otp_store[phone] = {"otp": otp, "expires": time.time() + OTP_TTL}
+def _otp_digest(phone: str, otp: str) -> str:
+    import hashlib
+    import hmac
+    return hmac.new(
+        OTP_HMAC_SECRET.encode(), f"{phone}:{otp}".encode(), hashlib.sha256
+    ).hexdigest()
+
+
+async def _generate_otp(phone: str) -> str:
+    import secrets as _secrets
+    if not OTP_HMAC_SECRET:
+        # Fail loud: storing/verifying OTPs without an HMAC secret is unsafe.
+        logger.error("OTP_HMAC_SECRET not set — refusing to generate OTP")
+        raise HTTPException(status_code=503, detail="OTP service misconfigured")
+    otp = f"{_secrets.randbelow(900000) + 100000}"
+    digest = _otp_digest(phone, otp)
+    if _redis_client is not None:
+        try:
+            await _redis_client.set(f"ussd:otp:{phone}", digest, ex=OTP_TTL)
+            return otp
+        except Exception as exc:
+            logger.error("Redis OTP persist failed: %s", exc)
+            raise HTTPException(status_code=503, detail="OTP store unavailable")
+    _otp_store[phone] = {"digest": digest, "expires": time.time() + OTP_TTL}
     return otp
 
 
-def _verify_otp(phone: str, otp: str) -> bool:
+async def _verify_otp(phone: str, otp: str) -> bool:
+    import hmac
+    if not OTP_HMAC_SECRET:
+        logger.error("OTP_HMAC_SECRET not set — refusing to verify OTP")
+        raise HTTPException(status_code=503, detail="OTP service misconfigured")
+    candidate = _otp_digest(phone, otp)
+    if _redis_client is not None:
+        try:
+            stored = await _redis_client.get(f"ussd:otp:{phone}")
+            if stored is None:
+                return False
+            if isinstance(stored, bytes):
+                stored = stored.decode()
+            if not hmac.compare_digest(stored, candidate):
+                return False
+            await _redis_client.delete(f"ussd:otp:{phone}")
+            return True
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Redis OTP verify failed: %s", exc)
+            raise HTTPException(status_code=503, detail="OTP store unavailable")
     stored = _otp_store.get(phone)
     if not stored:
         return False
     if time.time() > stored["expires"]:
         _otp_store.pop(phone, None)
         return False
-    if stored["otp"] != otp:
+    if not hmac.compare_digest(stored["digest"], candidate):
         return False
     _otp_store.pop(phone, None)
     return True
@@ -722,11 +805,11 @@ async def merchant_ussd_callback(
     """
     resolved_lang = _normalize_lang(lang)
     # Honour existing session language mid-flow
-    existing_session = _get_session(sessionId)
+    existing_session = await _get_session(sessionId)
     if existing_session and "lang" in existing_session:
         resolved_lang = existing_session["lang"]
 
-    if not _check_rate_limit(phoneNumber):
+    if not await _check_rate_limit(phoneNumber):
         return PlainTextResponse(
             f"END {t(resolved_lang, 'rate_limit_exceeded', default='Too many requests. Please try again in 1 minute.')}"
         )
@@ -759,9 +842,9 @@ async def send_otp(
     lang = _normalize_lang(body.get("lang"))
     if not phone:
         raise HTTPException(status_code=400, detail="phone required")
-    if not _check_rate_limit(f"otp:{phone}"):
+    if not await _check_rate_limit(f"otp:{phone}"):
         raise HTTPException(status_code=429, detail="Too many OTP requests")
-    otp = _generate_otp(phone)
+    otp = await _generate_otp(phone)
     otp_messages = {
         "en": f"PayGate OTP: {otp}. Valid for 5 minutes. Do not share.",
         "ha": f"PayGate OTP: {otp}. Yana da inganci na minti 5. Kada ka raba.",
@@ -786,7 +869,7 @@ async def verify_otp(
     otp = body.get("otp")
     if not phone or not otp:
         raise HTTPException(status_code=400, detail="phone and otp required")
-    return {"valid": _verify_otp(phone, str(otp))}
+    return {"valid": await _verify_otp(phone, str(otp))}
 
 
 @app.post("/v1/sms/send-alert")

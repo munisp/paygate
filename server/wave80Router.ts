@@ -68,6 +68,11 @@ const openBankingV2Router = router({
     await db.update(openBankingConsentsV2).set({ status: "revoked", updatedAt: new Date() }).where(and(eq(openBankingConsentsV2.id, input.consentId), eq(openBankingConsentsV2.merchantId, ctx.user.id.toString())));
     return { success: true };
   }),
+  // A2-HIGH-1 writer note: open_banking_accounts_v2 rows are written by the
+  // bank account-sync path of the open-banking provider via the middleware
+  // bridge (account data is owned by the provider, not invented here).
+  // syncAccounts only activates the consent; the provider callback/sync job
+  // persists the linked accounts. This procedure is a reader.
   listAccounts: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { accounts: [] };
     if (!db) throw new Error('Database unavailable');
@@ -596,6 +601,10 @@ const nfcPayRouter = router({
     const db = await getDb(); if (!db) return { transactions: [], total: 0 };
     if (!db) throw new Error('Database unavailable');
     const limit = 20; const offset = (input.page - 1) * limit;
+    // A2-HIGH-1 writer note: nfc_transactions rows are written by the NFC
+    // tap-to-pay terminal path via the middleware bridge when a tap payment is
+    // authorized on a registered device — no in-repo writer exists here by
+    // design. This procedure is a reader.
     const txs = await db.select().from(nfcTransactions).where(eq(nfcTransactions.merchantId, ctx.user.id.toString())).orderBy(desc(nfcTransactions.createdAt)).limit(limit).offset(offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(nfcTransactions).where(eq(nfcTransactions.merchantId, ctx.user.id.toString()));
     return { transactions: txs, total: Number(count) };

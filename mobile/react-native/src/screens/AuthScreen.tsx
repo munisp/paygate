@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, SafeAreaView, StatusBar, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { trpc } from '../lib/trpc';
 const C = { primary: '#6366F1', bg: '#0F172A', card: '#1E293B', text: '#F1F5F9', muted: '#94A3B8', error: '#EF4444', border: '#334155' };
 export default function AuthScreen({ navigation }: any) {
@@ -10,7 +10,7 @@ export default function AuthScreen({ navigation }: any) {
   const utils = trpc.useUtils();
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data: any) => {
-      if (data?.token) await AsyncStorage.setItem('session_token', data.token);
+      if (data?.token) await SecureStore.setItemAsync('paygate_auth_token', data.token);
       utils.auth.me.invalidate();
       navigation?.navigate?.('Dashboard');
     },

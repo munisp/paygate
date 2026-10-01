@@ -3,6 +3,8 @@ package tigerbeetle
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	tb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
@@ -164,7 +166,17 @@ var activeClient clientInterface
 
 // InitMock replaces the global client with an in-memory mock.
 // This is intended for unit tests only.
+//
+// CRITICAL GUARD: a mock ledger must NEVER be active in production — balances
+// would exist only in process memory.  Panics (fail-loud) when ENV/APP_ENV
+// selects production.
 func InitMock() error {
+	env := strings.ToLower(os.Getenv("ENV"))
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	if env == "production" || env == "prod" || appEnv == "production" || appEnv == "prod" {
+		panic("tigerbeetle: InitMock() called with ENV=production — refusing to activate in-memory mock ledger on a money path")
+	}
+
 	mockStoreMu.Lock()
 	mockStore = make(map[string]*mockAccount) // reset state
 	mockStoreMu.Unlock()

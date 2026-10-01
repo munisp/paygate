@@ -57,6 +57,13 @@ end
 return new`,
 	}
 
+	// ScriptSetNXWithTTL atomically sets a key only if it does not exist (SET NX EX).
+	// KEYS[1]=key, ARGV[1]=value, ARGV[2]=ttl_seconds. Returns 1 if set, 0 if the key existed.
+	ScriptSetNXWithTTL = &LuaScript{
+		src: `
+return redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) and 1 or 0`,
+	}
+
 	// ScriptAcquireLock tries to acquire a distributed lock.
 	// KEYS[1]=lock_key, ARGV[1]=owner, ARGV[2]=ttl_seconds
 	// Returns 1 if acquired, 0 if already held.
@@ -75,6 +82,17 @@ end
 return 0`,
 	}
 )
+
+// luaTruthy interprets a Lua script result as a boolean (1/"1"/"OK" → true).
+func luaTruthy(result interface{}) bool {
+	switch v := result.(type) {
+	case int64:
+		return v == 1
+	case string:
+		return v == "1" || v == "OK"
+	}
+	return false
+}
 
 // Eval executes a Lua script on the Redis server.
 // keys and args map to KEYS[] and ARGV[] in the script.

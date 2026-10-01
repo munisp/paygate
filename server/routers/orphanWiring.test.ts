@@ -107,10 +107,26 @@ describe("orphan security middleware — exports and behavior", () => {
     openAppSecHeaderMiddleware(clean.req, clean.res, clean.next);
     expect(clean.next).toHaveBeenCalledOnce();
 
-    const blocked = mockReqRes({ headers: { "x-openappsec-action": "block" } });
+    // A4 fail-closed: without OPENAPPSEC_GATEWAY_SECRET (or the gateway token
+    // header), X-OpenAppsec-Action is client-spoofable → stripped, NOT honoured.
+    delete process.env.OPENAPPSEC_GATEWAY_SECRET;
+    const spoofed = mockReqRes({ headers: { "x-openappsec-action": "block" } });
+    openAppSecHeaderMiddleware(spoofed.req, spoofed.res, spoofed.next);
+    expect(spoofed.next).toHaveBeenCalledOnce();
+    expect(spoofed.req.headers["x-openappsec-action"]).toBeUndefined();
+
+    // Trusted gateway (correct shared-secret token) → block honoured.
+    process.env.OPENAPPSEC_GATEWAY_SECRET = "test-gateway-secret";
+    const blocked = mockReqRes({
+      headers: {
+        "x-openappsec-action": "block",
+        "x-openappsec-gateway-token": "test-gateway-secret",
+      },
+    });
     openAppSecHeaderMiddleware(blocked.req, blocked.res, blocked.next);
     expect(blocked.next).not.toHaveBeenCalled();
     expect(blocked.res.status).toHaveBeenCalledWith(403);
+    delete process.env.OPENAPPSEC_GATEWAY_SECRET;
   });
 
   it("security120.burstWindowMiddleware factory returns a middleware that admits the first request", async () => {
@@ -120,6 +136,10 @@ describe("orphan security middleware — exports and behavior", () => {
     expect(typeof mw).toBe("function");
     const { req, res, next } = mockReqRes({ headers: { "x-forwarded-for": "203.0.113.10" } });
     mw(req, res, next);
+    // wave-5: burst window check is now async (Redis-primary store, dynamic import)
+    for (let i = 0; i < 50 && !next.mock.calls.length; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     expect(next).toHaveBeenCalledOnce();
   });
 
@@ -129,7 +149,11 @@ describe("orphan security middleware — exports and behavior", () => {
     const mw = ddosMitigationMiddleware();
     expect(typeof mw).toBe("function");
     const { req, res, next } = mockReqRes({ headers: { "x-forwarded-for": "203.0.113.11" } });
-    mw(req, res, next);
+    void mw(req, res, next);
+    // wave-5: limiter consume is now async (Redis-primary store, dynamic import)
+    for (let i = 0; i < 50 && !next.mock.calls.length; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     expect(next).toHaveBeenCalledOnce();
   });
 

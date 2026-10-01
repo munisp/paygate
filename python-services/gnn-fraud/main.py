@@ -36,6 +36,7 @@ PORT = int(os.getenv("PORT", "8141"))
 import sys, os as _os_telemetry
 sys.path.insert(0, _os_telemetry.path.join(_os_telemetry.path.dirname(__file__), '..'))
 from shared.telemetry import setup_telemetry
+from shared.redis_client import get_redis
 app = FastAPI(
     title="PayGate GNN Fraud Detection",
     description="Graph Neural Network fraud detection service",
@@ -43,12 +44,107 @@ app = FastAPI(
 )
 setup_telemetry("gnn-fraud", app)
 
-# ─── In-memory fraud graph state ─────────────────────────────────────────────
+# ─── Fraud graph state (L1 in-memory cache, persisted write-through to Redis) ─
+# Redis is source of truth: gnn:node:{id} / gnn:edge:{a}:{b} / gnn:ring:{id}
+# hashes; the dicts below are bounded L1 caches hydrated on startup.
+_GRAPH_L1_BOUND = int(os.getenv("GNN_GRAPH_L1_BOUND", "50000"))
 _graph_nodes: Dict[str, Dict] = {}
 _graph_edges: List[Dict] = []
 _fraud_ring_cache: Dict[str, float] = {}
 _total_scored = 0
 _fraud_detected = 0
+
+
+def _bound_l1_cache(d: Dict, bound: int = _GRAPH_L1_BOUND) -> None:
+    """Evict oldest entries (FIFO) to keep the L1 cache bounded."""
+    while len(d) > bound:
+        d.pop(next(iter(d)))
+
+
+async def _persist_node(tx_id: str, node: Dict) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"gnn:node:{tx_id}", mapping={
+            k: "" if v is None else str(v) for k, v in node.items()
+        })
+    except Exception as e:
+        logger.warning(f"[gnn-fraud] redis node persist failed for {tx_id}: {e}")
+
+
+async def _persist_edge(a: str, b: str, edge: Dict) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"gnn:edge:{a}:{b}", mapping={
+            k: "" if v is None else str(v) for k, v in edge.items()
+        })
+    except Exception as e:
+        logger.warning(f"[gnn-fraud] redis edge persist failed for {a}:{b}: {e}")
+
+
+async def _persist_ring(entity: str, score: float) -> None:
+    try:
+        r = await get_redis()
+        await r.hset(f"gnn:ring:{entity}", mapping={"score": str(score)})
+    except Exception as e:
+        logger.warning(f"[gnn-fraud] redis ring persist failed for {entity}: {e}")
+
+
+@app.on_event("startup")
+async def _hydrate_graph_state():
+    """Hydrate L1 caches from Redis so fraud-ring knowledge survives restarts."""
+    try:
+        r = await get_redis()
+        cursor = 0
+        loaded_nodes = loaded_edges = loaded_rings = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match="gnn:node:*", count=500)
+            for key in keys:
+                data = await r.hgetall(key)
+                if not data:
+                    continue
+                tx_id = key.split("gnn:node:", 1)[1]
+                try:
+                    _graph_nodes[tx_id] = {
+                        "device": data.get("device") or None,
+                        "ip": data.get("ip") or None,
+                        "merchant": data.get("merchant") or None,
+                        "fraud_prob": float(data.get("fraud_prob", "0") or 0),
+                        "timestamp": float(data.get("timestamp", "0") or 0),
+                    }
+                    loaded_nodes += 1
+                except (ValueError, TypeError):
+                    continue
+            if cursor == 0:
+                break
+        cursor = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match="gnn:edge:*", count=500)
+            for key in keys:
+                data = await r.hgetall(key)
+                if data:
+                    _graph_edges.append(dict(data))
+                    loaded_edges += 1
+            if cursor == 0:
+                break
+        cursor = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match="gnn:ring:*", count=500)
+            for key in keys:
+                data = await r.hgetall(key)
+                try:
+                    _fraud_ring_cache[key.split("gnn:ring:", 1)[1]] = float(data.get("score", "0"))
+                    loaded_rings += 1
+                except (ValueError, TypeError):
+                    continue
+            if cursor == 0:
+                break
+        _bound_l1_cache(_graph_nodes)
+        _bound_l1_cache(_fraud_ring_cache)
+        del _graph_edges[_GRAPH_L1_BOUND:]
+        logger.info(f"[gnn-fraud] hydrated from redis: {loaded_nodes} nodes, "
+                    f"{loaded_edges} edges, {loaded_rings} ring entities")
+    except Exception as e:
+        logger.warning(f"[gnn-fraud] redis hydrate failed (starting cold): {e}")
 
 
 class TransactionFeatures(BaseModel):
@@ -208,23 +304,43 @@ async def score_transaction(tx: TransactionFeatures, request: Request = None):
         decision = "APPROVE"
         confidence = 0.85 + (1 - fraud_prob) * 0.14
 
-    _graph_nodes[tx.transaction_id] = {
+    node = {
         "device": tx.device_fingerprint,
         "ip": tx.ip_address,
         "merchant": tx.merchant_id,
         "fraud_prob": fraud_prob,
         "timestamp": time.time(),
     }
+    _graph_nodes[tx.transaction_id] = node
+    _bound_l1_cache(_graph_nodes)
+    await _persist_node(tx.transaction_id, node)
+
+    # Upsert graph edges for shared entities (device/ip) linking transactions.
+    for prior_id, prior in list(_graph_nodes.items()):
+        if prior_id == tx.transaction_id:
+            continue
+        shared = None
+        if tx.device_fingerprint and prior.get("device") == tx.device_fingerprint:
+            shared = "device"
+        elif tx.ip_address and prior.get("ip") == tx.ip_address:
+            shared = "ip"
+        if shared:
+            edge = {"a": prior_id, "b": tx.transaction_id, "via": shared,
+                    "timestamp": time.time()}
+            _graph_edges.append(edge)
+            del _graph_edges[_GRAPH_L1_BOUND:]
+            await _persist_edge(prior_id, tx.transaction_id, edge)
 
     if fraud_prob > 0.6:
         if tx.device_fingerprint:
-            _fraud_ring_cache[tx.device_fingerprint] = max(
-                _fraud_ring_cache.get(tx.device_fingerprint, 0), fraud_prob * 0.8
-            )
+            new_score = max(_fraud_ring_cache.get(tx.device_fingerprint, 0), fraud_prob * 0.8)
+            _fraud_ring_cache[tx.device_fingerprint] = new_score
+            await _persist_ring(tx.device_fingerprint, new_score)
         if tx.ip_address:
-            _fraud_ring_cache[tx.ip_address] = max(
-                _fraud_ring_cache.get(tx.ip_address, 0), fraud_prob * 0.7
-            )
+            new_score = max(_fraud_ring_cache.get(tx.ip_address, 0), fraud_prob * 0.7)
+            _fraud_ring_cache[tx.ip_address] = new_score
+            await _persist_ring(tx.ip_address, new_score)
+    _bound_l1_cache(_fraud_ring_cache)
 
     _total_scored += 1
     if decision == "BLOCK":

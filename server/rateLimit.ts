@@ -178,7 +178,7 @@ export interface RateLimitOptions {
 
 // ─── Shared sliding-window core (FAIL CLOSED) ─────────────────────────────────
 
-interface WindowResult {
+export interface WindowResult {
   count: number;
   allowed: boolean;
   ttlMs: number;
@@ -190,6 +190,15 @@ interface WindowResult {
  * Fail-closed: any Redis failure falls back to the in-process counter so the
  * caller is ALWAYS throttled — this function never "fails open".
  */
+/**
+ * Exported for reuse by other security modules (M1 wave-5: security124 DDoS
+ * middleware etc.) so every fixed/sliding window in the codebase shares the
+ * same Redis-primary, fail-closed throttle path.
+ */
+export async function consumeRateLimit(key: string, max: number, windowMs: number): Promise<WindowResult> {
+  return consume(key, max, windowMs);
+}
+
 async function consume(key: string, max: number, windowMs: number): Promise<WindowResult> {
   try {
     const redis = await getRedisClient();

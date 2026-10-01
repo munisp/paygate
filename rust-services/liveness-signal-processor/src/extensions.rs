@@ -46,10 +46,11 @@ pub struct FrameResult {
 }
 
 pub async fn analyse_batch(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<BatchSignalRequest>,
 ) -> impl IntoResponse {
     use crate::{classify_spoof, decode_image, fft_realness, lbp_realness};
+    use std::sync::atomic::Ordering;
     use std::time::Instant;
     use uuid::Uuid;
 
@@ -57,8 +58,10 @@ pub async fn analyse_batch(
     let session_id = req
         .session_id
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    state.metrics.batch_count.fetch_add(1, Ordering::Relaxed);
 
     if req.frames.is_empty() || req.frames.len() > 8 {
+        state.metrics.error_count.fetch_add(1, Ordering::Relaxed);
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -79,6 +82,7 @@ pub async fn analyse_batch(
         let img = match decode_image(frame_b64) {
             Ok(i) => i,
             Err(e) => {
+                state.metrics.error_count.fetch_add(1, Ordering::Relaxed);
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(serde_json::json!({
@@ -124,6 +128,12 @@ pub async fn analyse_batch(
     } else {
         "uncertain".to_string()
     };
+
+    match decision.as_str() {
+        "real" => { state.metrics.real_count.fetch_add(1, Ordering::Relaxed); }
+        "spoof" => { state.metrics.spoof_count.fetch_add(1, Ordering::Relaxed); }
+        _ => { state.metrics.uncertain_count.fetch_add(1, Ordering::Relaxed); }
+    }
 
     let processing_ms = start.elapsed().as_millis() as u64;
     tracing::info!(
@@ -172,12 +182,16 @@ pub struct CalibrateResponse {
 }
 
 pub async fn calibrate(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<CalibrateRequest>,
 ) -> impl IntoResponse {
     use crate::{decode_image, fft_realness, lbp_realness};
 
     if req.real_frames.is_empty() || req.spoof_frames.is_empty() {
+        state
+            .metrics
+            .error_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({

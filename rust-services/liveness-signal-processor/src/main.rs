@@ -445,6 +445,7 @@ async fn analyse_signal(
         Ok(i) => i,
         Err(e) => {
             error!("Image decode error: {}", e);
+            state.metrics.error_count.fetch_add(1, Ordering::Relaxed);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": format!("Invalid image: {}", e) })),
@@ -465,6 +466,12 @@ async fn analyse_signal(
     // Classify
     let (spoof_scores, decision, confidence) =
         classify_spoof(lbp_score, fft_score, colour_depth, grad_coherence);
+
+    match decision.as_str() {
+        "real" => { state.metrics.real_count.fetch_add(1, Ordering::Relaxed); }
+        "spoof" => { state.metrics.spoof_count.fetch_add(1, Ordering::Relaxed); }
+        _ => { state.metrics.uncertain_count.fetch_add(1, Ordering::Relaxed); }
+    }
 
     let spoof_type = if decision != "real" {
         Some(match (

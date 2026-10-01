@@ -15,6 +15,8 @@
 //!    - Device change signal (new device hash vs. stored baseline)
 //!    - Velocity breach signal (from the Go velocity gate)
 
+pub mod pg;
+
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -183,17 +185,43 @@ impl ActorBaseline {
 
 // ─── Behavioural engine ───────────────────────────────────────────────────────
 
+/// Maximum entries held in the in-memory L1 baseline cache. When the cap is
+/// reached, ~10% of entries are evicted (the Postgres store remains the source
+/// of truth, so evicted baselines are lazy-loaded back on the next score).
+const MAX_L1_ENTRIES: usize = 10_000;
+
 /// BehaviouralEngine is the core state machine.
 /// It is shared across Actix-Web workers via Arc.
 pub struct BehaviouralEngine {
-    /// Baselines keyed by "actor_id:action".
+    /// L1 cache of baselines keyed by "actor_id:action".
     baselines: Arc<DashMap<String, ActorBaseline>>,
+    /// Durable write-through store (Postgres). None = in-memory-only dev mode.
+    pg: Option<pg::PgBaselineStore>,
 }
 
 impl BehaviouralEngine {
-    pub fn new() -> Self {
+    pub fn new(pg_store: Option<pg::PgBaselineStore>) -> Self {
         Self {
             baselines: Arc::new(DashMap::new()),
+            pg: pg_store,
+        }
+    }
+
+    /// Evict ~10% of L1 entries when the cap is reached. Persisted state is
+    /// unaffected — evicted baselines are re-loaded from Postgres on demand.
+    fn enforce_l1_cap(&self) {
+        if self.baselines.len() < MAX_L1_ENTRIES {
+            return;
+        }
+        let evict_target = MAX_L1_ENTRIES / 10;
+        let keys: Vec<String> = self
+            .baselines
+            .iter()
+            .take(evict_target)
+            .map(|e| e.key().clone())
+            .collect();
+        for k in keys {
+            self.baselines.remove(&k);
         }
     }
 
@@ -202,8 +230,28 @@ impl BehaviouralEngine {
     }
 
     /// Score a request and return a risk assessment.
-    pub fn score(&self, req: &ScoreRequest) -> ScoreResponse {
+    ///
+    /// On an L1 (DashMap) miss, the baseline is lazy-loaded from Postgres when
+    /// a durable store is configured, then cached in L1.
+    pub async fn score(&self, req: &ScoreRequest) -> ScoreResponse {
         let key = Self::baseline_key(&req.actor_id, &req.action);
+
+        // Lazy-load from Postgres on L1 miss.
+        if !self.baselines.contains_key(&key) {
+            if let Some(pg) = &self.pg {
+                match pg.load(&req.actor_id, &req.action).await {
+                    Ok(Some(baseline)) => {
+                        self.enforce_l1_cap();
+                        self.baselines.insert(key.clone(), baseline);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, key = %key, "baseline lazy-load failed; scoring without history");
+                    }
+                }
+            }
+        }
+
         let baseline_opt = self.baselines.get(&key);
 
         let mut risk_score: f64 = 0.0;
@@ -282,15 +330,32 @@ impl BehaviouralEngine {
     }
 
     /// Update the baseline for an actor+action with a new observation.
-    pub fn update_baseline(&self, req: &BaselineUpdateRequest) {
+    ///
+    /// Write-through: the L1 cache is updated first, then the row is upserted
+    /// into Postgres when a durable store is configured. A Postgres failure is
+    /// logged and the L1 update is kept (the next update will write through
+    /// again with the merged state).
+    pub async fn update_baseline(&self, req: &BaselineUpdateRequest) {
         let key = Self::baseline_key(&req.actor_id, &req.action);
-        let mut baseline = self.baselines.entry(key).or_default();
-        baseline.update(
-            req.observed_value,
-            req.device_hash.as_deref(),
-            req.geo_country.as_deref(),
-            req.hour_of_day,
-        );
+        let snapshot = {
+            if self.baselines.len() >= MAX_L1_ENTRIES && !self.baselines.contains_key(&key) {
+                self.enforce_l1_cap();
+            }
+            let mut baseline = self.baselines.entry(key.clone()).or_default();
+            baseline.update(
+                req.observed_value,
+                req.device_hash.as_deref(),
+                req.geo_country.as_deref(),
+                req.hour_of_day,
+            );
+            baseline.clone()
+        };
+
+        if let Some(pg) = &self.pg {
+            if let Err(e) = pg.persist(&req.actor_id, &req.action, &snapshot).await {
+                tracing::error!(error = %e, key = %key, "baseline write-through to postgres failed (L1 kept)");
+            }
+        }
     }
 
     /// Return the number of actors currently tracked.
@@ -301,6 +366,6 @@ impl BehaviouralEngine {
 
 impl Default for BehaviouralEngine {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }

@@ -289,6 +289,21 @@ async fn main() {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
+    // Defense in depth: the in-memory ledger must be impossible in production,
+    // even if LEDGER_ALLOW_IN_MEMORY leaks into a prod environment by accident.
+    let env_name = env::var("ENV").unwrap_or_default().to_lowercase();
+    if in_memory && (env_name == "production" || env_name == "prod") {
+        tracing::error!(
+            "FATAL: LEDGER_ALLOW_IN_MEMORY=1 with ENV=production — the in-memory ledger is \
+             NON-DURABLE and forbidden in production. Refusing to start."
+        );
+        eprintln!(
+            "FATAL: LEDGER_ALLOW_IN_MEMORY=1 is forbidden when ENV=production. \
+             Unset LEDGER_ALLOW_IN_MEMORY and configure DATABASE_URL."
+        );
+        std::process::exit(2);
+    }
+
     let store: Store = if in_memory {
         tracing::warn!(
             "⚠️  LEDGER_ALLOW_IN_MEMORY is set: running with a NON-DURABLE in-memory ledger. \
