@@ -37,6 +37,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import asyncpg
 import uvicorn
+
+import geo_layers
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -629,6 +631,8 @@ async def health():
         "status": "ok",
         "service": "fraud-heatmap",
         "sedona_available": _sedona_available,
+        "geolibre_available": geo_layers.GEOLIBRE_AVAILABLE,
+        "spatial_layer_engine": geo_layers.engine_name(),
         "clustering_engine": "sedona" if _sedona_available else "python-dbscan",
         "heatmap_engine": "h3" if _try_import_h3() else "rect-grid",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -671,7 +675,7 @@ async def get_clusters(
 ):
     """Get geospatial fraud clusters using Sedona ST_DBSCAN (or Python fallback)."""
     events = await get_fraud_events(hours, merchant_id)
-    clusters = sedona_cluster(events, radius_km, min_points)
+    clusters = geo_layers.cluster_layer(events, radius_km, min_points, sedona_cluster)
     return {
         "clusters": clusters,
         "total_events": len(events),
