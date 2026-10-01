@@ -385,6 +385,10 @@ export const billingRouter = router({
       periodEnd: z.date(),
     }))
     .query(async ({ ctx, input }) => {
+      // A2-HIGH-1 writer note: billing_events rows are written by the
+      // billing-engine event ingestor (billing-engine/go-event-ingestor),
+      // which consumes the Kafka billing event stream — outside this Node
+      // codebase. This router is a reader only.
       const { billingEvents, overheadCosts } = await import("../../drizzle/schema");
       const { and, eq, gte, lte, sql, sum } = await import("drizzle-orm");
       const db = await requireDb();

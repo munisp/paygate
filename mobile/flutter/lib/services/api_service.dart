@@ -75,14 +75,40 @@ class ApiService {
 
   // ─── tRPC helper ───────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> trpcQuery(String procedure, [Map<String, dynamic>? input]) async {
-    final inputJson = Uri.encodeComponent(jsonEncode({'json': input}));
+    final inputJson = Uri.encodeComponent(jsonEncode(_superjsonWrap(input)));
     final response = await _dio.get('/trpc/$procedure?input=$inputJson');
     return _unwrapTrpc(response.data);
   }
 
   Future<Map<String, dynamic>> trpcMutation(String procedure, Map<String, dynamic> input) async {
-    final response = await _dio.post('/trpc/$procedure', data: {'json': input});
+    final response = await _dio.post('/trpc/$procedure', data: _superjsonWrap(input));
     return _unwrapTrpc(response.data);
+  }
+
+  /// The server uses the superjson transformer. Plain `{'json': input}` works
+  /// for JSON-native values, but `z.date()` inputs require superjson `meta`
+  /// entries. Top-level [DateTime] values are encoded accordingly.
+  static Map<String, dynamic> _superjsonWrap(Map<String, dynamic>? input) {
+    if (input == null) return {'json': null};
+    final json = <String, dynamic>{};
+    final metaValues = <String, List<String>>{};
+    input.forEach((key, value) {
+      if (value is DateTime) {
+        json[key] = value.toUtc().toIso8601String();
+        metaValues[key] = ['Date'];
+      } else {
+        json[key] = value;
+      }
+    });
+    if (metaValues.isEmpty) return {'json': json};
+    return {'json': json, 'meta': {'values': metaValues}};
+  }
+
+  /// Resolves a period token ('7d'/'30d'/'90d', default 30d) to a from/to range.
+  static Map<String, DateTime> _periodRange(String period) {
+    final days = int.tryParse(period.replaceAll('d', '')) ?? 30;
+    final to = DateTime.now().toUtc();
+    return {'from': to.subtract(Duration(days: days)), 'to': to};
   }
 
   Map<String, dynamic> _unwrapTrpc(dynamic data) {
@@ -102,13 +128,14 @@ class ApiService {
 
   // ─── Dashboard ─────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getDashboardStats() =>
-      trpcQuery('dashboard.getStats');
+      trpcQuery('dashboard.overview');
 
+  // Revenue chart data comes from analytics.timeSeries (from/to are z.date()).
   Future<Map<String, dynamic>> getRevenueChart(String period) =>
-      trpcQuery('dashboard.getRevenueChart', {'period': period});
+      trpcQuery('analytics.timeSeries', _periodRange(period));
 
   Future<Map<String, dynamic>> getRecentTransactions() =>
-      trpcQuery('dashboard.getRecentTransactions', {'limit': 5});
+      trpcQuery('transactions.list', {'limit': 5});
 
   // ─── Transactions ──────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listTransactions({
@@ -119,45 +146,49 @@ class ApiService {
     String? startDate,
     String? endDate,
   }) => trpcQuery('transactions.list', {
-    'page': page,
+    // Server paginates with limit/offset (no page param).
     'limit': limit,
+    'offset': (page - 1) * limit,
     if (status != null) 'status': status,
     if (search != null) 'search': search,
-    if (startDate != null) 'startDate': startDate,
-    if (endDate != null) 'endDate': endDate,
+    if (startDate != null) 'from': DateTime.parse(startDate).toUtc(),
+    if (endDate != null) 'to': DateTime.parse(endDate).toUtc(),
   });
 
   Future<Map<String, dynamic>> getTransaction(String id) =>
-      trpcQuery('transactions.getById', {'id': int.parse(id)});
+      trpcQuery('transactions.get', {'id': id});
 
   Future<Map<String, dynamic>> refundTransaction(int transactionId) =>
-      trpcMutation('transactions.refund', {'transactionId': transactionId});
+      trpcMutation('transactions.refund', {'id': transactionId.toString()});
 
+  // CSV export lives on the export router and is a query.
   Future<Map<String, dynamic>> exportTransactions(Map<String, dynamic> filters) =>
-      trpcMutation('transactions.export', filters);
+      trpcQuery('export.transactions', filters);
 
   // ─── Payouts ───────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listPayouts({int page = 1, int limit = 20, String? status}) =>
-      trpcQuery('payouts.list', {'page': page, 'limit': limit, if (status != null) 'status': status});
+      trpcQuery('payouts.list', {'limit': limit, 'offset': (page - 1) * limit, if (status != null) 'status': status});
 
   Future<Map<String, dynamic>> createPayout(Map<String, dynamic> data) =>
       trpcMutation('payouts.create', data);
 
   Future<Map<String, dynamic>> approvePayout(int payoutId) =>
-      trpcMutation('payouts.approve', {'payoutId': payoutId});
+      trpcMutation('payouts.approve', {'id': payoutId.toString()});
 
   Future<Map<String, dynamic>> rejectPayout(int payoutId, String reason) =>
-      trpcMutation('payouts.reject', {'payoutId': payoutId, 'reason': reason});
+      trpcMutation('payouts.reject', {'id': payoutId.toString(), 'reason': reason});
 
   // ─── Analytics ─────────────────────────────────────────────────────────────
+  // analytics.overview / channelBreakdown / merchantAnalytics.topCustomers all
+  // take {from, to} z.date() inputs; derived from the period token.
   Future<Map<String, dynamic>> getAnalytics(String period) =>
-      trpcQuery('analytics.getSummary', {'period': period});
+      trpcQuery('analytics.overview', _periodRange(period));
 
   Future<Map<String, dynamic>> getChannelBreakdown(String period) =>
-      trpcQuery('analytics.getChannelBreakdown', {'period': period});
+      trpcQuery('analytics.channelBreakdown', _periodRange(period));
 
   Future<Map<String, dynamic>> getTopCustomers({int limit = 10}) =>
-      trpcQuery('analytics.getTopCustomers', {'limit': limit});
+      trpcQuery('merchantAnalytics.topCustomers', {..._periodRange('30d'), 'limit': limit});
 
   // ─── Virtual Cards ─────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listVirtualCards({int page = 1}) =>
@@ -166,31 +197,35 @@ class ApiService {
   Future<Map<String, dynamic>> createVirtualCard(Map<String, dynamic> data) =>
       trpcMutation('virtualCards.create', data);
 
+  // Server exposes a single idempotent toggle (freeze <-> active).
   Future<Map<String, dynamic>> freezeCard(int cardId) =>
-      trpcMutation('virtualCards.freeze', {'cardId': cardId});
+      trpcMutation('virtualCards.toggleFreeze', {'id': cardId.toString()});
 
   Future<Map<String, dynamic>> unfreezeCard(int cardId) =>
-      trpcMutation('virtualCards.unfreeze', {'cardId': cardId});
+      trpcMutation('virtualCards.toggleFreeze', {'id': cardId.toString()});
 
+  // Termination only exists on the middleware-backed virtualCardsMw router.
   Future<Map<String, dynamic>> terminateCard(int cardId) =>
-      trpcMutation('virtualCards.terminate', {'cardId': cardId});
+      trpcMutation('virtualCardsMw.terminate', {'cardId': cardId.toString()});
 
   // ─── Disputes ──────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listDisputes({int page = 1, String? status}) =>
-      trpcQuery('disputes.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('disputes.list', {'limit': 20, 'offset': (page - 1) * 20});
 
+  // disputes.respond takes {id, merchantResponse (min 10 chars), evidence?}.
   Future<Map<String, dynamic>> respondToDispute(int disputeId, String response) =>
-      trpcMutation('disputes.respond', {'disputeId': disputeId, 'response': response});
+      trpcMutation('disputes.respond', {'id': disputeId.toString(), 'merchantResponse': response});
 
   Future<Map<String, dynamic>> escalateDispute(int disputeId) =>
-      trpcMutation('disputes.escalate', {'disputeId': disputeId});
+      trpcMutation('disputes.escalate', {'id': disputeId.toString()});
 
   // ─── Settings ──────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getMerchantProfile() =>
-      trpcQuery('settings.getMerchantProfile');
+      trpcQuery('settings.get');
 
+  // settings.updateMerchant accepts {businessName?, email?, phone?, webhookUrl?}.
   Future<Map<String, dynamic>> updateMerchantProfile(Map<String, dynamic> data) =>
-      trpcMutation('settings.updateMerchantProfile', data);
+      trpcMutation('settings.updateMerchant', data);
 
   Future<Map<String, dynamic>> getApiKeys() =>
       trpcQuery('apiKeys.list');
@@ -199,84 +234,91 @@ class ApiService {
       trpcMutation('apiKeys.create', {'name': name});
 
   Future<Map<String, dynamic>> revokeApiKey(int keyId) =>
-      trpcMutation('apiKeys.revoke', {'keyId': keyId});
+      trpcMutation('apiKeys.revoke', {'id': keyId.toString()});
 
   Future<Map<String, dynamic>> listWebhooks() =>
       trpcQuery('webhooks.list');
 
+  // Webhook endpoint CRUD lives on crud.webhookEndpoints
+  // (create requires {url, events, secret}).
   Future<Map<String, dynamic>> createWebhook(Map<String, dynamic> data) =>
-      trpcMutation('webhooks.create', data);
+      trpcMutation('crud.webhookEndpoints.create', data);
 
   Future<Map<String, dynamic>> deleteWebhook(int webhookId) =>
-      trpcMutation('webhooks.delete', {'webhookId': webhookId});
+      trpcMutation('crud.webhookEndpoints.delete', {'id': webhookId.toString()});
 
   //  // ─── BNPL ──────────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listBnplPlans({int page = 1, String? status}) =>
       trpcQuery('bnpl.listPlans', {'page': page, 'limit': 20, if (status != null) 'status': status});
 
   Future<Map<String, dynamic>> getBnplPlan(int planId) =>
-      trpcQuery('bnpl.getPlan', {'planId': planId});
+      trpcQuery('bnpl.getLoan', {'loanId': planId.toString()});
 
   Future<Map<String, dynamic>> createBnplPlan(Map<String, dynamic> data) =>
       trpcMutation('bnpl.createPlan', data);
 
   Future<Map<String, dynamic>> recordBnplRepayment(int planId, double amount) =>
-      trpcMutation('bnpl.recordRepayment', {'planId': planId, 'amount': amount});
+      trpcMutation('bnpl.recordRepayment', {'loanId': planId.toString(), 'amount': amount});
 
   // ─── FX & Cross-Border ─────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getFxRates({String? baseCurrency}) =>
-      trpcQuery('fx.getRates', {if (baseCurrency != null) 'baseCurrency': baseCurrency});
+      trpcQuery('fx.getRates', {if (baseCurrency != null) 'base': baseCurrency});
 
   Future<Map<String, dynamic>> convertCurrency(String from, String to, double amount) =>
-      trpcMutation('fx.convert', {'from': from, 'to': to, 'amount': amount});
+      trpcMutation('fx.convertCurrency', {'fromCurrency': from, 'toCurrency': to, 'amount': amount.round()});
 
   Future<Map<String, dynamic>> listCrossBorderTransactions({int page = 1, String? status}) =>
-      trpcQuery('crossBorder.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('crossBorder.list', {'limit': 20, 'offset': (page - 1) * 20, if (status != null) 'status': status});
 
   Future<Map<String, dynamic>> initiateCrossBorderTransfer(Map<String, dynamic> data) =>
       trpcMutation('crossBorder.initiate', data);
 
   // ─── Fraud Risk ────────────────────────────────────────────────────────────
+  // fraudRisk.list accepts {status?, limit, offset} — no severity filter exists.
   Future<Map<String, dynamic>> getFraudAlerts({int page = 1, String? severity}) =>
-      trpcQuery('fraud.getAlerts', {'page': page, 'limit': 20, if (severity != null) 'severity': severity});
+      trpcQuery('fraudRisk.list', {'limit': 20, 'offset': (page - 1) * 20});
 
   Future<Map<String, dynamic>> getFraudStats() =>
-      trpcQuery('fraud.getStats');
+      trpcQuery('fraudRisk.stats');
 
   Future<Map<String, dynamic>> dismissFraudAlert(int alertId) =>
-      trpcMutation('fraud.dismissAlert', {'alertId': alertId});
+      trpcMutation('fraudRisk.updateAlert', {'id': alertId.toString(), 'status': 'false_positive'});
 
+  // BLOCKED: no server procedure blocks a fraud entity (fraudRisk only has
+  // list/stats/createAlert/getAlerts/updateAlert/acknowledge/bulkUpdateAlerts/
+  // addComment/getComments/seedDemoAlerts). Left untouched per fail-loud rule.
   Future<Map<String, dynamic>> blockFraudEntity(String entityType, String entityId) =>
       trpcMutation('fraud.blockEntity', {'entityType': entityType, 'entityId': entityId});
 
   // ─── Payment Links ────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listPaymentLinks({int page = 1, String? status}) =>
-      trpcQuery('paymentLinks.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('paymentLinks.list', {'limit': 20, 'offset': (page - 1) * 20});
 
   Future<Map<String, dynamic>> createPaymentLink(Map<String, dynamic> data) =>
       trpcMutation('paymentLinks.create', data);
 
+  // Server has no deactivate; paymentLinks.toggle flips isActive.
   Future<Map<String, dynamic>> deactivatePaymentLink(int linkId) =>
-      trpcMutation('paymentLinks.deactivate', {'linkId': linkId});
+      trpcMutation('paymentLinks.toggle', {'id': linkId.toString()});
 
   Future<Map<String, dynamic>> getPaymentLinkStats(int linkId) =>
-      trpcQuery('paymentLinks.getStats', {'linkId': linkId});
+      trpcQuery('paymentLinks.analytics', {'id': linkId.toString()});
 
   // ─── Notifications ─────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listNotifications({int page = 1, bool? unreadOnly}) =>
       trpcQuery('notifications.list', {'page': page, 'limit': 20, if (unreadOnly != null) 'unreadOnly': unreadOnly});
 
   Future<Map<String, dynamic>> markNotificationRead(int notificationId) =>
-      trpcMutation('notifications.markRead', {'notificationId': notificationId});
+      trpcMutation('notifications.markRead', {'id': notificationId});
 
   Future<Map<String, dynamic>> markAllNotificationsRead() =>
       trpcMutation('notifications.markAllRead', {});
 
   Future<Map<String, dynamic>> getNotificationPreferences() =>
-      trpcQuery('notifications.getPreferences');
+      trpcQuery('notificationPreferences.get');
 
   Future<Map<String, dynamic>> updateNotificationPreferences(Map<String, dynamic> prefs) =>
-      trpcMutation('notifications.updatePreferences', prefs);
+      trpcMutation('notificationPreferences.update', prefs);
 
   // ─── Push Notifications ──────────────────────────────────────────────
   Future<Map<String, dynamic>> registerPushToken(String token, String platform) =>
@@ -289,8 +331,9 @@ class ApiService {
   Future<Map<String, dynamic>> listWebhookDeliveries({int page = 1}) =>
       trpcQuery('webhookDeliveries.list', {'page': page, 'limit': 20});
 
+  // crud.webhookEndpoints.update accepts {id, url?, events?, isActive?}.
   Future<Map<String, dynamic>> updateWebhook(String webhookId, Map<String, dynamic> data) =>
-      trpcMutation('webhooks.update', {'webhookId': webhookId, ...data});
+      trpcMutation('crud.webhookEndpoints.update', {'id': webhookId, ...data});
 
   Future<Map<String, dynamic>> retryWebhookDelivery(String deliveryId) =>
       trpcMutation('webhookDeliveries.retry', {'deliveryId': deliveryId});
@@ -300,14 +343,16 @@ class ApiService {
       trpcQuery('auditLog.search', {'page': page, 'limit': 20, if (actor != null) 'actor': actor, if (action != null) 'action': action, if (resource != null) 'resource': resource});
 
   // ─── Billing Analytics ─────────────────────────────────────────────────────
+  // Billing invoices are exposed by usageMetering.getInvoices.
   Future<Map<String, dynamic>> getBillingInvoices({int page = 1}) =>
-      trpcQuery('billing.invoices', {'page': page, 'limit': 20});
+      trpcQuery('usageMetering.getInvoices', {'limit': 20, 'offset': (page - 1) * 20});
 
   // ─── Chargeback Cases ──────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listChargebackCases({int page = 1, String? status}) =>
-      trpcQuery('chargebacks.listCases', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('chargebackMgmt.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+  // chargebackMgmt.submitEvidence takes {id, evidence: string, evidenceUrl?, evidenceFileName?}.
   Future<Map<String, dynamic>> submitChargebackEvidence(String caseId, Map<String, dynamic> evidence) =>
-      trpcMutation('chargebacks.submitEvidence', {'caseId': caseId, ...evidence});
+      trpcMutation('chargebackMgmt.submitEvidence', {'id': caseId, 'evidence': jsonEncode(evidence)});
 
   // ─── Fee Schedules ─────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listFeeSchedules({int page = 1}) =>
@@ -315,61 +360,86 @@ class ApiService {
   Future<Map<String, dynamic>> createFeeSchedule(Map<String, dynamic> data) =>
       trpcMutation('feeSchedules.create', data);
   Future<Map<String, dynamic>> deleteFeeSchedule(String scheduleId) =>
-      trpcMutation('feeSchedules.delete', {'scheduleId': scheduleId});
+      trpcMutation('feeSchedules.delete', {'id': scheduleId});
 
   // ─── Fraud Rules ───────────────────────────────────────────────────────────
+  // Rule CRUD + toggle lives on fraudRuleEngine (the wave121 fraudRules router
+  // only handles alerts + createRule, no list/toggle).
   Future<Map<String, dynamic>> listFraudRules({int page = 1, bool? isActive}) =>
-      trpcQuery('fraudRules.list', {'page': page, 'limit': 20, if (isActive != null) 'isActive': isActive});
+      trpcQuery('fraudRuleEngine.list', {
+        'limit': 20,
+        'offset': (page - 1) * 20,
+        if (isActive != null) 'status': isActive ? 'active' : 'paused',
+      });
+  // create requires {name, actions[], priority?, status?, ...}.
   Future<Map<String, dynamic>> createFraudRule(Map<String, dynamic> data) =>
-      trpcMutation('fraudRules.create', data);
+      trpcMutation('fraudRuleEngine.create', data);
   Future<Map<String, dynamic>> toggleFraudRule(String ruleId, bool isActive) =>
-      trpcMutation('fraudRules.toggle', {'ruleId': ruleId, 'isActive': isActive});
+      trpcMutation('fraudRuleEngine.toggleStatus', {'id': ruleId, 'status': isActive ? 'active' : 'paused'});
 
   // ─── Invoice Financing ─────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listInvoiceFinancing({int page = 1, String? status}) =>
-      trpcQuery('invoiceFinancing.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('invoiceFinV2.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+  // invoiceFinV2.submitApplication requires {invoiceAmount: int, ...}.
   Future<Map<String, dynamic>> applyForInvoiceFinancing(Map<String, dynamic> data) =>
-      trpcMutation('invoiceFinancing.apply', data);
+      trpcMutation('invoiceFinV2.submitApplication', data);
 
   // ─── KYB Verifications ─────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listKybVerifications({int page = 1, String? status}) =>
-      trpcQuery('kyb.listVerifications', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('kybMgmt.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+  // BLOCKED: document upload requires kybDocUpload.getUploadUrl with
+  // {verificationId, documentType, fileName, mimeType, fileSizeBytes,
+  // fileContent} — no generic submitDocument(data) equivalent exists.
   Future<Map<String, dynamic>> submitKybDocument(Map<String, dynamic> data) =>
       trpcMutation('kyb.submitDocument', data);
+  // BLOCKED: no zero-arg "own KYB status" proc exists (kybMgmt.getVerification
+  // requires a verificationId). Left untouched per fail-loud rule.
   Future<Map<String, dynamic>> getKybStatus() =>
       trpcQuery('kyb.getStatus');
 
   // ─── Loyalty V3 ────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> listLoyaltyV3Campaigns({int page = 1}) =>
-      trpcQuery('loyaltyV3.listCampaigns', {'page': page, 'limit': 20});
+      trpcQuery('loyaltyV3.listPrograms', {'page': page, 'limit': 20});
+  // loyaltyV3.createProgram requires {programName, ...}.
   Future<Map<String, dynamic>> createLoyaltyV3Campaign(Map<String, dynamic> data) =>
-      trpcMutation('loyaltyV3.createCampaign', data);
+      trpcMutation('loyaltyV3.createProgram', data);
+  // The only loyalty leaderboard on the server is the tier engine's.
   Future<Map<String, dynamic>> getLoyaltyV3Leaderboard({String period = '30d'}) =>
-      trpcQuery('loyaltyV3.getLeaderboard', {'period': period});
+      trpcQuery('wave27.loyaltyTier.getLeaderboard');
 
   // ─── Tenant Provisioning ───────────────────────────────────────────────────
   Future<Map<String, dynamic>> listTenants({int page = 1, String? status}) =>
-      trpcQuery('tenantAdmin.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+      trpcQuery('tenantMgmt.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+  // tenantMgmt.create requires {id: ten_*, name, slug, email, ...}.
   Future<Map<String, dynamic>> provisionTenant(Map<String, dynamic> data) =>
-      trpcMutation('tenantAdmin.provision', data);
+      trpcMutation('tenantMgmt.create', data);
   Future<Map<String, dynamic>> suspendTenant(String tenantId, String reason) =>
-      trpcMutation('tenantAdmin.suspend', {'tenantId': tenantId, 'reason': reason});
+      trpcMutation('tenantMgmt.suspend', {'id': tenantId, 'reason': reason});
 
   // ─── Virtual Cards (Full) ──────────────────────────────────────────────────
+  // BLOCKED: no per-card transactions endpoint exists on any virtualCards*
+  // router (create/toggleFreeze/topUp/updateSpendLimit/list + Mw
+  // issue/list/freeze/unfreeze/terminate). Left untouched per fail-loud rule.
   Future<Map<String, dynamic>> getVirtualCardTransactions(String cardId, {int page = 1}) =>
       trpcQuery('virtualCards.getTransactions', {'cardId': cardId, 'page': page, 'limit': 20});
   Future<Map<String, dynamic>> setVirtualCardSpendLimit(String cardId, int limitKobo) =>
-      trpcMutation('virtualCards.setSpendLimit', {'cardId': cardId, 'limitKobo': limitKobo});
+      trpcMutation('virtualCards.updateSpendLimit', {'id': cardId, 'spendLimit': limitKobo});
+  // BLOCKED: no virtualCards stats endpoint exists. Left untouched.
   Future<Map<String, dynamic>> getVirtualCardStats() =>
       trpcQuery('virtualCards.getStats');
 
   // ─── POS Products ──────────────────────────────────────────────────────────
+  // The pos router has no product CRUD (terminals/batches only); the product
+  // catalog equivalent is the inventory router (listItems/upsertItem).
+  // inventory.listItems takes no input and returns the full list.
   Future<Map<String, dynamic>> listPosProducts({int page = 1, String? category}) =>
-      trpcQuery('pos.products.list', {'page': page, 'limit': 50, if (category != null) 'category': category});
+      trpcQuery('inventory.listItems');
+  // inventory.upsertItem requires {name, currentStock, reorderLevel, costPerUnit, id?}.
   Future<Map<String, dynamic>> createPosProduct(Map<String, dynamic> data) =>
-      trpcMutation('pos.products.create', data);
+      trpcMutation('inventory.upsertItem', data);
   Future<Map<String, dynamic>> updatePosProduct(String productId, Map<String, dynamic> data) =>
-      trpcMutation('pos.products.update', {'id': productId, ...data});
+      trpcMutation('inventory.upsertItem', {'id': productId, ...data});
+  // BLOCKED: no inventory/product delete endpoint exists. Left untouched.
   Future<Map<String, dynamic>> deletePosProduct(String productId) =>
       trpcMutation('pos.products.delete', {'id': productId});
 }
