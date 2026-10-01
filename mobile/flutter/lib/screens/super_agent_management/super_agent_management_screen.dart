@@ -30,7 +30,7 @@ class _SuperAgentManagementScreenState extends ConsumerState<SuperAgentManagemen
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('superAgent.list');
+      final result = await api.trpcQuery('superAgentV2Mgmt.listNetworks');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

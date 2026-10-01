@@ -30,7 +30,7 @@ class _UPIGatewayScreenState extends ConsumerState<UPIGatewayScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('upiGateway.getStatus');
+      final result = await api.trpcQuery('crossBorder.getRailHealth');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

@@ -30,7 +30,7 @@ class _SettlementSLAScreenState extends ConsumerState<SettlementSLAScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('settlements.getSLAStats');
+      final result = await api.trpcQuery('settlements.listBreached');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

@@ -30,7 +30,7 @@ class _CIPSGatewayScreenState extends ConsumerState<CIPSGatewayScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('cipsGateway.getStatus');
+      final result = await api.trpcQuery('crossBorder.getRailHealth');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

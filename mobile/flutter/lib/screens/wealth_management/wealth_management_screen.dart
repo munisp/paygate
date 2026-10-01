@@ -30,7 +30,7 @@ class _WealthManagementScreenState extends ConsumerState<WealthManagementScreen>
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('wealthManagement.getPortfolio');
+      final result = await api.trpcQuery('newFeatures.wealthManagement.getPortfolioSummary');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

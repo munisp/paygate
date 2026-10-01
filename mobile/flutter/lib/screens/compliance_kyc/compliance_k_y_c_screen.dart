@@ -30,7 +30,7 @@ class _ComplianceKYCScreenState extends ConsumerState<ComplianceKYCScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('complianceKyc.getStats');
+      final result = await api.trpcQuery('complianceKyc.stats');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(

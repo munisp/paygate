@@ -25,7 +25,12 @@ import {
 } from "../_core/cookies";
 import { ENV } from "../_core/env";
 
-/** Resolve the active regulator profile for the authenticated principal. */
+/**
+ * Resolve the active regulator profile for the authenticated principal.
+ * A2-HIGH-1 writer note: nexthub_regulators rows are provisioned by platform
+ * ops (seed migrations / hub operator onboarding) — regulator accounts are
+ * never self-registered, so there is intentionally no runtime writer here.
+ */
 async function resolveRegulator(email: string | null) {
   if (!email) return null;
   const [regulator] = await db

@@ -30,7 +30,7 @@ class _ReportsCenterScreenState extends ConsumerState<ReportsCenterScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiServiceProvider);
-      final result = await api.trpcQuery('reports.list');
+      final result = await api.trpcQuery('newFeatures.reports.listReports');
       final data = result['data'] ?? result;
       setState(() {
         _items = List<Map<String, dynamic>>.from(
