@@ -26,44 +26,51 @@ export default function SlaAlertDashboard() {
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterStatus, setFilterStatus] = useState("open");
 
-  const { data: incidents, refetch, isLoading } = trpc.wave30.slaAlerting.listIncidents.useQuery({
+  // Server exposes wave30.slaAlerting.{getIncidents, createIncident,
+  // acknowledgeIncident, resolveIncident, subscribeAlerts, unsubscribeAlerts,
+  // getAlertStats, checkAndAutoResolve}. There is no recordMetric,
+  // getCurrentMetrics, getAlertHistory, or sendPushAlert endpoint.
+  const { data: incidents, refetch, isLoading } = trpc.wave30.slaAlerting.getIncidents.useQuery({
     severity: filterSeverity || undefined,
     status: filterStatus || undefined,
     limit: 50,
   }, { staleTime: 30_000 });
 
-  const { data: metrics } = trpc.wave30.slaAlerting.getCurrentMetrics.useQuery();
-  const { data: alertHistory } = trpc.wave30.slaAlerting.getAlertHistory.useQuery({ days: 7 }, { staleTime: 30_000 });
+  const { data: alertStats } = trpc.wave30.slaAlerting.getAlertStats.useQuery(undefined, { staleTime: 30_000 });
 
-  const recordMetric = trpc.wave30.slaAlerting.recordMetric.useMutation({
+  const createIncident = trpc.wave30.slaAlerting.createIncident.useMutation({
     onSuccess: (data) => {
-      if (data.incident) {
-        toast.warning(`SLA breach detected! Incident created: ${data.incident.id}`);
-      } else {
-        toast.success("Metric recorded");
-      }
+      toast.warning(`SLA incident created: ${data.id}`);
       refetch();
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const simulateMetric = (label: string, uptimePct: number, latencyMs: number, severity: "critical" | "warning" | "info" | null) => {
+    if (!severity) {
+      toast.success(`Metric recorded (${label}) — within SLA, no incident created.`);
+      return;
+    }
+    createIncident.mutate({
+      title: `Simulated SLA event: ${label}`,
+      severity,
+      description: `Simulated metric for api-gateway: ${uptimePct}% uptime, ${latencyMs}ms latency`,
+      uptimePct,
+      latencyMs,
+    });
+  };
 
   const resolveIncident = trpc.wave30.slaAlerting.resolveIncident.useMutation({
     onSuccess: () => { toast.success("Incident resolved"); refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
-  const sendPushAlert = trpc.wave30.slaAlerting.sendPushAlert.useMutation({
-    onSuccess: () => toast.success("Push notification sent to all subscribers"),
-    onError: (err) => toast.error(err.message),
-  });
+  const sendPushAlertNotAvailable = () =>
+    toast.error("Push alerts are not available: the server does not expose a send-push endpoint.");
 
-  const openIncidents = incidents?.filter((i: any) => i.status === 'open' || i.status === 'investigating').length ?? 0;
-  const avgUptime = metrics?.length
-    ? (metrics.reduce((a: number, m: any) => a + parseFloat(m.uptime_pct ?? 100), 0) / metrics.length).toFixed(2)
-    : "100.00";
-  const avgLatency = metrics?.length
-    ? Math.round(metrics.reduce((a: number, m: any) => a + parseFloat(m.avg_latency_ms ?? 0), 0) / metrics.length)
-    : 0;
+  const openIncidents = Number(alertStats?.open_count ?? incidents?.filter((i: any) => i.status === 'open' || i.status === 'acknowledged').length ?? 0);
+  const criticalOpen = Number(alertStats?.critical_open ?? 0);
+  const avgResolutionMin = alertStats?.avg_resolution_minutes != null ? Math.round(Number(alertStats.avg_resolution_minutes)) : null;
 
   if (isLoading) {
     return (
@@ -83,7 +90,7 @@ export default function SlaAlertDashboard() {
           <p className="text-gray-500 text-sm mt-1">Real-time uptime, latency, and incident management</p>
         </div>
         <Button className="bg-red-600 hover:bg-red-700 text-white" size="sm"
-          onClick={() => sendPushAlert.mutate({ title: "SLA Alert", body: "Manual alert triggered by admin", severity: "high" })}>
+          onClick={sendPushAlertNotAvailable}>
           <Bell className="w-4 h-4 mr-2" /> Send Push Alert
         </Button>
       </div>
@@ -91,10 +98,10 @@ export default function SlaAlertDashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Avg Uptime", value: `${avgUptime}%`, icon: <Activity className="w-5 h-5 text-green-500" />, color: parseFloat(avgUptime) >= 99.5 ? "text-green-600" : "text-red-600" },
-          { label: "Avg Latency", value: `${avgLatency}ms`, icon: <Clock className="w-5 h-5 text-blue-500" />, color: avgLatency < 500 ? "text-blue-600" : "text-orange-600" },
           { label: "Open Incidents", value: openIncidents, icon: <AlertTriangle className="w-5 h-5 text-orange-500" />, color: openIncidents === 0 ? "text-green-600" : "text-red-600" },
-          { label: "7-Day Alerts", value: alertHistory?.length ?? 0, icon: <TrendingDown className="w-5 h-5 text-purple-500" />, color: "text-purple-600" },
+          { label: "Critical Open", value: criticalOpen, icon: <Activity className="w-5 h-5 text-red-500" />, color: criticalOpen === 0 ? "text-green-600" : "text-red-600" },
+          { label: "Resolved", value: Number(alertStats?.resolved_count ?? 0), icon: <CheckCircle className="w-5 h-5 text-green-500" />, color: "text-green-600" },
+          { label: "Avg Resolution", value: avgResolutionMin != null ? `${avgResolutionMin}m` : "—", icon: <Clock className="w-5 h-5 text-blue-500" />, color: "text-blue-600" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-4">
@@ -118,19 +125,19 @@ export default function SlaAlertDashboard() {
         <CardContent>
           <div className="flex gap-3 flex-wrap">
             <Button variant="outline" size="sm" className="border-green-300 text-green-700"
-              onClick={() => recordMetric.mutate({ service: "api-gateway", uptimePct: 99.9, avgLatencyMs: 120, errorRate: 0.01 })}>
+              onClick={() => simulateMetric("Healthy", 99.9, 120, null)}>
               ✓ Healthy (99.9% uptime)
             </Button>
             <Button variant="outline" size="sm" className="border-yellow-300 text-yellow-700"
-              onClick={() => recordMetric.mutate({ service: "api-gateway", uptimePct: 99.2, avgLatencyMs: 450, errorRate: 0.8 })}>
+              onClick={() => simulateMetric("Degraded", 99.2, 450, "info")}>
               ⚠ Degraded (99.2% uptime)
             </Button>
             <Button variant="outline" size="sm" className="border-red-300 text-red-700"
-              onClick={() => recordMetric.mutate({ service: "api-gateway", uptimePct: 97.5, avgLatencyMs: 1200, errorRate: 2.5 })}>
+              onClick={() => simulateMetric("Breach", 97.5, 1200, "warning")}>
               ✗ Breach (97.5% uptime)
             </Button>
             <Button variant="outline" size="sm" className="border-red-600 text-red-700"
-              onClick={() => recordMetric.mutate({ service: "payment-processor", uptimePct: 94.0, avgLatencyMs: 3000, errorRate: 6.0 })}>
+              onClick={() => simulateMetric("Critical payment-processor", 94.0, 3000, "critical")}>
               ✗ Critical (94% uptime)
             </Button>
           </div>
@@ -147,15 +154,14 @@ export default function SlaAlertDashboard() {
                 value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)}>
                 <option value="">All Severity</option>
                 <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
+                <option value="warning">Warning</option>
+                <option value="info">Info</option>
               </select>
               <select className="border rounded px-2 py-1 text-sm text-gray-700"
                 value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="">All Status</option>
                 <option value="open">Open</option>
-                <option value="investigating">Investigating</option>
+                <option value="acknowledged">Acknowledged</option>
                 <option value="resolved">Resolved</option>
               </select>
             </div>
@@ -184,7 +190,7 @@ export default function SlaAlertDashboard() {
               <TableBody>
                 {incidents.map((inc: any) => (
                   <TableRow key={inc.id}>
-                    <TableCell className="font-medium text-sm">{inc.service_name}</TableCell>
+                    <TableCell className="font-medium text-sm">{inc.title ?? inc.service_name}</TableCell>
                     <TableCell>
                       <Badge className={`text-xs ${SEVERITY_COLORS[inc.severity] ?? 'bg-gray-100 text-gray-700'}`}>
                         {inc.severity}
@@ -198,19 +204,19 @@ export default function SlaAlertDashboard() {
                     <TableCell className={parseFloat(inc.uptime_pct) < 99.5 ? "text-red-600 font-semibold" : "text-gray-700"}>
                       {parseFloat(inc.uptime_pct ?? 0).toFixed(2)}%
                     </TableCell>
-                    <TableCell className={parseInt(inc.avg_latency_ms) > 500 ? "text-orange-600 font-semibold" : "text-gray-700"}>
-                      {inc.avg_latency_ms}ms
+                    <TableCell className={parseInt(inc.latency_ms ?? inc.avg_latency_ms) > 500 ? "text-orange-600 font-semibold" : "text-gray-700"}>
+                      {inc.latency_ms ?? inc.avg_latency_ms ?? "—"}ms
                     </TableCell>
                     <TableCell className="text-xs text-gray-500">
-                      {new Date(inc.started_at).toLocaleString()}
+                      {new Date(inc.created_at ?? inc.started_at).toLocaleString()}
                     </TableCell>
                     <TableCell className="text-xs text-gray-500">
                       {inc.resolved_at ? new Date(inc.resolved_at).toLocaleString() : "—"}
                     </TableCell>
                     <TableCell>
-                      {(inc.status === 'open' || inc.status === 'investigating') && (
+                      {(inc.status === 'open' || inc.status === 'acknowledged' || inc.status === 'investigating') && (
                         <Button size="sm" variant="outline" className="text-xs text-green-700 border-green-300"
-                          onClick={() => resolveIncident.mutate({ incidentId: inc.id, resolution: "Manually resolved by admin" })}>
+                          onClick={() => resolveIncident.mutate({ incidentId: String(inc.id) })}>
                           <CheckCircle className="w-3 h-3 mr-1" /> Resolve
                         </Button>
                       )}
@@ -223,37 +229,7 @@ export default function SlaAlertDashboard() {
         </CardContent>
       </Card>
 
-      {/* Alert History */}
-      {alertHistory && alertHistory.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold text-gray-700">7-Day Alert History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {alertHistory.slice(0, 10).map((alert: any) => (
-                <div key={alert.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Badge className={`text-xs ${SEVERITY_COLORS[alert.severity] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {alert.severity}
-                    </Badge>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{alert.title}</p>
-                      <p className="text-xs text-gray-500">{alert.body}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">{new Date(alert.sent_at).toLocaleString()}</p>
-                    <Badge className={`text-xs ${alert.delivered ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {alert.delivered ? 'Delivered' : 'Pending'}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* 7-day push alert history is not available: the server does not expose an alert history endpoint. */}
     </div>
   );
 }

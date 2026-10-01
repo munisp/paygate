@@ -37,14 +37,14 @@ export default function ConsumerDisputeFiling() {
   const [selectedDispute, setSelectedDispute] = useState<any>(null);
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm();
 
-  const { data, isLoading, refetch } = trpc.wave27.consumerDisputes.list.useQuery();
+  const { data, isLoading, refetch } = trpc.wave27.consumerDispute.getMyDisputes.useQuery();
 
-  const fileMutation = trpc.wave27.consumerDisputes.file.useMutation({
+  const fileMutation = trpc.wave27.consumerDispute.fileDispute.useMutation({
     onSuccess: () => { toast.success("Dispute filed successfully. We'll review it within 3-5 business days."); refetch(); setShowNew(false); reset(); },
     onError: (e) => toast.error(e.message),
   });
 
-  const disputes = data?.disputes ?? [];
+  const disputes = Array.isArray(data) ? data : (data?.disputes ?? []);
 
   return (
     <div className="p-4 space-y-4">
@@ -94,7 +94,7 @@ export default function ConsumerDisputeFiling() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm">{d.reason}</span>
+                      <span className="font-medium text-sm">{d.subject ?? d.reason}</span>
                       <Badge className={STATUS_COLORS[d.status] ?? "bg-gray-100 text-gray-700"}>
                         {d.status?.replace(/_/g, " ")}
                       </Badge>
@@ -117,7 +117,29 @@ export default function ConsumerDisputeFiling() {
       <Dialog open={showNew} onOpenChange={setShowNew}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>File a New Dispute</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit((data) => fileMutation.mutate(data as any))} className="space-y-4">
+          <form onSubmit={handleSubmit((data) => {
+            // Map display reasons to the server's reason enum and form fields
+            // to fileDispute's zod schema.
+            const reasonMap: Record<string, string> = {
+              "Unauthorized transaction": "unauthorized",
+              "Duplicate charge": "duplicate",
+              "Item not received": "not_received",
+              "Service not provided": "not_received",
+              "Incorrect amount charged": "wrong_amount",
+              "Subscription cancelled but charged": "merchant_fraud",
+            };
+            if (!data.description || data.description.length < 10) {
+              toast.error("Description must be at least 10 characters");
+              return;
+            }
+            fileMutation.mutate({
+              transactionId: data.transactionRef || "N/A",
+              reason: (reasonMap[data.reason] ?? "other") as any,
+              description: data.description,
+              amount: Number(data.disputedAmount),
+              currency: "NGN",
+            });
+          })} className="space-y-4">
             <div>
               <label className="text-sm font-medium">Transaction Reference (optional)</label>
               <Input {...register("transactionRef")} placeholder="TXN-XXXXXXXX" />

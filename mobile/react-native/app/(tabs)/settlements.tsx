@@ -3,21 +3,15 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Activity
 import { Stack } from 'expo-router';
 import { trpc } from '@/lib/trpc';
 
-// Define TypeScript types for settlement batches and initiation input
-interface SettlementBatch {
+// Matches the real settlements row (settlements.list returns { rows, total }).
+interface Settlement {
   id: string;
-  batchId: string;
-  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  reference: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   amount: number;
   currency: string;
-  settlementDate: string; // ISO date string
-  transactionCount: number;
-}
-
-interface InitiateSettlementInput {
-  amount: number;
-  currency: string;
-  // In a real app, more fields like 'bankAccount' or 'description' might be needed
+  initiatedAt: string | Date | null;
+  createdAt: string | Date;
 }
 
 export default function SettlementsScreen() {
@@ -26,11 +20,12 @@ export default function SettlementsScreen() {
   const [initiateAmount, setInitiateAmount] = useState('');
   const [initiateCurrency, setInitiateCurrency] = useState('NGN'); // Default to NGN
 
-  // tRPC query to fetch settlement batches
-  const { data: settlementBatches, isLoading, isError, error, refetch } = trpc.settlements.list.useQuery();
+  // settlements.list takes { limit, offset, status? } and returns { rows, total }.
+  const { data: settlementsResult, isLoading, isError, error, refetch } = trpc.settlements.list.useQuery({});
+  const settlements = (settlementsResult?.rows ?? []) as Settlement[];
 
-  // tRPC mutation to initiate a new settlement
-  const initiateSettlementMutation = trpc.settlements.initiateSettlement.useMutation({
+  // Server proc is settlements.create { amount: int >= 100 (kobo), currency }.
+  const initiateSettlementMutation = trpc.settlements.create.useMutation({
     onSuccess: () => {
       Alert.alert('Success', 'Settlement initiated successfully! Your funds are on their way.');
       setInitiateModalVisible(false);
@@ -42,36 +37,40 @@ export default function SettlementsScreen() {
     },
   });
 
-  // Filter settlement batches based on search text
-  const filteredBatches = settlementBatches?.filter(batch =>
-    batch.batchId.toLowerCase().includes(searchText.toLowerCase()) ||
-    batch.status.toLowerCase().includes(searchText.toLowerCase()) ||
-    batch.settlementDate.includes(searchText) ||
-    batch.currency.toLowerCase().includes(searchText.toLowerCase())
+  // Filter settlements based on search text
+  const filteredSettlements = settlements.filter(s =>
+    s.reference.toLowerCase().includes(searchText.toLowerCase()) ||
+    s.status.toLowerCase().includes(searchText.toLowerCase()) ||
+    s.currency.toLowerCase().includes(searchText.toLowerCase())
   );
 
-  // Handle initiation of settlement
+  // Handle initiation of settlement (amount entered in naira, sent in kobo;
+  // server requires an integer >= 100).
   const handleInitiateSettlement = () => {
-    const amount = parseFloat(initiateAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const naira = parseFloat(initiateAmount);
+    if (isNaN(naira) || naira <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid positive amount for settlement.');
+      return;
+    }
+    const amount = Math.round(naira * 100);
+    if (amount < 100) {
+      Alert.alert('Invalid Amount', 'Minimum settlement amount is ₦1.00 (100 kobo).');
       return;
     }
     initiateSettlementMutation.mutate({ amount, currency: initiateCurrency });
   };
 
-  // Render each settlement batch item in the FlatList
-  const renderSettlementItem = ({ item }: { item: SettlementBatch }) => (
-    <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Settlement Details', `Batch ID: ${item.batchId}\nStatus: ${item.status}\nAmount: ${item.currency} ${item.amount.toLocaleString()}\nDate: ${new Date(item.settlementDate).toLocaleDateString()}\nTransactions: ${item.transactionCount}`)}>
+  // Render each settlement item in the FlatList
+  const renderSettlementItem = ({ item }: { item: Settlement }) => (
+    <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Settlement Details', `Reference: ${item.reference}\nStatus: ${item.status}\nAmount: ${item.currency} ${(item.amount / 100).toLocaleString()}\nDate: ${new Date(item.initiatedAt ?? item.createdAt).toLocaleDateString()}`)}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Batch ID: {item.batchId}</Text>
-        <Text style={[styles.cardStatus, item.status === 'COMPLETED' ? styles.statusCompleted : item.status === 'PENDING' ? styles.statusPending : styles.statusFailed]}>
-          {item.status}
+        <Text style={styles.cardTitle}>Ref: {item.reference}</Text>
+        <Text style={[styles.cardStatus, item.status === 'completed' ? styles.statusCompleted : item.status === 'pending' || item.status === 'processing' ? styles.statusPending : styles.statusFailed]}>
+          {item.status.toUpperCase()}
         </Text>
       </View>
-      <Text style={styles.cardText}>Amount: {item.currency} {item.amount.toLocaleString()}</Text>
-      <Text style={styles.cardText}>Date: {new Date(item.settlementDate).toLocaleDateString()}</Text>
-      <Text style={styles.cardText}>Transactions: {item.transactionCount}</Text>
+      <Text style={styles.cardText}>Amount: {item.currency} {(item.amount / 100).toLocaleString()}</Text>
+      <Text style={styles.cardText}>Date: {new Date(item.initiatedAt ?? item.createdAt).toLocaleDateString()}</Text>
     </TouchableOpacity>
   );
 
@@ -103,9 +102,9 @@ export default function SettlementsScreen() {
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : filteredBatches && filteredBatches.length > 0 ? (
+      ) : filteredSettlements.length > 0 ? (
         <FlatList
-          data={filteredBatches}
+          data={filteredSettlements}
           keyExtractor={(item) => item.id}
           renderItem={renderSettlementItem}
           contentContainerStyle={styles.listContent}

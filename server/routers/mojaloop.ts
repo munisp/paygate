@@ -127,6 +127,24 @@ export const mojaloopRouter = router({
           });
         }
 
+        // A2-HIGH-1: persist the quote leg — the bridge returned a real
+        // quoteId/ILP packet for this transfer, and mojaloop_quotes is the
+        // operational record of it. Dedup on quoteId (unique) so retries of
+        // the same initiation never double-record.
+        await db.insert(mojaloopQuotes).values({
+          quoteId: result.quoteId,
+          merchantId: String(ctx.user.id),
+          payerIdType: input.payerIdType,
+          payerIdValue: input.payerIdValue,
+          payeeIdType: input.payeeIdType,
+          payeeIdValue: input.payeeIdValue,
+          amount: Math.round(parseFloat(input.amount) * 100),
+          currency: input.currency,
+          ilpPacket: result.ilpPacket ?? null,
+          condition: result.condition ?? null,
+          expiration: result.expiration ? new Date(result.expiration) : null,
+        }).onConflictDoNothing({ target: mojaloopQuotes.quoteId });
+
         // Persist transfer record. Dedup on the transfer reference: if the
         // transferId is already recorded, return the existing row instead of
         // double-recording (the unique constraint is the backstop).
