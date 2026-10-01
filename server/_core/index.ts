@@ -277,6 +277,7 @@ async function startServer() {
   await mountGuarded("openAppSecHeader (security120)", async () => {
     const m = await import("../security120");
     app.use(m.openAppSecHeaderMiddleware);
+    m.hydrateWAFBlockLog(); // A2-MEDIUM-1: restore persisted WAF blocks
   });
   await mountGuarded("ddosMitigation (security124)", async () => {
     const m = await import("../security124");
@@ -348,6 +349,7 @@ async function startServer() {
   await mountGuarded("payloadScan (security116)", async () => {
     const m = await import("../security116");
     app.use(m.payloadScanMiddleware);
+    m.hydrateAuthFailureLog(); // A2-MEDIUM-1: restore persisted auth failures
   });
 
   // WAF inspects parsed bodies — must run after the body parsers.
@@ -369,12 +371,7 @@ async function startServer() {
   app.use(restoreUncappedBody);
 
   // ── Prometheus scrape endpoint (k8s pod annotations target /api/metrics) ──
-  app.get("/api/metrics", (req, res) => { void metricsHandler(req, res); });
-
-  // ── Tenant-aggregated Prometheus metrics (subdomainMiddleware.ts) ─────────
-  // Tenant usage / chargeback / SLA gauges. Exposes tenant-level aggregates, so
-  // it is served only when PROMETHEUS_ENABLED=true (scrape job in the cluster)
-  // or to loopback/private-network clients; everyone else gets a loud 404.
+  // A4: metrics exposure is internal-only — same guard as /metrics below.
   const isInternalMetricsClient = (req: express.Request): boolean => {
     const ip = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
     return (
@@ -383,6 +380,16 @@ async function startServer() {
       /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
     );
   };
+  app.get("/api/metrics", (req, res, next) => {
+    if (process.env.PROMETHEUS_ENABLED === "true" || isInternalMetricsClient(req)) return next();
+    console.warn(`[metrics] /api/metrics request from non-internal client ${req.socket.remoteAddress ?? "unknown"} rejected (set PROMETHEUS_ENABLED=true to expose)`);
+    res.status(404).json({ error: "Not Found" });
+  }, (req, res) => { void metricsHandler(req, res); });
+
+  // ── Tenant-aggregated Prometheus metrics (subdomainMiddleware.ts) ─────────
+  // Tenant usage / chargeback / SLA gauges. Exposes tenant-level aggregates, so
+  // it is served only when PROMETHEUS_ENABLED=true (scrape job in the cluster)
+  // or to loopback/private-network clients; everyone else gets a loud 404.
   await mountGuarded("prometheusMetrics /metrics (subdomainMiddleware)", async () => {
     const m = await import("../subdomainMiddleware");
     app.get(
