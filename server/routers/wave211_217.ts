@@ -447,6 +447,16 @@ export const insuranceRouter = router({
            ${input.policyType.toLowerCase()}, 'active',
            ${new Date(input.endDate)}, NOW())
       `);
+      // A2-HIGH-1: record the first scheduled premium payment so the premium
+      // ledger (insurance_premium_payments, read by scoreLapseRisk /
+      // listPremiumPayments) has a real row from the policy-creation producer.
+      await db.execute(sql`
+        INSERT INTO insurance_premium_payments
+          (policy_id, policy_number, amount, currency, due_date, status, created_at)
+        VALUES
+          (${id}, ${policyNumber}, ${input.premiumAmount}, ${input.currency},
+           ${input.startDate}, 'PENDING', NOW())
+      `);
       return { id, policyNumber, status: "active" };
     }),
 
@@ -813,6 +823,10 @@ export const energyRouter = router({
       pageSize: z.number().default(20),
     }))
     .query(async ({ input, ctx }) => {
+      // A2-HIGH-1 writer note: energy_vend_transactions rows are written by
+      // the external STS vend rail integration (disco/meter token provider) —
+      // energy.initiateVend below fails loud because that rail is not yet
+      // integrated, so this reader intentionally has no in-repo writer.
       const offset = (input.page - 1) * input.pageSize;
       const scope = isAdminUser(ctx) ? sql`` : sql`AND created_by = ${ctx.user.openId}`;
       const rows = await db.execute(sql`
