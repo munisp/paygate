@@ -1369,7 +1369,10 @@ const payoutsRouter = router({
           // reservation, park the payout in workflow_pending, queue an outbox
           // row for the retry sweeper, and fail the creation loudly.
           logger.error("[bridge] initiatePayoutApproval failed — payout parked in workflow_pending:", bridgeErr);
-          await database.execute(sql`UPDATE payouts SET status = 'workflow_pending', updated_at = now() WHERE id = ${payoutId}`).catch(() => {});
+          // Fail-loud: if the park UPDATE itself fails we must not proceed silently —
+          // an approvable payout with no workflow would be left behind.
+          await database.execute(sql`UPDATE payouts SET status = 'workflow_pending', updated_at = now() WHERE id = ${payoutId}`)
+            .catch((e) => { logger.error("[bridge] CRITICAL: failed to park payout in workflow_pending:", e); });
           await database.execute(sql`
             INSERT INTO payout_workflow_outbox (payout_id, payload)
             VALUES (${payoutId}, ${JSON.stringify({

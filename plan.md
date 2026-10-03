@@ -1,27 +1,23 @@
-# PayGate — Wave 5: In-Memory Map Audit & Persistence Remediation
+# PayGate — Wave 6: End-to-End Feature↔Service↔Data Map + Data-Loss Verification + Visualization
 
 ## Goal
-Find every in-memory store (`new Map(`, `new Set(`, module-level caches, `sync.Map`, `map[...]...` globals, `HashMap`/`RwLock` statics, Python dict/module globals) across TS/JS, Go, Rust, Python. Classify each:
-- **CRITICAL** — business data (money, ledger, transactions, accounts, mandates, balances, idempotency keys) → must persist to Postgres (real table) or TigerBeetle/Redis per domain.
-- **MEDIUM** — session/auth/security state (rate-limit counters, OTP, tokens, replay guards, audit) → Redis (shared, TTL) or DB write-through (per 0107 pattern).
-- **BENIGN** — pure cache with a correct miss path (fail-open lookup cache) → keep, document; or bounded with eviction.
-- **TEST-ONLY** — in test files → leave.
+1. Verify every frontend surface (web PWA, Flutter, RN) maps to a backend service/router.
+2. Verify every backend service maps to database tables (CRUD) and its middleware components (Kafka, Redis, Temporal, Keycloak, Permify, Mojaloop, OpenSearch, TigerBeetle, Dapr, Fluvio, APISIX, OpenAppSec, Sedona/GeoLibre, lakehouse).
+3. Verify no data loss: every mutation persists; every table has a writer; every event has a consumer.
+4. Deliver a VISUAL interactive map of features → services → middleware → tables (browser deliverable) + written gap report.
 
-## Discipline (carried)
-FIX_ALL_IN_SCOPE. No mocks/stubs/placeholders on production paths. Fail-loud. PGlite-backed tests where feasible. Adversarial verification. Gates per language. Report BLOCKED honestly.
+## Stage 1 — Mapping extraction (3 parallel agents, read-only)
+- X1: server tRPC → build JSON: for each of ~256 router namespaces: file, procedure count, DB tables read/written (from drizzle imports/SQL), middleware/integration clients used (redis/kafka/temporal/etc. by import), frontend consumers (grep web client + flutter + RN for `trpc.<ns>`).
+- X2: services layer → go-bridge packages, 13 rust-services, python-services: each service's routes, tables read/written, middleware deps (env vars/clients), who calls it (TS server or bridge proxy), event topics produced/consumed.
+- X3: data-loss sweep → mutations without persistence, tables with no writer (refresh wave-4 list post-waves 4/5), Kafka/Fluvio topics without consumers, webhook/event flows without durable storage. Output gaps JSON.
 
-## Stage 1 — Audit (4 parallel read-only auditors)
-- M1: server/ + client/ TS/JS (excluding node_modules, dist) — every Map/Set/module cache; for each: file:line, what it stores, read/write paths, restart impact, classification, persistence target.
-- M2: go-bridge/ Go — package-level maps/slices holding state, sync.Map, in-mem fallbacks.
-- M3: rust-services/ Rust — statics, lazy_static/OnceLock, HashMap in AppState, in-mem stores (note baseline-broken crates).
-- M4: python-services/ + mobile (Dart/Kotlin/Swift if present) — module globals, in-mem stores, and mobile persistence gaps (in-memory caches that should be disk/secure storage).
-Output: unified table (file:line | language | stores | classification | persistence target | fix sketch).
+Output format (all three): JSON files under /mnt/agents/output/paygate/.work/wave6/ — features.json, services.json, gaps.json with fields: name, type, consumers[], tablesRead[], tablesWrite[], middleware[], status(ok/orphan/no-writer/no-consumer/blocked).
 
-## Stage 2 — Fixes (disjoint ownership)
-- W17: server CRITICAL items → real drizzle tables + migrations 0108+, write-through + hydration (0107 pattern), PGlite/vitest coverage.
-- W18: server MEDIUM items → Redis-backed (fail-closed for money-path counters; fail-open only for pure caches) or DB write-through.
-- W19: go-bridge + rust-services fixes (respect baseline-broken crates: pattern parity + honest report).
-- W20: python + mobile fixes.
+## Stage 2 — Consolidation (lead)
+Merge into one map.json; cross-validate counts vs wave-4/5 audit results (44% orphan proc baseline, 30 read-only tables → 10 fixed, etc.). Adversarial spot-check 10 random entries against source.
 
-## Stage 3 — Gates + commit + push + report
-Gates: server tsc, vitest money paths, go build/vet, cargo check (4 compilable crates), py_compile. Commit wave 5, push (PAT if fresh one provided, else MCP), report .md + .docx.
+## Stage 3 — Visualization (1 agent)
+Interactive single-page HTML app (self-contained, vis-network or cytoscape via vendored JS or hand-rolled canvas; no external CDN dependency risk — inline data): layered graph UI [Frontend surfaces] → [tRPC namespaces / services] → [middleware] → [DB tables], with filters (orphans, no-writer tables, missing middleware), search, and gap highlighting. Also a data-flow diagram page (mermaid-style or SVG) for the main money paths. Deliver via website_version_manager (type html).
+
+## Stage 4 — Report
+.md + .docx gap & data-flow report with REF tags.

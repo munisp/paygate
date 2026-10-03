@@ -1,0 +1,2293 @@
+[
+ {
+  "service": "billing-engine",
+  "lang": "rust",
+  "path": "rust-services/billing-engine",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/metered/aggregate",
+    "/proration/calculate"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "temporal"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/billing/health",
+   "go-bridge proxy /v1/billing/invoice",
+   "go-bridge proxy /v1/billing/subscription",
+   "ts:server/routers/billing.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "credit-scoring",
+  "lang": "rust",
+  "path": "rust-services/credit-scoring",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/analytics/query",
+    "/features/{merchant_id}",
+    "/health",
+    "/score/calculate",
+    "/score/merchant"
+   ]
+  },
+  "tablesRead": [
+   "arrow",
+   "cast",
+   "columnar",
+   "datafusion",
+   "parquet",
+   "transactions"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "lakehouse",
+   "s3/minio"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/credit-scoring/health",
+   "go-bridge proxy /v1/credit-scoring/score",
+   "ts:server/routers/apPayOverTime.ts",
+   "ts:server/wave25Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "cross-border-fraud-engine",
+  "lang": "rust",
+  "path": "rust-services/cross-border-fraud-engine",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/health",
+    "/v1/metrics",
+    "/v1/rules",
+    "/v1/score"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "mojaloop"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/cross-border-fraud/health",
+   "go-bridge proxy /v1/cross-border-fraud/score"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "crypto-guard",
+  "lang": "rust",
+  "path": "rust-services/crypto-guard",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/nonce/csrf",
+    "/nonce/generate",
+    "/nonce/idempotency-key",
+    "/nonce/payment",
+    "/nonce/webhook",
+    "/replay/check",
+    "/verify/hmac",
+    "/verify/webhook"
+   ]
+  },
+  "tablesRead": [
+   "nibss",
+   "vault"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "mojaloop",
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "insider-threat-engine",
+  "lang": "rust",
+  "path": "rust-services/insider-threat-engine",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/baseline/update",
+    "/health",
+    "/metrics",
+    "/score"
+   ]
+  },
+  "tablesRead": [
+   "live",
+   "their"
+  ],
+  "tablesWrite": [
+   "actor",
+   "actor_baselines",
+   "baselines",
+   "postgres",
+   "will"
+  ],
+  "middleware": [
+   "tigerbeetle"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "inventory-engine",
+  "lang": "rust",
+  "path": "rust-services/inventory-engine",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/inventory/adjust",
+    "/inventory/check",
+    "/inventory/release",
+    "/inventory/reserve",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "inventory_audit_log",
+   "inventory_items",
+   "inventory_reservations"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/inventory/health",
+   "go-bridge proxy /v1/inventory/items",
+   "ts:server/microservices.ts",
+   "ts:server/routers.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "kyc-ocr-engine",
+  "lang": "rust",
+  "path": "rust-services/kyc-ocr-engine",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/ocr",
+    "/ocr/bulk"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/kyc-ocr/extract",
+   "go-bridge proxy /v1/kyc-ocr/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "liveness-signal-processor",
+  "lang": "rust",
+  "path": "rust-services/liveness-signal-processor",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/analyse",
+    "/analyse/batch",
+    "/calibrate",
+    "/health",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [
+   "handcrafted"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "temporal"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "loyalty-ledger",
+  "lang": "rust",
+  "path": "rust-services/loyalty-ledger",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/loyalty/balance",
+    "/loyalty/earn",
+    "/loyalty/history",
+    "/loyalty/redeem",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "loyalty_accounts",
+   "loyalty_ledger"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/loyalty-ledger/accounts",
+   "go-bridge proxy /v1/loyalty-ledger/health",
+   "ts:server/microservices.ts",
+   "ts:server/routers.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "tigerbeetle-ledger",
+  "lang": "rust",
+  "path": "rust-services/tigerbeetle-ledger",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/v1/ledger"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "ledger_accounts",
+   "ledger_transfers"
+  ],
+  "middleware": [
+   "mojaloop",
+   "temporal",
+   "tigerbeetle"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/tigerbeetle-ledger/accounts",
+   "go-bridge proxy /v1/tigerbeetle-ledger/health",
+   "go-bridge proxy /v1/tigerbeetle-ledger/transfers",
+   "ts:server/routers/middlewareDashboard.ts",
+   "ts:server/routers/wave162.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "tigerbeetle-recon",
+  "lang": "rust",
+  "path": "rust-services/tigerbeetle-recon",
+  "endpoints": {
+   "count": 0,
+   "prefixes": []
+  },
+  "tablesRead": [
+   "postgres",
+   "transactions"
+  ],
+  "tablesWrite": [
+   "recon_runs"
+  ],
+  "middleware": [
+   "kafka",
+   "tigerbeetle"
+  ],
+  "topicsProduced": [
+   "ledger.discrepancy"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/tigerbeetle-recon/health",
+   "go-bridge proxy /v1/tigerbeetle-recon/reconcile"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "velocity-counter",
+  "lang": "rust",
+  "path": "rust-services/velocity-counter",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/check/{merchant_id}",
+    "/current/{merchant_id}",
+    "/health"
+   ]
+  },
+  "tablesRead": [
+   "both"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/velocityEnforcer.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "wallet-ffi",
+  "lang": "rust",
+  "path": "rust-services/wallet-ffi",
+  "endpoints": {
+   "count": 0,
+   "prefixes": []
+  },
+  "tablesRead": [
+   "base58",
+   "solana"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/wallet-ffi/balance",
+   "go-bridge proxy /v1/wallet-ffi/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "accounting-sync",
+  "lang": "python",
+  "path": "python-services/accounting-sync",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/{provider}/oauth",
+    "/{provider}/pull",
+    "/{provider}/push",
+    "/{provider}/refresh"
+   ]
+  },
+  "tablesRead": [
+   "caller",
+   "paygate"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "ts:server/_core/env.ts",
+   "ts:server/routers/accountingSync.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "ai-insights",
+  "lang": "python",
+  "path": "python-services/ai-insights",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/cohort-analysis",
+    "/health",
+    "/insights",
+    "/settlement-forecast"
+   ]
+  },
+  "tablesRead": [
+   "activity",
+   "first_txn",
+   "settled_at",
+   "settlements",
+   "transactions"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "fluvio",
+   "kafka",
+   "lakehouse",
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/ai-insights/health",
+   "go-bridge proxy /v1/ai-insights/query",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "aml-monitor",
+  "lang": "python",
+  "path": "python-services/aml-monitor",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/alerts",
+    "/alerts/{alert_id}",
+    "/health",
+    "/risk-score/{merchant_id}"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "aml_alerts"
+  ],
+  "middleware": [
+   "kafka",
+   "permify",
+   "redis"
+  ],
+  "topicsProduced": [
+   "payment.completed",
+   "transaction.completed",
+   "transfer.completed"
+  ],
+  "topicsConsumed": [
+   "paygate.payments",
+   "paygate.transactions"
+  ],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/aml-monitor/health",
+   "go-bridge proxy /v1/aml-monitor/screen"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "art-reasoning",
+  "lang": "python",
+  "path": "python-services/art-reasoning",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/v1/assess",
+    "/v1/investigate",
+    "/v1/reason",
+    "/v1/resolve",
+    "/v1/trace"
+   ]
+  },
+  "tablesRead": [
+   "accumulated",
+   "factors"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "compose:lakehouse-ai",
+   "go-bridge proxy /v1/art-reasoning/health",
+   "go-bridge proxy /v1/art-reasoning/reason",
+   "ts:server/_core/env.ts",
+   "ts:server/routers/apAssistant.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "bill-inbox",
+  "lang": "python",
+  "path": "python-services/bill-inbox",
+  "endpoints": {
+   "count": 2,
+   "prefixes": [
+    "/health",
+    "/ingress/sendgrid"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "ts:server/_core/env.ts",
+   "ts:server/routers/apBillInbox.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "bulk-collections",
+  "lang": "python",
+  "path": "python-services/bulk-collections",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/bulk-collections/create",
+    "/bulk-collections/details",
+    "/bulk-collections/export",
+    "/bulk-collections/list",
+    "/bulk-collections/remind",
+    "/health",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "bulk_collection_items",
+   "bulk_collections"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/adminRouter.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "carbon-oracle",
+  "lang": "python",
+  "path": "python-services/carbon-oracle",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/calculate",
+    "/health",
+    "/price",
+    "/projects",
+    "/retire"
+   ]
+  },
+  "tablesRead": [
+   "gold"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "cashback-rewards",
+  "lang": "python",
+  "path": "python-services/cashback-rewards",
+  "endpoints": {
+   "count": 8,
+   "prefixes": [
+    "/cashback/balance",
+    "/cashback/earn",
+    "/cashback/history",
+    "/cashback/merchant-config",
+    "/cashback/redeem",
+    "/health",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "cashback_merchant_configs",
+   "cashback_transactions"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/cashback/calculate",
+   "go-bridge proxy /v1/cashback/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "cips-upi-pix-fx",
+  "lang": "python",
+  "path": "python-services/cips-upi-pix-fx",
+  "endpoints": {
+   "count": 12,
+   "prefixes": [
+    "/health",
+    "/v1/corridors",
+    "/v1/currencies",
+    "/v1/fx",
+    "/v1/iso20022",
+    "/v1/quote",
+    "/v1/rails",
+    "/v1/rates"
+   ]
+  },
+  "tablesRead": [
+   "basis",
+   "corridors",
+   "live",
+   "namespace",
+   "root"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "mojaloop",
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/cips-upi-pix-fx/health",
+   "go-bridge proxy /v1/cips-upi-pix-fx/rates"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "cocoindex",
+  "lang": "python",
+  "path": "python-services/cocoindex",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/run",
+    "/run/{pipeline_name}",
+    "/status",
+    "/watermarks",
+    "/watermarks/{source}"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "falkordb",
+   "indexable",
+   "qdrant"
+  ],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "redis",
+   "s3/minio"
+  ],
+  "topicsProduced": [
+   "paygate-lakehouse"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/cocoindex/health",
+   "go-bridge proxy /v1/cocoindex/index"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "cohort-analytics",
+  "lang": "python",
+  "path": "python-services/cohort-analytics",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/cohorts/churn-predictions",
+    "/cohorts/ltv",
+    "/cohorts/retention",
+    "/health"
+   ]
+  },
+  "tablesRead": [
+   "customer_stats",
+   "transactions",
+   "tx_intervals"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/cohort/analyze",
+   "go-bridge proxy /v1/cohort/health",
+   "ts:server/tier6to8Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "credit-scoring",
+  "lang": "python",
+  "path": "python-services/credit-scoring",
+  "endpoints": {
+   "count": 2,
+   "prefixes": [
+    "/health",
+    "/score"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/credit-scoring-py/health",
+   "go-bridge proxy /v1/credit-scoring-py/score",
+   "ts:server/routers/apPayOverTime.ts",
+   "ts:server/wave25Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "deepface-sidecar",
+  "lang": "python",
+  "path": "python-services/deepface-sidecar",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/analyze",
+    "/health",
+    "/liveness",
+    "/ready",
+    "/search",
+    "/verify-face"
+   ]
+  },
+  "tablesRead": [
+   "pgvector"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "digital-gold",
+  "lang": "python",
+  "path": "python-services/digital-gold",
+  "endpoints": {
+   "count": 8,
+   "prefixes": [
+    "/buy",
+    "/health",
+    "/history",
+    "/holdings",
+    "/price",
+    "/sell",
+    "/sip/create",
+    "/sip/list"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "digital_gold_holdings",
+   "digital_gold_transactions",
+   "gold_sip_plans"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/adminRouter.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "emi-service",
+  "lang": "python",
+  "path": "python-services/emi-service",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/emi/initiate",
+    "/emi/merchant-config",
+    "/emi/plans",
+    "/emi/repay",
+    "/emi/schedule",
+    "/health",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "emi_applications",
+   "emi_merchant_configs",
+   "emi_plans",
+   "emi_repayments"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/emi/health",
+   "go-bridge proxy /v1/emi/schedule",
+   "ts:server/adminRouter.ts",
+   "ts:server/routers/apPayOverTime.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "fatf-sanctions-sync",
+  "lang": "python",
+  "path": "python-services/fatf-sanctions-sync",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/health",
+    "/lookup/jurisdiction",
+    "/lookup/name",
+    "/status",
+    "/sync"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "checksum",
+   "sanctions_entries",
+   "sanctions_jurisdictions",
+   "sanctions_sync_log"
+  ],
+  "middleware": [
+   "kafka",
+   "opensearch",
+   "redis",
+   "temporal"
+  ],
+  "topicsProduced": [
+   "paygate.compliance.sanctions.updated"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "fraud-heatmap",
+  "lang": "python",
+  "path": "python-services/fraud-heatmap",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/clusters",
+    "/corridor",
+    "/health",
+    "/heatmap",
+    "/hotspots",
+    "/spatial-query",
+    "/velocity"
+   ]
+  },
+  "tablesRead": [
+   "clustered",
+   "fraud_events",
+   "fraud_events_geo",
+   "hotspot_events"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "fluvio",
+   "geolibre",
+   "kafka",
+   "redis",
+   "sedona"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/fraud-heatmap/data",
+   "go-bridge proxy /v1/fraud-heatmap/health",
+   "ts:server/tier6to8Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "fraud-scoring",
+  "lang": "python",
+  "path": "python-services/fraud-scoring",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/batch-score",
+    "/v1/score"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "fluvio",
+   "kafka"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "compose:art-reasoning",
+   "compose:gnn-fraud",
+   "compose:go-bridge",
+   "compose:lakehouse-ai",
+   "go-bridge proxy /v1/fraud-scoring/health",
+   "go-bridge proxy /v1/fraud-scoring/score",
+   "go-bridge/internal/temporal (FRAUD_SCORING_URL \u2192 http://fraud-scoring:8000)",
+   "ts:server/fluvioClient.ts",
+   "ts:server/microservices.ts",
+   "ts:server/routers.ts",
+   "ts:server/wave25Router.ts",
+   "ts:server/wave27Router.ts",
+   "ts:server/wave80Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "fx-rate-feed",
+  "lang": "python",
+  "path": "python-services/fx-rate-feed",
+  "endpoints": {
+   "count": 0,
+   "prefixes": []
+  },
+  "tablesRead": [
+   "external",
+   "provider"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "fluvio",
+   "kafka",
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/fx-rate/health",
+   "go-bridge proxy /v1/fx-rate/rates"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "gnn-fraud",
+  "lang": "python",
+  "path": "python-services/gnn-fraud",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/batch-score",
+    "/v1/graph-stats",
+    "/v1/score"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "redis",
+   "temporal"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/gnn-fraud/health",
+   "go-bridge proxy /v1/gnn-fraud/predict"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "insurance-pricing",
+  "lang": "python",
+  "path": "python-services/insurance-pricing",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/enroll",
+    "/health",
+    "/products",
+    "/quote"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/insurance/health",
+   "go-bridge proxy /v1/insurance/quote"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "intl-remittance",
+  "lang": "python",
+  "path": "python-services/intl-remittance",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/intl-remittance/corridors",
+    "/intl-remittance/history",
+    "/intl-remittance/quote",
+    "/intl-remittance/track",
+    "/intl-remittance/transfer",
+    "/metrics"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "remittances"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/adminRouter.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "iso20022-parser",
+  "lang": "python",
+  "path": "python-services/iso20022-parser",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/generate",
+    "/health",
+    "/parse",
+    "/schemas"
+   ]
+  },
+  "tablesRead": [
+   "namespace",
+   "structured"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/iso20022/health",
+   "go-bridge proxy /v1/iso20022/parse"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "kiosk-health",
+  "lang": "python",
+  "path": "python-services/kiosk-health",
+  "endpoints": {
+   "count": 5,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/kiosk"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/kiosk/health",
+   "go-bridge proxy /v1/kiosk/status",
+   "ts:server/microservices.ts",
+   "ts:server/routers.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "knowledge-graph",
+  "lang": "python",
+  "path": "python-services/knowledge-graph",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/v1/analytics",
+    "/v1/graph",
+    "/v1/kgqa",
+    "/v1/query"
+   ]
+  },
+  "tablesRead": [
+   "detected",
+   "natural",
+   "predefined"
+  ],
+  "tablesWrite": [
+   "cypher"
+  ],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "compose:art-reasoning",
+   "compose:lakehouse-ai",
+   "go-bridge proxy /v1/knowledge-graph/health",
+   "go-bridge proxy /v1/knowledge-graph/query"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "kyc-ocr",
+  "lang": "python",
+  "path": "python-services/kyc-ocr",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/extract",
+    "/extract/fast",
+    "/extract/vlm",
+    "/health"
+   ]
+  },
+  "tablesRead": [
+   "response"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "s3/minio"
+  ],
+  "topicsProduced": [
+   "paygate-kyc-documents",
+   "paygate.kyc.ocr.completed"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/kyc-ocr-py/health",
+   "go-bridge proxy /v1/kyc-ocr-py/verify",
+   "ts:server/routers/apBillInbox.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "lakehouse-ai",
+  "lang": "python",
+  "path": "python-services/lakehouse-ai",
+  "endpoints": {
+   "count": 16,
+   "prefixes": [
+    "/health",
+    "/v1/audit",
+    "/v1/features",
+    "/v1/inference",
+    "/v1/metrics",
+    "/v1/models",
+    "/v1/pipeline",
+    "/v1/training"
+   ]
+  },
+  "tablesRead": [
+   "parquet"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "redis",
+   "s3/minio"
+  ],
+  "topicsProduced": [
+   "paygate-lakehouse",
+   "paygate.ai.decisions"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/lakehouse-ai/health",
+   "go-bridge proxy /v1/lakehouse-ai/infer",
+   "go-bridge proxy /v1/lakehouse-ai/train",
+   "ts:server/routers.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "lakehouse-audit",
+  "lang": "python",
+  "path": "python-services/lakehouse-audit",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/audit"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "s3/minio"
+  ],
+  "topicsProduced": [
+   "paygate-audit-events",
+   "paygate-lakehouse-sink"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/lakehouse-audit/health",
+   "go-bridge proxy /v1/lakehouse-audit/query"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "lakehouse-v2",
+  "lang": "python",
+  "path": "python-services/lakehouse-v2",
+  "endpoints": {
+   "count": 18,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/lakehouse",
+    "/v2/datasets",
+    "/v2/export",
+    "/v2/ingest",
+    "/v2/query",
+    "/v2/query-history",
+    "/v2/sample",
+    "/v2/saved-queries"
+   ]
+  },
+  "tablesRead": [
+   "oltp",
+   "read_parquet",
+   "target",
+   "targets",
+   "transactions",
+   "user"
+  ],
+  "tablesWrite": [
+   "lakehouse_export_jobs",
+   "lakehouse_query_history",
+   "lakehouse_saved_queries"
+  ],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "mojaloop",
+   "s3/minio"
+  ],
+  "topicsProduced": [
+   "cips-fx",
+   "lakehouse-crossborder",
+   "paygate-fx",
+   "paygate-lakehouse",
+   "paygate.cips.transfer.settled",
+   "paygate.fx.rate.updated",
+   "paygate.mojaloop.transfer.fulfilled",
+   "paygate.pix.payment.settled",
+   "paygate.upi.pay.settled"
+  ],
+  "topicsConsumed": [
+   "lakehouse-crossborder-ingestion"
+  ],
+  "calledBy": [
+   "ts:server/routers/middlewareDashboard.ts",
+   "ts:server/tier6to8Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "liveness-detection",
+  "lang": "python",
+  "path": "python-services/liveness-detection",
+  "endpoints": {
+   "count": 8,
+   "prefixes": [
+    "/health",
+    "/liveness/active",
+    "/liveness/detect",
+    "/liveness/extract",
+    "/liveness/face-match",
+    "/liveness/full",
+    "/liveness/landmarks",
+    "/liveness/passive"
+   ]
+  },
+  "tablesRead": [
+   "camera"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka"
+  ],
+  "topicsProduced": [
+   "liveness.events"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/liveness/check",
+   "go-bridge proxy /v1/liveness/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "merchant-ussd-fallback",
+  "lang": "python",
+  "path": "python-services/merchant-ussd-fallback",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/locales",
+    "/v1/sms",
+    "/v1/ussd"
+   ]
+  },
+  "tablesRead": [
+   "language",
+   "locales",
+   "paygate"
+  ],
+  "tablesWrite": [
+   "fallback",
+   "runtime",
+   "session"
+  ],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "mpesa-connector",
+  "lang": "python",
+  "path": "python-services/mpesa-connector",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/mpesa"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/mpesa/health",
+   "go-bridge proxy /v1/mpesa/stk-push"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "mutual-funds",
+  "lang": "python",
+  "path": "python-services/mutual-funds",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/mutual-funds/invest",
+    "/mutual-funds/list",
+    "/mutual-funds/nav-history",
+    "/mutual-funds/portfolio",
+    "/mutual-funds/redeem",
+    "/mutual-funds/sip",
+    "/mutual-funds/sips"
+   ]
+  },
+  "tablesRead": [
+   "cowrywise",
+   "fund_nav_history"
+  ],
+  "tablesWrite": [
+   "fund_investments",
+   "fund_redemptions",
+   "fund_sips"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/adminRouter.ts",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "openappsec-waf",
+  "lang": "python",
+  "path": "python-services/openappsec-waf",
+  "endpoints": {
+   "count": 8,
+   "prefixes": [
+    "/health",
+    "/v1/waf"
+   ]
+  },
+  "tablesRead": [
+   "allowlist",
+   "apisix",
+   "blocklist",
+   "openappsec"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "apisix",
+   "kafka",
+   "openappsec",
+   "redis"
+  ],
+  "topicsProduced": [
+   "paygate-global",
+   "paygate.waf.events"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "opensearch-indexer",
+  "lang": "python",
+  "path": "python-services/opensearch-indexer",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/health",
+    "/index",
+    "/indices",
+    "/search"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "opensearch"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [
+   "paygate.transactions",
+   "paygate.audit_events",
+   "paygate.fraud_alerts",
+   "paygate.kyc_events"
+  ],
+  "calledBy": [],
+  "status": "unreachable"
+ },
+ {
+  "service": "opensearch-service",
+  "lang": "python",
+  "path": "python-services/opensearch-service",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/search"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "mojaloop",
+   "opensearch"
+  ],
+  "topicsProduced": [
+   "paygate-audit-events",
+   "paygate-crossborder",
+   "paygate-customers",
+   "paygate-fraud-alerts",
+   "paygate-merchants",
+   "paygate-transactions",
+   "paygate.audit.events",
+   "paygate.cips.transfer.settled",
+   "paygate.fraud.alert",
+   "paygate.mojaloop.transfer.fulfilled",
+   "paygate.pix.payment.settled",
+   "paygate.transaction.completed",
+   "paygate.upi.pay.settled"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/opensearch/health",
+   "go-bridge proxy /v1/opensearch/index",
+   "go-bridge proxy /v1/opensearch/search"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "payroll",
+  "lang": "python",
+  "path": "python-services/payroll",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/payroll"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/_core/env.ts",
+   "ts:server/db.ts",
+   "ts:server/microservices.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts",
+   "ts:server/routers.ts",
+   "ts:server/routers/crud120.ts",
+   "ts:server/routers/crud120b.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "pension-nps",
+  "lang": "python",
+  "path": "python-services/pension-nps",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/pension/accounts",
+    "/pension/calculator",
+    "/pension/contribute",
+    "/pension/enroll",
+    "/pension/statement"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "pension_accounts",
+   "pension_contributions"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/pension/enroll",
+   "go-bridge proxy /v1/pension/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "push-service",
+  "lang": "python",
+  "path": "python-services/push-service",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/alerts/webhook",
+    "/health",
+    "/metrics",
+    "/notify/consumer",
+    "/notify/merchant",
+    "/notify/tokens",
+    "/notify/topic",
+    "/tokens/deregister",
+    "/tokens/register"
+   ]
+  },
+  "tablesRead": [
+   "alert"
+  ],
+  "tablesWrite": [
+   "device_push_tokens",
+   "groups"
+  ],
+  "middleware": [],
+  "topicsProduced": [
+   "com.paygate.consumer",
+   "main.get_consumer_tokens",
+   "merchant-paygate-123",
+   "paygate-alert"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/push/health",
+   "go-bridge proxy /v1/push/send",
+   "ts:server/wave80Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "reconciliation-engine",
+  "lang": "python",
+  "path": "python-services/reconciliation-engine",
+  "endpoints": {
+   "count": 4,
+   "prefixes": [
+    "/health",
+    "/reconcile",
+    "/reconciliation-records",
+    "/reconciliation-runs"
+   ]
+  },
+  "tablesRead": [
+   "nibss",
+   "transactions"
+  ],
+  "tablesWrite": [
+   "reconciliation_records",
+   "reconciliation_runs"
+  ],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "redis"
+  ],
+  "topicsProduced": [
+   "paygate.transactions",
+   "settlement.batch.completed"
+  ],
+  "topicsConsumed": [
+   "paygate.settlements"
+  ],
+  "calledBy": [
+   "go-bridge proxy /v1/reconciliation-engine/health",
+   "go-bridge proxy /v1/reconciliation-engine/run"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "regulatory-reporting",
+  "lang": "python",
+  "path": "python-services/regulatory-reporting",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/health",
+    "/reports/form-a",
+    "/reports/form-b",
+    "/reports/form-c",
+    "/scheme/{scheme}",
+    "/submit/str"
+   ]
+  },
+  "tablesRead": [
+   "response"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/routers/psp-production.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "salary-accounts",
+  "lang": "python",
+  "path": "python-services/salary-accounts",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/salary-accounts/account",
+    "/salary-accounts/advance",
+    "/salary-accounts/advances",
+    "/salary-accounts/open",
+    "/salary-accounts/payroll"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "payroll_runs",
+   "salary_accounts",
+   "salary_advances"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "settlement-forecast",
+  "lang": "python",
+  "path": "python-services/settlement-forecast",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/cohort",
+    "/forecast",
+    "/health"
+   ]
+  },
+  "tablesRead": [
+   "customers",
+   "transactions"
+  ],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/settlement-forecast/health",
+   "go-bridge proxy /v1/settlement-forecast/predict",
+   "ts:server/tier1to5Router.ts",
+   "ts:server/tier6to8Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "soundbox",
+  "lang": "python",
+  "path": "python-services/soundbox",
+  "endpoints": {
+   "count": 9,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/soundbox/alerts",
+    "/soundbox/configure",
+    "/soundbox/devices",
+    "/soundbox/payment-alert",
+    "/soundbox/register",
+    "/soundbox/stats",
+    "/soundbox/test-audio"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [
+   "soundbox_devices",
+   "soundbox_transactions"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/adminRouter.ts",
+   "ts:server/db.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/newFeaturesRouter.ts",
+   "ts:server/routers.ts",
+   "ts:server/routers/crud119.ts",
+   "ts:server/routers/wave124.ts",
+   "ts:server/seed.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "spark-compaction",
+  "lang": "python",
+  "path": "python-services/spark-compaction",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/v1/compact",
+    "/v1/tables",
+    "/v1/vacuum"
+   ]
+  },
+  "tablesRead": [
+   "object"
+  ],
+  "tablesWrite": [
+   "larger"
+  ],
+  "middleware": [
+   "lakehouse",
+   "s3/minio"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/spark/compact",
+   "go-bridge proxy /v1/spark/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "tax-engine",
+  "lang": "python",
+  "path": "python-services/tax-engine",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/calculate",
+    "/health",
+    "/rates",
+    "/remittance",
+    "/tin/validate",
+    "/wht/rates"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/routers/taxCompliance.ts",
+   "ts:server/tier6to8Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "threat-intel",
+  "lang": "python",
+  "path": "python-services/threat-intel",
+  "endpoints": {
+   "count": 11,
+   "prefixes": [
+    "/analyze/ddos",
+    "/analyze/ip-reputation",
+    "/analyze/login",
+    "/analyze/transaction",
+    "/geoip/reload",
+    "/geoip/status",
+    "/health",
+    "/metrics",
+    "/model/retrain",
+    "/threat-feed/ingest",
+    "/threat-feed/stats"
+   ]
+  },
+  "tablesRead": [
+   "high",
+   "same",
+   "threat"
+  ],
+  "tablesWrite": [
+   "velocity"
+  ],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "ts:server/security116.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "ueba-service",
+  "lang": "python",
+  "path": "python-services/ueba-service",
+  "endpoints": {
+   "count": 7,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/retrain",
+    "/v1/ueba"
+   ]
+  },
+  "tablesRead": [
+   "created_at",
+   "transactions"
+  ],
+  "tablesWrite": [
+   "role"
+  ],
+  "middleware": [
+   "kafka",
+   "redis",
+   "temporal"
+  ],
+  "topicsProduced": [
+   "alert-enrich",
+   "payout.approve",
+   "settlement.force"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge/internal/temporal (UEBA_SERVICE_URL \u2192 http://ueba-service:8500)",
+   "ts:server/routers/insiderThreat.ts (UEBA_SERVICE_URL)"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "usdc-lakehouse-consumer",
+  "lang": "python",
+  "path": "python-services/usdc-lakehouse-consumer",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/usdc"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "lakehouse",
+   "s3/minio"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [
+   "paygate.usdc.deposit.received",
+   "paygate.usdc.payout.settled"
+  ],
+  "calledBy": [
+   "go-bridge proxy /v1/usdc-lakehouse/health",
+   "go-bridge proxy /v1/usdc-lakehouse/ingest"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "ussd-gateway",
+  "lang": "python",
+  "path": "python-services/ussd-gateway",
+  "endpoints": {
+   "count": 3,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/ussd"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "redis"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "go-bridge proxy /v1/ussd-gw/health",
+   "go-bridge proxy /v1/ussd-gw/session",
+   "ts:server/microservices.ts",
+   "ts:server/security31.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "vector-store",
+  "lang": "python",
+  "path": "python-services/vector-store",
+  "endpoints": {
+   "count": 10,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/v1/embed",
+    "/v1/fraud",
+    "/v1/index",
+    "/v1/rag",
+    "/v1/search",
+    "/v1/support",
+    "/v1/upsert"
+   ]
+  },
+  "tablesRead": [
+   "different",
+   "parquet",
+   "read_parquet",
+   "retrieved"
+  ],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "lakehouse"
+  ],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "compose:app(TS server)",
+   "compose:art-reasoning",
+   "compose:lakehouse-ai",
+   "go-bridge proxy /v1/vector-store/health",
+   "go-bridge proxy /v1/vector-store/search"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "wealth-advisor",
+  "lang": "python",
+  "path": "python-services/wealth-advisor",
+  "endpoints": {
+   "count": 6,
+   "prefixes": [
+    "/goal-plan",
+    "/health",
+    "/insights",
+    "/market-outlook",
+    "/rebalance",
+    "/risk-profile"
+   ]
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/wealth-advisor/advise",
+   "go-bridge proxy /v1/wealth-advisor/health"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "wealth-management",
+  "lang": "python",
+  "path": "python-services/wealth-management",
+  "endpoints": {
+   "count": 8,
+   "prefixes": [
+    "/health",
+    "/metrics",
+    "/wealth/goals",
+    "/wealth/portfolio",
+    "/wealth/recommendations",
+    "/wealth/risk-profile"
+   ]
+  },
+  "tablesRead": [
+   "wealth_holdings",
+   "wealth_portfolios"
+  ],
+  "tablesWrite": [
+   "wealth_goals",
+   "wealth_risk_profiles"
+  ],
+  "middleware": [],
+  "topicsProduced": [],
+  "topicsConsumed": [],
+  "calledBy": [
+   "go-bridge proxy /v1/wealth/health",
+   "go-bridge proxy /v1/wealth/portfolio"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "go-bridge",
+  "lang": "go",
+  "path": "go-bridge (cmd/bridge + internal/*)",
+  "endpoints": {
+   "count": 441,
+   "prefixes": [
+    "/v1/ai-insights",
+    "/v1/aml-monitor",
+    "/v1/art-reasoning",
+    "/v1/bandwidth",
+    "/v1/billing",
+    "/v1/cashback",
+    "/v1/cips",
+    "/v1/cips-upi-pix-fx",
+    "/v1/cocoindex",
+    "/v1/cohort",
+    "/v1/credit-scoring",
+    "/v1/credit-scoring-py",
+    "/v1/cross-border-fraud",
+    "/v1/emi",
+    "/v1/fraud-heatmap",
+    "/v1/fraud-scoring",
+    "/v1/fx-rate",
+    "/v1/gnn-fraud",
+    "/v1/insurance",
+    "/v1/inventory",
+    "/v1/iso20022",
+    "/v1/kiosk",
+    "/v1/knowledge-graph",
+    "/v1/kyc-ocr",
+    "/v1/kyc-ocr-py",
+    "/v1/lakehouse-ai",
+    "/v1/lakehouse-audit",
+    "/v1/liveness",
+    "/v1/loyalty-ledger",
+    "/v1/mojaloop",
+    "/v1/mpesa",
+    "/v1/opensearch",
+    "/v1/pension",
+    "/v1/pix",
+    "/v1/push",
+    "/v1/reconciliation-engine",
+    "/v1/settlement-forecast",
+    "/v1/spark",
+    "/v1/tigerbeetle-ledger",
+    "/v1/tigerbeetle-recon",
+    "/v1/upi",
+    "/v1/usdc-lakehouse",
+    "/v1/ussd-gw",
+    "/v1/vector-store",
+    "/v1/wallet-ffi",
+    "/v1/wealth",
+    "/v1/wealth-advisor"
+   ]
+  },
+  "tablesRead": [
+   "consumer_transactions",
+   "consumer_wallets",
+   "fx_rates",
+   "iceberg_tables",
+   "loyalty_ledger",
+   "loyalty_redemptions",
+   "merchant_directors",
+   "merchant_profiles",
+   "payment_methods",
+   "sdk_api_calls"
+  ],
+  "tablesWrite": [
+   "agent_transactions",
+   "billing_invoices",
+   "bnpl_loans",
+   "compliance_reports",
+   "consumer_outbox",
+   "cross_border_transfers",
+   "dcc_margin_configs",
+   "dcc_transactions",
+   "disputes",
+   "fraud_alerts",
+   "idempotency_keys",
+   "invoice_payments",
+   "invoices",
+   "kyb_steps",
+   "kyb_verifications",
+   "kyc_submissions",
+   "loan_instalments",
+   "loan_repayments",
+   "loyalty_coalitions",
+   "loyalty_programs",
+   "merchant_loans",
+   "merchant_risk_flags",
+   "merchants",
+   "payouts",
+   "reconciliation_alerts",
+   "sdk_keys",
+   "sdk_token_log",
+   "settlements",
+   "split_payments",
+   "split_rules",
+   "stripe_subscription_charges",
+   "subscriptions",
+   "transactions",
+   "webhook_delivery_log",
+   "webhook_endpoints"
+  ],
+  "middleware": [
+   "apisix",
+   "dapr",
+   "fluvio",
+   "kafka",
+   "keycloak",
+   "lakehouse",
+   "mojaloop",
+   "opensearch",
+   "permify",
+   "redis",
+   "s3/minio",
+   "temporal",
+   "tigerbeetle"
+  ],
+  "topicsProduced": [
+   "paygate-agent-banking-events",
+   "paygate-bnpl-events",
+   "paygate-bulk-payment-events",
+   "paygate-cips-events",
+   "paygate-consumer-transfer-events",
+   "paygate-consumer-wallet-events",
+   "paygate-dispute-events",
+   "paygate-escrow-events",
+   "paygate-fx-events",
+   "paygate-insider-threat-events",
+   "paygate-lending-events",
+   "paygate-mojaloop-events",
+   "paygate-payout-approval-events",
+   "paygate-payroll-events",
+   "paygate-pix-events",
+   "paygate-remittance-events",
+   "paygate-rtgs-events",
+   "paygate-settlement-events",
+   "paygate-split-payment-events",
+   "paygate-tax-remittance-events",
+   "paygate-upi-events",
+   "paygate-virtual-card-events",
+   "paygate-wallet-events",
+   "paygate.audit.events",
+   "paygate.insider.threat.events"
+  ],
+  "topicsConsumed": [
+   "paygate.fraud.alert",
+   "paygate.mojaloop.callback",
+   "paygate.nibss.confirmation",
+   "paygate.settlement.confirmed"
+  ],
+  "calledBy": [
+   "compose:app(TS server, MIDDLEWARE_BRIDGE_URL=http://go-bridge:8080)",
+   "ts:server/circuitBreaker.ts",
+   "ts:server/cronJobs.ts",
+   "ts:server/middlewareBridge.ts",
+   "ts:server/routers.ts",
+   "ts:server/routers/middlewareDashboard.ts",
+   "ts:server/routers/wave162.ts",
+   "ts:server/routers/wave163.ts",
+   "ts:server/wave25Router.ts"
+  ],
+  "status": "ok"
+ },
+ {
+  "service": "reconciler",
+  "lang": "go",
+  "path": "go-bridge/cmd/reconciler",
+  "endpoints": {
+   "count": 0,
+   "prefixes": []
+  },
+  "tablesRead": [],
+  "tablesWrite": [],
+  "middleware": [
+   "kafka",
+   "tigerbeetle"
+  ],
+  "topicsProduced": [
+   "paygate.audit.events"
+  ],
+  "topicsConsumed": [],
+  "calledBy": [
+   "cron/k8s CronJob (self-scheduled)",
+   "ts:server/routers.ts",
+   "ts:server/routers/refunds.ts"
+  ],
+  "status": "ok"
+ }
+]

@@ -155,6 +155,18 @@ func (h *SDKRelayHandler) RelayWebhook(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "merchant_id required in payload", http.StatusBadRequest)
 		return
 	}
+	// Durable receipt FIRST: never forward an inbound webhook without a
+	// persisted receipt row. In production a missing pgdb pool is a hard 503.
+	rawPayload, _ := json.Marshal(payload)
+	eventID, _ := payload["event_id"].(string)
+	if eventID == "" {
+		eventID, _ = payload["id"].(string)
+	}
+	receiptID, recErr := recordWebhookReceipt(r.Context(), "sdk_relay", eventID, rawPayload)
+	if recErr != nil {
+		jsonError(w, "webhook receipt store unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	endpoints, err := pgdb.GetActiveWebhookEndpoints(r.Context(), merchantID, "")
 	if err != nil {
 		jsonError(w, "failed to get endpoints", http.StatusInternalServerError)
@@ -165,11 +177,15 @@ func (h *SDKRelayHandler) RelayWebhook(w http.ResponseWriter, r *http.Request) {
 		go deliverWebhookAsync(ep.EndpointURL, payload)
 		delivered++
 	}
+	// Delivery is fire-and-forget async; mark the receipt forwarded now that
+	// dispatch succeeded. (Dispatch itself cannot fail here, so a dispatch
+	// failure would have been caught above.)
 	_ = h.kafka.Publish(r.Context(), "paygate.sdk.webhook.relayed", merchantID, map[string]interface{}{
 		"merchant_id": merchantID,
 		"delivered":   delivered,
 		"event":       payload["event"],
 	})
+	pgdb.MarkWebhookReceiptForwarded(r.Context(), receiptID)
 	jsonOK(w, map[string]interface{}{"delivered": delivered}, http.StatusOK)
 }
 

@@ -1,0 +1,646 @@
+[
+  {
+    "kind": "table_no_writer",
+    "location": "server/routers/crud119.ts:789-819 (consumerInsurancePolicies)",
+    "detail": "consumer_insurance_policies is read (list/get/claim-filing reads policy at :819) but never inserted anywhere in server/, go-bridge/, rust-services/, python-services/. consumerInsuranceClaims CAN be created (crud119.ts:823) against policies that can never exist.",
+    "severity": "high",
+    "suggestedFix": "Add createPolicy/updatePolicy mutations in crud119.ts writing consumerInsurancePolicies, or document external producer."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "server/routers/crud119.ts:1033 (emiInstallments)",
+    "detail": "emi_installments read-only; emiContracts created at crud119.ts:1055 but no installment schedule rows are ever generated.",
+    "severity": "high",
+    "suggestedFix": "Generate installment rows on emiContracts.create (insert into emiInstallments per schedule)."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (faceEmbeddings)",
+    "detail": "face_embeddings has zero references outside schema.ts and existence-assertion tests (wave131/132/173 hardening tests). deepface-sidecar never writes it. KYC biometric embeddings are never persisted.",
+    "severity": "high",
+    "suggestedFix": "Wire deepface-sidecar enrollment to persist embeddings into face_embeddings."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (regulatorMagicTokens)",
+    "detail": "regulator_magic_tokens zero references anywhere (only schema). Regulator magic-link auth tokens are not stored, so regulatorAuth login cannot validate tokens durably.",
+    "severity": "high",
+    "suggestedFix": "Persist issued magic tokens in regulatorAuth.ts and verify/consume them on login."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (keycloakRoleSyncLogs)",
+    "detail": "keycloak_role_sync_logs referenced only by wave170 hardening test asserting schema export. No sync job writes it.",
+    "severity": "medium",
+    "suggestedFix": "Log Keycloak role-sync runs, or drop table."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (loyaltyPromotionLog)",
+    "detail": "loyalty_promotion_log zero references; tier1to5Router loyalty mutations proxy to nonexistent bridge routes so no promotion logging occurs anywhere.",
+    "severity": "medium",
+    "suggestedFix": "Write promotion applications to loyalty_promotion_log when loyalty bridge routes are implemented."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (middlewareHealthLogs)",
+    "detail": "middleware_health_logs zero references; no health-check writer.",
+    "severity": "medium",
+    "suggestedFix": "Persist bridge health probe results (heartbeat job) to middleware_health_logs."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (fxLiveRates)",
+    "detail": "fx_live_rates zero references; python-services/fx-rate-feed publishes rates to Fluvio topic 'fx-rates' but nothing persists them to this table.",
+    "severity": "medium",
+    "suggestedFix": "Have an FX rate consumer/relay insert snapshots into fx_live_rates."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (nexthubBulkTransfers)",
+    "detail": "nexthub_bulk_transfers zero references in entire repo.",
+    "severity": "medium",
+    "suggestedFix": "Implement writer in nexthub hub services or drop table."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (nexthubFxRates)",
+    "detail": "nexthub_fx_rates zero references.",
+    "severity": "medium",
+    "suggestedFix": "Wire FX oracle feed into nexthub_fx_rates or drop."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (nexthubLiquidityWindows)",
+    "detail": "nexthub_liquidity_windows zero references.",
+    "severity": "medium",
+    "suggestedFix": "Implement liquidity-window writer or drop."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (nexthubOracles)",
+    "detail": "nexthub_oracles zero references.",
+    "severity": "medium",
+    "suggestedFix": "Implement oracle registry writer or drop."
+  },
+  {
+    "kind": "table_no_writer",
+    "location": "drizzle/schema.ts (nexthubPispConsents)",
+    "detail": "nexthub_pisp_consents zero references (PISP consent flow never persisted).",
+    "severity": "high",
+    "suggestedFix": "Persist PISP consents in nexthubSecurity/consent router."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/db.ts:3099",
+    "detail": "nodal_transactions: writer note: written by nodal service (external)",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/wave27Router.ts:496",
+    "detail": "fraud_cases: writer note: opened by external fraud-scoring/case-management service",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/wave32Router.ts:345",
+    "detail": "tenant_corridor_daily_stats: writer note: rollup populated by external analytics/BI pipeline",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/wave80Router.ts:71",
+    "detail": "open_banking_accounts_v2: writer note: provider account-sync via middleware bridge",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/wave80Router.ts:604",
+    "detail": "nfc_transactions: writer note: NFC terminal path via middleware bridge",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/billing.ts:388",
+    "detail": "billing_events: writer note: billing-engine/go-event-ingestor from Kafka",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/mobileMoney.ts:160",
+    "detail": "mobile_money_providers: writer note: provider registry, externally managed",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/nexthubSettlement.ts:137",
+    "detail": "nexthub_transfers: writer note: hub-side settlement services",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/regulatorAuth.ts:30",
+    "detail": "nexthub_regulators: writer note: provisioned by platform ops",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/regulatorPortal.ts:47",
+    "detail": "nexthub_participants/limits/positions: writer note: hub onboarding/position-keeping (outside Node)",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/wave211_217.ts:826",
+    "detail": "energy_vend_transactions: writer note: external STS vend rail (not yet integrated \u2014 reader intentionally writerless)",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "drizzle/schema.ts:7185",
+    "detail": "subscription_plans: legacy catalog superseded by subscription_plans_v2; kept for historical rows",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/regulatorPortal.ts:47",
+    "detail": "nexthub_participant_positions: writer note: hub-side position-keeping",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "table_no_writer_documented_external",
+    "location": "server/routers/nexthubSecurity.ts:70",
+    "detail": "nexthub_security_events: RESOLVED: writer exists via alias securityEvents (db.insert at :70); not a gap",
+    "severity": "info",
+    "suggestedFix": "None \u2014 documented external producer."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'applyForLoan' only bridgePost/bridgeGet to '/lending/apply' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'acceptLoanOffer' only bridgePost/bridgeGet to '/lending/accept' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'createPlan (recurringBilling)' only bridgePost/bridgeGet to '/billing/plans' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'subscribeCustomer' only bridgePost/bridgeGet to '/billing/subscribe' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'pauseSubscription' only bridgePost/bridgeGet to '/billing/pause' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'cancelSubscription' only bridgePost/bridgeGet to '/billing/cancel' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'lockRate (dcc)' only bridgePost/bridgeGet to '/dcc/lock-rate' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'runReconciliation' only bridgePost/bridgeGet to '/reconciliation/run' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'resolveDiscrepancy' only bridgePost/bridgeGet to '/reconciliation/resolve' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'sendInvoice' only bridgePost/bridgeGet to '/invoices/send' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'submitEvidence (chargebacks)' only bridgePost/bridgeGet to '/chargebacks/evidence' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'autoCollectEvidence' only bridgePost/bridgeGet to '/chargebacks/auto-evidence' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'submitKYB' only bridgePost/bridgeGet to '/kyb/submit' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'generateCBNReport' only bridgePost/bridgeGet to '/kyb/cbn-report' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'recordFingerprint' only bridgePost/bridgeGet to '/session-risk/fingerprint' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'redeemPoints' only bridgePost/bridgeGet to '/loyalty/redeem' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'registerWebhook' only bridgePost/bridgeGet to '/webhooks/register' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'deleteWebhook' only bridgePost/bridgeGet to '/webhooks/delete' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'retryWebhook' only bridgePost/bridgeGet to '/webhooks/retry' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'issueConsentToken' only bridgePost/bridgeGet to '/open-banking/consent' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/tier1to5Router.ts",
+    "detail": "Mutation 'issueSDKToken' only bridgePost/bridgeGet to '/sdk/token' \u2014 route does NOT exist in go-bridge mux (335 routes extracted; 43 of 52 proxied paths missing), nor in python/rust/go services. Call fails with 'Bridge error 404'; nothing persisted, no event emitted.",
+    "severity": "high",
+    "suggestedFix": "Implement the bridge handler (with DB persistence) or rewrite the mutation to insert into the drizzle schema directly."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave80Router.ts:1276 updateMenuFlow",
+    "detail": "USSD menu-flow update returns {success:true, updatedMenus:n} without any DB write \u2014 menu configuration is silently discarded.",
+    "severity": "high",
+    "suggestedFix": "Persist menus to a ussd_menu_flows table (or fail loud)."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave30Router.ts:820 updateRate",
+    "detail": "Computes unrealized P&L for fx_hedge_positions against caller-supplied rate and returns it; code comment admits result is 'never persisted'. No P&L snapshot history.",
+    "severity": "medium",
+    "suggestedFix": "Persist mark-to-market snapshots (pnl_history table) on updateRate."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave27Router.ts verifyDomain",
+    "detail": "DNS TXT verification result is returned but not stored: comment notes 'No domain_verified / ssl_status columns exist to update'. Re-verification required every call; SSL provisioning state lost.",
+    "severity": "medium",
+    "suggestedFix": "Add domain_verified/ssl_status columns to tenants and persist verification outcome."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave27Router.ts generateReport",
+    "detail": "Regulatory report (AML/volume/KYC/fraud) computed on the fly and returned; never written to report_jobs \u2014 no durable audit of generated regulatory reports.",
+    "severity": "low",
+    "suggestedFix": "Insert a reportJobs row per generated report (crud119 reportJobs writer exists)."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave80Router.ts exportReport",
+    "detail": "Export computed and returned without persisting an export/audit record.",
+    "severity": "low",
+    "suggestedFix": "Record exports in report_jobs/audit log."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/wave32Router.ts ssoConfig.test",
+    "detail": "'Simulate a connectivity test' returns {success:true} without contacting the IdP or recording the test \u2014 fabricated success on a security config path.",
+    "severity": "medium",
+    "suggestedFix": "Perform a real metadata fetch and persist last_test_at/result on tenant_sso_configs."
+  },
+  {
+    "kind": "mutation_no_persist",
+    "location": "server/routers/crud119.ts:194 create (crossBorderTransfers)",
+    "detail": "Documented fail-loud stub (demoOrFail) \u2014 insert predates quote+bridge flow and always threw; intentionally does not fabricate money-movement records.",
+    "severity": "info",
+    "suggestedFix": "None \u2014 superseded by crossBorder.initiate; consider removing stub."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/psp-production.ts:109",
+    "detail": "Kafka topic 'str.filed' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "high",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/psp-production.ts:1134 AND go-bridge/internal/handlers/cbn_str.go:232 (double producer, zero consumers)",
+    "detail": "Kafka topic 'str.submitted' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "high",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/psp-production.ts:283",
+    "detail": "Kafka topic 'velocity_limit.updated' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "high",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/psp-production.ts:670",
+    "detail": "Kafka topic 'chargeback.submitted_to_scheme' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "high",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/psp-production.ts:817/849/882",
+    "detail": "Kafka topic 'regulatory.generate_form_a/b/c' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "high",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/apApprovals.ts:328, apBillInbox.ts:138/315, apVendorDirectory.ts:621/712",
+    "detail": "Kafka topic 'paygate.ap.bills' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/arPartialPayments.ts:177",
+    "detail": "Kafka topic 'paygate.ar.invoices' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/accountingSync.ts:109",
+    "detail": "Kafka topic 'paygate.accounting.sync' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/apBillPay.ts:99",
+    "detail": "Kafka topic 'paygate.ap.payments' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/jobs/scumlExpiryJob.ts:136, wave159.ts:273, wave223_extensions.ts:517/565, wave30Router.ts:486",
+    "detail": "Kafka topic 'paygate.kyc' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/remittanceAdvice.ts:249",
+    "detail": "Kafka topic 'paygate.notifications' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "go-bridge/internal/handlers/lending.go:227/322/451",
+    "detail": "Kafka topic 'paygate.lending' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server (terminal routers)",
+    "detail": "Kafka topic 'paygate.terminal.events / .provisioned / .refund / .status_changed' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server (mobile money)",
+    "detail": "Kafka topic 'paygate.mobile_money.collection_initiated / .disbursement_initiated' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "go-bridge/internal/handlers/fraud.go:216",
+    "detail": "Kafka topic 'paygate.fraud.decision' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "go-bridge/internal/temporal/activities_fraud_ring.go:29",
+    "detail": "Kafka topic 'paygate.fraud.ring.escalated' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/routers/apVendorCards.ts:85 etc.",
+    "detail": "Kafka topic 'vendor_card.issued, dispute.resolved, subscription_v2.renewed, ap_recurring.*' is produced but has NO consumer anywhere (server has zero startConsumer() call sites; go-bridge consumer.go registers only nibss.confirmation/mojaloop.callback/fraud.alert/settlement.confirmed; python consumes paygate.transactions/paygate.payments/paygate.settlements/paygate.fraud_alerts/paygate-audit-events).",
+    "severity": "medium",
+    "suggestedFix": "Add a consumer or persist to an outbox table; regulatory topics already fail loud when bus is down but are dropped even when it is up."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "go-bridge/internal/kafka/consumer.go:353",
+    "detail": "Kafka topic 'paygate.nibss.confirmation' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "go-bridge/internal/kafka/consumer.go:354",
+    "detail": "Kafka topic 'paygate.mojaloop.callback' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "go-bridge/internal/kafka/consumer.go:356",
+    "detail": "Kafka topic 'paygate.settlement.confirmed' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "python-services/aml-monitor/main.py:431",
+    "detail": "Kafka topic 'paygate.payments' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "python-services/aml-monitor/main.py:431, reconciliation-engine/main.py:434, opensearch-indexer/main.py:71 \u2014 no publishEvent(KAFKA_TOPICS.TRANSACTIONS) call site exists",
+    "detail": "Kafka topic 'paygate.transactions' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_no_producer",
+    "location": "python-services/reconciliation-engine/main.py:434",
+    "detail": "Kafka topic 'paygate.settlements' is consumed but never produced by any service \u2014 consumers idle, downstream pipelines (AML, reconciliation, OpenSearch) starved.",
+    "severity": "high",
+    "suggestedFix": "Produce the topic from the transaction/settlement write paths (or remove dead consumers)."
+  },
+  {
+    "kind": "topic_name_mismatch",
+    "location": "go-bridge/internal/kafka/producer.go:41 vs python-services/lakehouse-audit/main.py:46",
+    "detail": "Audit events produced to 'paygate.audit.events' (dots) but lakehouse-audit consumes 'paygate-audit-events' (hyphens) \u2014 audit lakehouse receives nothing.",
+    "severity": "high",
+    "suggestedFix": "Align topic names via shared constant/env."
+  },
+  {
+    "kind": "topic_name_mismatch",
+    "location": "go-bridge producer.go:40 vs python-services/opensearch-indexer/main.py:73",
+    "detail": "Fraud alerts produced to 'paygate.fraud.alert' but opensearch-indexer consumes 'paygate.fraud_alerts' (underscore).",
+    "severity": "high",
+    "suggestedFix": "Align topic names."
+  },
+  {
+    "kind": "topic_no_consumer",
+    "location": "server/fluvioClient.ts FLUVIO_TOPICS",
+    "detail": "Fluvio topics rt-transactions/fraud-scoring/pos-events/analytics-stream/notification-stream produced in server; only consumer is fluvioSse.ts browser fan-out (non-durable). Go-bridge fluvio topics paygate-cips/upi/pix/mojaloop-events, paygate-fx-rates, paygate-crossborder-fraud, paygate-audit-stream, paygate-insider-threat-events likewise have SSE-only or no consumers.",
+    "severity": "medium",
+    "suggestedFix": "Add durable consumers or document as ephemeral streams."
+  },
+  {
+    "kind": "webhook_no_durable_storage",
+    "location": "go-bridge/internal/handlers/nibss_webhook.go (whole file, 147 lines)",
+    "detail": "Inbound NIBSS PTSP settlement-confirmation webhook: HMAC-verified then forwarded to tRPC confirmBatch \u2014 no durable receipt/idempotency record in the bridge; a forward failure loses the only copy of the settlement confirmation.",
+    "severity": "high",
+    "suggestedFix": "Insert a webhook_receipts row (with dedupe key) before forwarding; retry from receipt table."
+  },
+  {
+    "kind": "webhook_no_durable_storage",
+    "location": "go-bridge/internal/handlers/sdk_relay.go",
+    "detail": "SDK relay webhook handler contains no INSERT/Exec \u2014 relayed events have no delivery log or DLQ in the bridge.",
+    "severity": "medium",
+    "suggestedFix": "Add delivery-log persistence with retry/DLQ."
+  },
+  {
+    "kind": "webhook_fire_and_forget_persist",
+    "location": "server/webhookFailureAlerts.ts:55-63 (persistAck), :243-257 (alert persist)",
+    "detail": "webhook_alert_acks and webhook_failure_alerts writes are fire-and-forget async IIFEs whose only failure handling is console.error \u2014 alert/ack loss is silent at runtime (no metric, no retry).",
+    "severity": "medium",
+    "suggestedFix": "Queue persists through the outbox or at least emit a metric/counter on failure."
+  },
+  {
+    "kind": "webhook_no_durable_storage",
+    "location": "server/webhookDispatch.ts:137-138",
+    "detail": "Delivery-log insert failure is only logged (logger.error) \u2014 if webhook_deliveries/webhook_delivery_log insert fails, the delivery attempt leaves no durable trace and retry scheduler never sees it.",
+    "severity": "medium",
+    "suggestedFix": "Write to a fallback outbox/queue on log-insert failure."
+  },
+  {
+    "kind": "event_flow_ok",
+    "location": "server/webhookRetry.ts, server/webhookDispatch.ts",
+    "detail": "Confirmed OK: deliveries mirrored into webhook_deliveries + webhook_delivery_log; dead-letter = attemptCount>=7 with list/redrive (spec #12). Not a gap.",
+    "severity": "info",
+    "suggestedFix": "None."
+  },
+  {
+    "kind": "swallowed_write_error",
+    "location": "server/routers.ts:1372",
+    "detail": "Payout error-path: `UPDATE payouts SET status='workflow_pending' ... .catch(() => {})` \u2014 if this UPDATE fails, the payout stays in an approvable state with no workflow and the failure is completely invisible (follow-on outbox INSERT is a separate statement).",
+    "severity": "high",
+    "suggestedFix": "Remove empty catch: log loudly and/or combine status-park + outbox insert in one transaction."
+  },
+  {
+    "kind": "swallowed_write_error",
+    "location": "server/_core/storageProxy.ts:52",
+    "detail": "getMerchantByOwnerId(...).catch(() => null) on upload path \u2014 merchant resolution failure silently degrades to null owner.",
+    "severity": "low",
+    "suggestedFix": "Fail closed or log on catch."
+  },
+  {
+    "kind": "swallowed_write_error",
+    "location": "server/routers/publicRestAuth.ts:131,154",
+    "detail": ".catch(() => undefined) on auth-adjacent async calls \u2014 potential silent auth-state loss.",
+    "severity": "medium",
+    "suggestedFix": "Inspect and add logging/fail-closed behavior."
+  },
+  {
+    "kind": "swallowed_write_error",
+    "location": "server/adminRouter.ts:1081",
+    "detail": "async write-ish call ending `.catch(() => null)` \u2014 silent failure in admin router.",
+    "severity": "medium",
+    "suggestedFix": "Log failure."
+  },
+  {
+    "kind": "swallowed_write_error",
+    "location": "server/routers.ts:10245, :4130",
+    "detail": "notifyOwner/Broadcast wrapped in try{}catch{} \u2014 notification loss only (non-money-path); acceptable but unlogged at 10245.",
+    "severity": "low",
+    "suggestedFix": "Add warn logging."
+  },
+  {
+    "kind": "swallowed_write_error_resolved_note",
+    "location": "server/routers/crud120.ts:138-160, crud120b.ts",
+    "detail": "Confirmed fixed pattern: publishAuditEventLoud logs loudly instead of .catch(()=>{}); 17 logged-non-fatal fire-and-forget persists remain (console.error only, no metrics).",
+    "severity": "info",
+    "suggestedFix": "Add failure metrics for the 17 logged fire-and-forget write paths."
+  }
+]
