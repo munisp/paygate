@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/paygate/go-bridge/internal/httpclient"
+	"github.com/paygate/go-bridge/internal/pgdb"
 )
 
 // NIBSSConfirmationPayload is the webhook body sent by NIBSS when a PTSP batch is confirmed.
@@ -78,6 +79,15 @@ slog.Info("[NIBSS Webhook] Received confirmation",
 "status", payload.Status,
 "reference", payload.Reference)
 
+// Durable receipt FIRST: never forward an inbound webhook without a
+// persisted receipt row. In production a missing pgdb pool is a hard 503.
+receiptID, recErr := recordWebhookReceipt(r.Context(), "nibss", payload.Reference, rawBody)
+if recErr != nil {
+slog.Error("[NIBSS Webhook] receipt persistence failed — refusing to forward", "err", recErr)
+writeError(w, http.StatusServiceUnavailable, "webhook receipt store unavailable")
+return
+}
+
 // Forward to merchant portal tRPC via internal bridge
 portalURL := os.Getenv("MERCHANT_PORTAL_URL")
 if portalURL == "" {
@@ -110,6 +120,7 @@ client := httpclient.Default
 resp, err := client.Do(req)
 if err != nil {
 slog.Error("[NIBSS Webhook] Portal call failed", "err", err)
+pgdb.MarkWebhookReceiptFailed(r.Context(), receiptID, err.Error())
 writeError(w, http.StatusBadGateway, "portal call failed")
 return
 }
@@ -117,10 +128,12 @@ defer resp.Body.Close()
 
 if resp.StatusCode >= 400 {
 slog.Error("[NIBSS Webhook] Portal returned error", "status", resp.StatusCode)
+pgdb.MarkWebhookReceiptFailed(r.Context(), receiptID, fmt.Sprintf("portal returned %d", resp.StatusCode))
 writeError(w, http.StatusBadGateway, fmt.Sprintf("portal returned %d", resp.StatusCode))
 return
 }
 
+pgdb.MarkWebhookReceiptForwarded(r.Context(), receiptID)
 slog.Info("[NIBSS Webhook] Confirmation forwarded successfully",
 "batch_id", payload.BatchID,
 "portal_status", resp.StatusCode)
