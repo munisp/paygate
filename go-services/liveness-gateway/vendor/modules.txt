@@ -5,7 +5,7 @@ github.com/go-chi/chi/v5/middleware
 # github.com/go-chi/cors v1.2.2
 ## explicit; go 1.14
 github.com/go-chi/cors
-# github.com/go-chi/httprate v0.16.0
+# github.com/go-chi/httprate v0.16.1
 ## explicit; go 1.23.0
 github.com/go-chi/httprate
 # github.com/klauspost/cpuid/v2 v2.2.10
