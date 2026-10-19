@@ -21,11 +21,17 @@ type StorageDriverWorkflowInfo = extstore.StorageDriverWorkflowInfo
 // NOTE: Experimental
 type StorageDriverActivityInfo = extstore.StorageDriverActivityInfo
 
-// StorageDriverStoreContext carries context passed to StorageDriver.Store and
-// StorageDriverSelector.SelectDriver operations.
+// StorageDriverStoreContext carries context passed to StorageDriver.Store
+// operations.
 //
 // NOTE: Experimental
 type StorageDriverStoreContext = extstore.StorageDriverStoreContext
+
+// StorageDriverSelectContext carries context passed to
+// StorageDriverSelector.SelectDriver operations.
+//
+// NOTE: Experimental
+type StorageDriverSelectContext = extstore.StorageDriverSelectContext
 
 // StorageDriverRetrieveContext carries context passed to StorageDriver.Retrieve
 // operations.
@@ -41,6 +47,17 @@ type StorageDriverRetrieveContext = extstore.StorageDriverRetrieveContext
 //
 // NOTE: Experimental
 type StorageDriverClaim = extstore.StorageDriverClaim
+
+// StorageDriverLimiter limits the concurrent operations a driver performs.
+//
+// NOTE: Experimental
+type StorageDriverLimiter[T any] = extstore.StorageDriverLimiter[T]
+
+// ExternalStorageConcurrency holds limits on the external storage operations
+// drivers perform.
+//
+// NOTE: Experimental
+type ExternalStorageConcurrency = extstore.ExternalStorageConcurrency
 
 // StorageDriver is the interface that must be implemented to back external
 // payload storage. When a payload exceeds the configured size threshold the SDK
