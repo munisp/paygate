@@ -1,9 +1,9 @@
 module github.com/paygate/liveness-gateway
 
-go 1.23.0
+go 1.24
 
 require (
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httprate v0.16.0
 	go.uber.org/zap v1.28.0
