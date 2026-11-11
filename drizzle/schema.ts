@@ -3409,6 +3409,21 @@ export const ussdSessions = pgTable("ussd_sessions", {
 export type UssdSession = typeof ussdSessions.$inferSelect;
 export type InsertUssdSession = typeof ussdSessions.$inferInsert;
 
+// ─── USSD Menu Flow Config (Wave 7 gap closure: updateMenuFlow persistence) ──
+// One editable menu-flow configuration per merchant; the USSD session router
+// serves these menus instead of a hardcoded constant.
+export const ussdMenuFlows = pgTable("ussd_menu_flows", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  menus: jsonb("menus").notNull(), // [{ id, title, options: string[] }]
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("ussd_menu_flows_merchant_unique").on(t.merchantId),
+]);
+export type UssdMenuFlow = typeof ussdMenuFlows.$inferSelect;
+export type InsertUssdMenuFlow = typeof ussdMenuFlows.$inferInsert;
+
 // ─── Consumer Notification Preferences ───────────────────────────────────────
 // Per-user, per-category, per-channel toggles for the consumer PWA.
 export const consumerNotificationPrefs = pgTable("consumer_notification_prefs", {

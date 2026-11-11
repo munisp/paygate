@@ -3588,6 +3588,37 @@ const middlewareRouter = router({
         const result = await bridgeFetch("/v1/auth/sync-roles", "POST", {
           user_id: input.userId,
         });
+        // Persist an audit record of every sync attempt to
+        // keycloak_role_sync_logs (success AND failure) — previously the table
+        // had no writer and role-syncs left no durable trace.
+        try {
+          const { getDb } = await import("./db");
+          const { keycloakRoleSyncLogs } = await import("../drizzle/schema");
+          const logDb = await getDb();
+          if (logDb) {
+            const synced = (result as { roles?: string[] } | null)?.roles ?? [];
+            const rows = synced.length > 0
+              ? synced.map((role) => ({
+                  userId: input.userId,
+                  role,
+                  action: "sync",
+                  status: "success",
+                  syncedAt: new Date(),
+                }))
+              : [{
+                  userId: input.userId,
+                  role: "(none)",
+                  action: "sync",
+                  status: result ? "success" : "failed",
+                  errorMessage: result ? null : "middleware bridge unavailable",
+                  syncedAt: new Date(),
+                }];
+            await logDb.insert(keycloakRoleSyncLogs).values(rows as any);
+          }
+        } catch (logErr) {
+          // Audit-write failure must surface, never break the sync response.
+          logger.error("[keycloak.syncRoles] keycloak_role_sync_logs persist failed:", logErr);
+        }
         if (!result) return { synced: 0, roles: [], fallback: true };
         return result as { synced: number; roles: string[] };
       }),
@@ -4586,6 +4617,29 @@ const complianceKycRouter = router({
               duplicateOfSubmissionId: searchResult.closest_match_id ?? null,
               updatedAt: new Date(),
             }).where(eq3(kycTbl3.id, input.id));
+
+            // Persist the embedding to the durable face_embeddings identity
+            // store (previously it lived only on the kyc_submissions row, so
+            // face_embeddings had no writer and pgvector ANN search had no
+            // corpus). Fail loud in logs — a lost embedding means duplicate-
+            // identity fraud checks silently miss this face.
+            try {
+              const { faceEmbeddings } = await import('../drizzle/schema');
+              await db3.insert(faceEmbeddings).values({
+                merchantId: merchant.id,
+                submissionId: input.id,
+                embedding: embResult.embedding,
+                model: embResult.model || "Facenet512",
+                imageUrl: sub3.selfieUrl,
+                imageType: "selfie",
+              });
+            } catch (embPersistErr) {
+              logger.error(
+                `[kyc.updateStatus] face_embeddings persist FAILED for sub=${input.id} — ` +
+                `biometric identity store is now missing this approved face:`,
+                embPersistErr
+              );
+            }
 
             if (searchResult.match_found) {
               logger.warn(

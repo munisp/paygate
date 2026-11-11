@@ -832,6 +832,18 @@ const fxHedgingRouter = router({
       const pnl = (pos as any).direction === 'buy'
         ? priceDiff * parseFloat(String((pos as any).notional_amount))
         : -priceDiff * parseFloat(String((pos as any).notional_amount));
+      // fx_hedge_positions has no current_rate/unrealized_pnl columns (the
+      // entry rate is immutable), so the mark is persisted to fx_live_rates as
+      // a durable rate snapshot — the P&L can then be recomputed historically
+      // instead of vanishing after this response.
+      await execRaw(db, `
+        INSERT INTO fx_live_rates (pair, rate, source, fetched_at, created_at)
+        VALUES ($1, $2, $3, NOW(), NOW())
+      `, [
+        (pos as any).currency_pair ?? `${(pos as any).base_currency}/${(pos as any).quote_currency}`,
+        String(input.currentRate),
+        `hedge-mark:${input.positionId}`,
+      ]);
       return { positionId: input.positionId, currentRate: input.currentRate, unrealizedPnl: pnl };
     }),
 

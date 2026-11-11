@@ -108,6 +108,28 @@ async function fetchFxRates(): Promise<Record<string, number>> {
       if (data.rates[ccy]) rates[ccy] = Math.round(1 / (data.rates[ccy] as number));
     }
     if (Object.keys(rates).length === 0) marketDataUnavailable("FX rates feed returned no usable rates");
+    // Persist a snapshot of every freshly fetched rate into fx_live_rates
+    // (previously the table had no writer — the FX feed was consumed but
+    // never durably recorded). Persist failure must not break the rate read,
+    // but is logged loudly so the gap is observable.
+    const fetchedAt = new Date();
+    void (async () => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { fxLiveRates } = await import("../drizzle/schema");
+      await db.insert(fxLiveRates).values(
+        Object.entries(rates).map(([ccy, rate]) => ({
+          pair: `${ccy}/NGN`,
+          rate: rate.toString(),
+          source: "open.er-api.com",
+          fetchedAt,
+          createdAt: fetchedAt,
+        }))
+      );
+    })().catch((err) =>
+      logger.error("[marketData] fx_live_rates persist FAILED — FX snapshot lost:", err)
+    );
     return setCached("fx_ngn", rates);
   } catch (err) {
     if (err instanceof TRPCError) throw err;

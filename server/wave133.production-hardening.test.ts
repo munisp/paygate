@@ -51,8 +51,8 @@ describe("Wave 133 — OpenSearch Indexer Service", () => {
   it("main.py has Kafka consumer for all 4 PayGate topics", () => {
     const content = fs.readFileSync(mainPy, "utf-8");
     expect(content).toContain("paygate.transactions");
-    expect(content).toContain("paygate.audit_events");
-    expect(content).toContain("paygate.fraud_alerts");
+    expect(content).toContain("paygate.audit.events");
+    expect(content).toContain("paygate.fraud.alert");
     expect(content).toContain("paygate.kyc_events");
   });
 

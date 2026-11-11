@@ -735,6 +735,40 @@ func main() {
 	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/health"))
 	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", authMiddleware(handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/accounts")))
 	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", authMiddleware(handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/transfers")))
+	// crypto-guard (Rust) listens on 8091 and serves HMAC verification, nonce
+	// generation and replay protection — see rust-services/crypto-guard/src/main.rs.
+	// All non-health routes are behind authMiddleware (bridge key check +
+	// Redis rate limit, wave-4 pattern); ProxyToService injects the upstream
+	// X-Internal-Key (INTERNAL_API_KEY) expected by crypto-guard's
+	// internal_key_auth_mw.
+	mux.HandleFunc("/v1/crypto-guard/health", handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/health"))
+	mux.HandleFunc("/v1/crypto-guard/verify/hmac", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/verify/hmac")))
+	mux.HandleFunc("/v1/crypto-guard/verify/webhook", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/verify/webhook")))
+	mux.HandleFunc("/v1/crypto-guard/replay/check", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/replay/check")))
+	mux.HandleFunc("/v1/crypto-guard/nonce/generate", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/nonce/generate")))
+	mux.HandleFunc("/v1/crypto-guard/nonce/idempotency-key", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/nonce/idempotency-key")))
+	mux.HandleFunc("/v1/crypto-guard/nonce/payment", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/nonce/payment")))
+	mux.HandleFunc("/v1/crypto-guard/nonce/webhook", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/nonce/webhook")))
+	mux.HandleFunc("/v1/crypto-guard/nonce/csrf", authMiddleware(handlers.ProxyToService("CRYPTO_GUARD_URL", "http://localhost:8091", "/nonce/csrf")))
+	// insider-threat-engine (Rust) listens on 8300 and serves /score +
+	// /baseline/update — see rust-services/insider-threat-engine/src/main.rs.
+	// Coexistence: internal/insider keeps the Redis per-minute velocity
+	// counters; the Rust engine owns the durable per-actor EMA baselines.
+	// internal/insider calls this engine directly (GetRiskScore /
+	// UpdateBaseline) via INSIDER_THREAT_ENGINE_URL.
+	mux.HandleFunc("/v1/insider-threat/health", handlers.ProxyToService("INSIDER_THREAT_URL", "http://localhost:8300", "/health"))
+	mux.HandleFunc("/v1/insider-threat/score", authMiddleware(handlers.ProxyToService("INSIDER_THREAT_URL", "http://localhost:8300", "/score")))
+	mux.HandleFunc("/v1/insider-threat/baseline/update", authMiddleware(handlers.ProxyToService("INSIDER_THREAT_URL", "http://localhost:8300", "/baseline/update")))
+	// liveness-signal-processor (Rust) listens on 8090 and serves /analyse,
+	// /analyse/batch, /calibrate — see rust-services/liveness-signal-processor.
+	// Routes share the /v1/liveness/* prefix with the Python liveness-detection
+	// service above: /v1/liveness/health + /v1/liveness/check stay on
+	// LIVENESS_DETECTION_URL; the signal-processor routes below are additive
+	// (distinct leaf paths, no mux conflict) and use LIVENESS_URL.
+	mux.HandleFunc("/v1/liveness-signal/health", handlers.ProxyToService("LIVENESS_URL", "http://localhost:8090", "/health"))
+	mux.HandleFunc("/v1/liveness/analyse", authMiddleware(handlers.ProxyToService("LIVENESS_URL", "http://localhost:8090", "/analyse")))
+	mux.HandleFunc("/v1/liveness/analyse/batch", authMiddleware(handlers.ProxyToService("LIVENESS_URL", "http://localhost:8090", "/analyse/batch")))
+	mux.HandleFunc("/v1/liveness/calibrate", authMiddleware(handlers.ProxyToService("LIVENESS_URL", "http://localhost:8090", "/calibrate")))
 
 	// ─── Python Microservices ─────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/ai-insights/health", handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/health"))
@@ -807,6 +841,38 @@ func main() {
 	mux.HandleFunc("/v1/lakehouse-ai/health", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/health"))
 	mux.HandleFunc("/v1/lakehouse-ai/train", authMiddleware(handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/train")))
 	mux.HandleFunc("/v1/lakehouse-ai/infer", authMiddleware(handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/infer")))
+	// carbon-oracle (Python) listens on 9011 and serves /calculate, /price,
+	// /projects, /retire — see python-services/carbon-oracle/main.py. (The
+	// legacy /carbon-oracle/* routes above with stub fallbacks remain; these
+	// /v1/carbon/* routes are plain authenticated proxies.)
+	mux.HandleFunc("/v1/carbon/health", handlers.ProxyToService("CARBON_ORACLE_URL", "http://localhost:9011", "/health"))
+	mux.HandleFunc("/v1/carbon/calculate", authMiddleware(handlers.ProxyToService("CARBON_ORACLE_URL", "http://localhost:9011", "/calculate")))
+	mux.HandleFunc("/v1/carbon/price", authMiddleware(handlers.ProxyToService("CARBON_ORACLE_URL", "http://localhost:9011", "/price")))
+	mux.HandleFunc("/v1/carbon/projects", authMiddleware(handlers.ProxyToService("CARBON_ORACLE_URL", "http://localhost:9011", "/projects")))
+	mux.HandleFunc("/v1/carbon/retire", authMiddleware(handlers.ProxyToService("CARBON_ORACLE_URL", "http://localhost:9011", "/retire")))
+	// deepface-sidecar (Python/FastAPI) listens on 8001 and serves /analyze,
+	// /liveness, /verify-face, /search — see python-services/deepface-sidecar/main.py.
+	mux.HandleFunc("/v1/deepface/health", handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/health"))
+	mux.HandleFunc("/v1/deepface/ready", handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/ready"))
+	mux.HandleFunc("/v1/deepface/analyze", authMiddleware(handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/analyze")))
+	mux.HandleFunc("/v1/deepface/liveness", authMiddleware(handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/liveness")))
+	mux.HandleFunc("/v1/deepface/verify-face", authMiddleware(handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/verify-face")))
+	mux.HandleFunc("/v1/deepface/search", authMiddleware(handlers.ProxyToService("DEEPFACE_URL", "http://localhost:8001", "/search")))
+	// fatf-sanctions-sync (Python/FastAPI) listens on 8600 and serves
+	// /lookup/name, /lookup/jurisdiction, /status, /sync — see
+	// python-services/fatf-sanctions-sync/main.py.
+	mux.HandleFunc("/v1/sanctions/health", handlers.ProxyToService("FATF_SYNC_URL", "http://localhost:8600", "/health"))
+	mux.HandleFunc("/v1/sanctions/status", authMiddleware(handlers.ProxyToService("FATF_SYNC_URL", "http://localhost:8600", "/status")))
+	mux.HandleFunc("/v1/sanctions/sync", authMiddleware(handlers.ProxyToService("FATF_SYNC_URL", "http://localhost:8600", "/sync")))
+	mux.HandleFunc("/v1/sanctions/lookup/name", authMiddleware(handlers.ProxyToService("FATF_SYNC_URL", "http://localhost:8600", "/lookup/name")))
+	mux.HandleFunc("/v1/sanctions/lookup/jurisdiction", authMiddleware(handlers.ProxyToService("FATF_SYNC_URL", "http://localhost:8600", "/lookup/jurisdiction")))
+	// merchant-ussd-fallback (Python/FastAPI) listens on 8099 and serves
+	// /v1/ussd, /v1/sms, /v1/locales — see python-services/merchant-ussd-fallback/main.py.
+	mux.HandleFunc("/v1/ussd-fallback/health", handlers.ProxyToService("USSD_FALLBACK_URL", "http://localhost:8099", "/health"))
+	mux.HandleFunc("/v1/ussd-fallback/metrics", authMiddleware(handlers.ProxyToService("USSD_FALLBACK_URL", "http://localhost:8099", "/metrics")))
+	mux.HandleFunc("/v1/ussd-fallback/locales", authMiddleware(handlers.ProxyToService("USSD_FALLBACK_URL", "http://localhost:8099", "/v1/locales")))
+	mux.HandleFunc("/v1/ussd-fallback/ussd", authMiddleware(handlers.ProxyToService("USSD_FALLBACK_URL", "http://localhost:8099", "/v1/ussd")))
+	mux.HandleFunc("/v1/ussd-fallback/sms", authMiddleware(handlers.ProxyToService("USSD_FALLBACK_URL", "http://localhost:8099", "/v1/sms")))
 
 	// ── Bandwidth Probe & Resilience Endpoints ─────────────────────────────────
 	mux.HandleFunc("/v1/bandwidth/ping", handlers.ProbePing)
@@ -841,6 +907,91 @@ func main() {
 	mux.HandleFunc("GET /v1/scheme/membership", authMiddleware(handlers.GetSchemeMembership))
 	mux.HandleFunc("POST /v1/scheme/bin-lookup", authMiddleware(handlers.BINLookup))
 	mux.HandleFunc("POST /v1/scheme/dispute/submit", authMiddleware(handlers.SubmitSchemeDispute))
+
+	// ── Tier 1–5 portal proxy routes (server/tier1to5Router.ts) ─────────────
+	// These are the exact paths the portal tRPC tier1to5 router proxies to the
+	// bridge (bridgePost/bridgeGet hit BRIDGE_URL + path directly). All are
+	// behind authMiddleware (X-Internal-Key + Redis rate limit) and persist via
+	// internal/pgdb — pg errors surface as 500, never fake success.
+
+	// Tier 1a: Merchant Lending
+	mux.HandleFunc("POST /lending/apply", authMiddleware(handlers.T5ApplyForLoan))
+	mux.HandleFunc("GET /lending/applications", authMiddleware(handlers.T5ListLoanApplications))
+	mux.HandleFunc("GET /lending/offers", authMiddleware(handlers.T5GetLoanOffers))
+	mux.HandleFunc("POST /lending/accept", authMiddleware(handlers.T5AcceptLoanOffer))
+	mux.HandleFunc("GET /lending/repayment", authMiddleware(handlers.T5GetLoanRepayment))
+	mux.HandleFunc("GET /lending/credit-score", authMiddleware(handlers.T5GetCreditScore))
+
+	// Tier 1b: Split Payments
+	mux.HandleFunc("POST /split-payments/rules", authMiddleware(handlers.T5CreateSplitRule))
+	mux.HandleFunc("GET /split-payments/rules", authMiddleware(handlers.T5ListSplitRules))
+	mux.HandleFunc("POST /split-payments/execute", authMiddleware(handlers.T5ExecuteSplitPayment))
+	mux.HandleFunc("GET /split-payments/history", authMiddleware(handlers.T5SplitHistory))
+
+	// Tier 1c: Recurring Billing
+	mux.HandleFunc("POST /billing/plans", authMiddleware(handlers.T5CreateBillingPlan))
+	mux.HandleFunc("GET /billing/plans", authMiddleware(handlers.T5ListBillingPlans))
+	mux.HandleFunc("POST /billing/subscribe", authMiddleware(handlers.T5SubscribeCustomer))
+	mux.HandleFunc("GET /billing/subscriptions", authMiddleware(handlers.T5ListSubscriptions))
+	mux.HandleFunc("POST /billing/pause", authMiddleware(handlers.T5PauseSubscription))
+	mux.HandleFunc("POST /billing/cancel", authMiddleware(handlers.T5CancelSubscription))
+	mux.HandleFunc("GET /billing/dunning", authMiddleware(handlers.T5DunningQueue))
+
+	// Tier 1d: Dynamic Currency Conversion
+	mux.HandleFunc("GET /dcc/rates", authMiddleware(handlers.T5DCCRates))
+	mux.HandleFunc("POST /dcc/lock-rate", authMiddleware(handlers.T5DCCLockRate))
+	mux.HandleFunc("POST /dcc/execute", authMiddleware(handlers.T5DCCExecute))
+	mux.HandleFunc("GET /dcc/margin-config", authMiddleware(handlers.T5DCCGetMarginConfig))
+	mux.HandleFunc("POST /dcc/margin-config", authMiddleware(handlers.T5DCCUpdateMargin))
+
+	// Tier 2a: Automated Reconciliation
+	mux.HandleFunc("POST /reconciliation/run", authMiddleware(handlers.T5RunReconciliation))
+	mux.HandleFunc("GET /reconciliation/report", authMiddleware(handlers.T5GetReconReport))
+	mux.HandleFunc("GET /reconciliation/discrepancies", authMiddleware(handlers.T5GetDiscrepancies))
+	mux.HandleFunc("POST /reconciliation/resolve", authMiddleware(handlers.T5ResolveDiscrepancy))
+
+	// Tier 2b: Smart Invoice Builder
+	mux.HandleFunc("POST /invoices/create", authMiddleware(handlers.T5CreateInvoice))
+	mux.HandleFunc("POST /invoices/send", authMiddleware(handlers.T5SendInvoice))
+	mux.HandleFunc("GET /invoices/list", authMiddleware(handlers.T5ListInvoices))
+	mux.HandleFunc("GET /invoices/get", authMiddleware(handlers.T5GetInvoice))
+	mux.HandleFunc("POST /invoices/cancel", authMiddleware(handlers.T5CancelInvoice))
+
+	// Tier 2c: Chargeback Automation
+	mux.HandleFunc("GET /chargebacks/list", authMiddleware(handlers.T5ListChargebacks))
+	mux.HandleFunc("POST /chargebacks/evidence", authMiddleware(handlers.T5SubmitChargebackEvidence))
+	mux.HandleFunc("POST /chargebacks/auto-evidence", authMiddleware(handlers.T5AutoCollectEvidence))
+
+	// Tier 3b: KYB Workflow
+	mux.HandleFunc("POST /kyb/submit", authMiddleware(handlers.T5SubmitKYB))
+	mux.HandleFunc("GET /kyb/status", authMiddleware(handlers.T5GetKYBStatus))
+	mux.HandleFunc("GET /kyb/reports", authMiddleware(handlers.T5GetKYBReports))
+	mux.HandleFunc("POST /kyb/cbn-report", authMiddleware(handlers.T5GenerateCBNReport))
+
+	// Tier 3c: Device Fingerprinting & Session Risk
+	mux.HandleFunc("POST /session-risk/fingerprint", authMiddleware(handlers.T5RecordFingerprint))
+	mux.HandleFunc("GET /session-risk/score", authMiddleware(handlers.T5GetSessionRisk))
+	mux.HandleFunc("GET /session-risk/history", authMiddleware(handlers.T5GetSessionRiskHistory))
+
+	// Tier 4a: Open Banking + SDK tokens
+	mux.HandleFunc("POST /open-banking/consent", authMiddleware(handlers.T5IssueConsent))
+	mux.HandleFunc("POST /open-banking/data", authMiddleware(handlers.T5GetOpenBankingData))
+	mux.HandleFunc("POST /sdk/token", authMiddleware(handlers.T5IssueSDKToken))
+
+	// Tier 4b: Loyalty & Rewards
+	mux.HandleFunc("GET /loyalty/account", authMiddleware(handlers.T5GetLoyaltyAccount))
+	mux.HandleFunc("GET /loyalty/balance", authMiddleware(handlers.T5GetLoyaltyBalance))
+	mux.HandleFunc("GET /loyalty/transactions", authMiddleware(handlers.T5GetLoyaltyTransactions))
+	mux.HandleFunc("POST /loyalty/redeem", authMiddleware(handlers.T5RedeemPoints))
+	mux.HandleFunc("GET /loyalty/tier-benefits", authMiddleware(handlers.T5GetTierBenefits))
+	mux.HandleFunc("GET /loyalty/merchant-stats", authMiddleware(handlers.T5GetMerchantLoyaltyStats))
+
+	// Tier 4c: Embedded Finance Webhooks
+	mux.HandleFunc("POST /webhooks/register", authMiddleware(handlers.T5RegisterWebhook))
+	mux.HandleFunc("GET /webhooks/list", authMiddleware(handlers.T5ListWebhooks))
+	mux.HandleFunc("POST /webhooks/delete", authMiddleware(handlers.T5DeleteWebhook))
+	mux.HandleFunc("GET /webhooks/deliveries", authMiddleware(handlers.T5WebhookDeliveries))
+	mux.HandleFunc("POST /webhooks/retry", authMiddleware(handlers.T5RetryWebhookDelivery))
 
 	srv := &http.Server{
 		Addr:              ":" + port,

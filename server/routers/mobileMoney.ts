@@ -41,8 +41,14 @@ async function resolveMerchant(openId: string): Promise<Merchant> {
   return merchant;
 }
 
-/** Verify the provider webhook shared-secret HMAC (fail closed when unset). */
-function verifyWebhookSignature(canonicalPayload: string, signature: string | undefined): void {
+/**
+ * Verify the provider webhook shared-secret HMAC (fail closed when unset).
+ * Delegates the constant-time comparison to the Rust crypto-guard service via
+ * the go-bridge (/v1/crypto-guard/verify/hmac) when the bridge is configured;
+ * falls back to the local constant-time comparison when crypto-guard is
+ * unreachable (documented degradation — the local check is still timing-safe).
+ */
+async function verifyWebhookSignature(canonicalPayload: string, signature: string | undefined): Promise<void> {
   const secret = process.env.MOBILE_MONEY_WEBHOOK_SECRET;
   if (!secret) {
     // Fail closed — without a configured secret no webhook can be authenticated.
@@ -50,6 +56,14 @@ function verifyWebhookSignature(canonicalPayload: string, signature: string | un
   }
   if (!signature) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Missing webhook signature" });
+  }
+  const { verifyHmacViaCryptoGuard } = await import("../cryptoGuardClient");
+  const remoteVerdict = await verifyHmacViaCryptoGuard(secret, canonicalPayload, signature);
+  if (remoteVerdict !== null) {
+    if (!remoteVerdict) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid webhook signature" });
+    }
+    return;
   }
   const expected = createHmac("sha256", secret).update(canonicalPayload).digest("hex");
   if (!timingSafeStringEqual(expected, signature)) {
@@ -563,7 +577,7 @@ export const mobileMoneyRouter = router({
       const headers = (ctx.req?.headers ?? {}) as Record<string, string | string[] | undefined>;
       const headerSig = headers["x-webhook-signature"] ?? headers["x-signature"];
       const signature = (Array.isArray(headerSig) ? headerSig[0] : headerSig) ?? input.signature;
-      verifyWebhookSignature(`${input.providerCode}:${input.externalReference}:${input.status}`, signature);
+      await verifyWebhookSignature(`${input.providerCode}:${input.externalReference}:${input.status}`, signature);
 
       const [txn] = await db.select().from(mobileMoneyTransactions)
         .where(eq(mobileMoneyTransactions.externalReference, input.externalReference));

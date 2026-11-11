@@ -15,6 +15,9 @@ import {
   settlementNetPositions,
   nexthubTransfers,
   nexthubDfsps,
+  nexthubBulkTransfers,
+  nexthubFxRates,
+  nexthubLiquidityWindows,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -310,5 +313,211 @@ export const nexthubSettlementRouter = router({
         .where(eq(settlementNetPositions.windowId, input.windowId))
         .orderBy(desc(settlementNetPositions.netPositionKobo));
       return positions;
+    }),
+
+  // ─── Bulk Transfers (Mojaloop bulk-transfer projection) ────────────────────
+  // nexthub_bulk_transfers previously had NO writer. These procedures persist
+  // the bulk-transfer lifecycle the hub orchestrates (RECEIVED → PROCESSING →
+  // COMPLETED | FAILED).
+
+  /** registerBulkTransfer — persist an inbound bulk transfer */
+  registerBulkTransfer: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      bulkTransferId: z.string().min(1).max(64),
+      bulkQuoteId: z.string().max(64).optional(),
+      payerFsp: z.string().min(1).max(64),
+      payeeFsp: z.string().min(1).max(64),
+      totalTransfers: z.number().int().min(1),
+      expiration: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.insert(nexthubBulkTransfers).values({
+        bulkTransferId: input.bulkTransferId,
+        bulkQuoteId: input.bulkQuoteId ?? null,
+        payerFsp: input.payerFsp,
+        payeeFsp: input.payeeFsp,
+        totalTransfers: input.totalTransfers,
+        state: "RECEIVED",
+        expiration: input.expiration ? new Date(input.expiration) : null,
+      }).returning();
+      return row;
+    }),
+
+  /** recordBulkTransferProgress — update completion counts and terminal state */
+  recordBulkTransferProgress: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      bulkTransferId: z.string().min(1).max(64),
+      completedTransfers: z.number().int().min(0),
+      failedTransfers: z.number().int().min(0),
+      errorCode: z.string().max(8).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [existing] = await db.select().from(nexthubBulkTransfers)
+        .where(eq(nexthubBulkTransfers.bulkTransferId, input.bulkTransferId))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Bulk transfer not found" });
+      const done = input.completedTransfers + input.failedTransfers >= existing.totalTransfers;
+      const state = !done
+        ? "PROCESSING"
+        : input.failedTransfers > 0 ? "FAILED" : "COMPLETED";
+      const [row] = await db.update(nexthubBulkTransfers)
+        .set({
+          completedTransfers: input.completedTransfers,
+          failedTransfers: input.failedTransfers,
+          state,
+          errorCode: input.errorCode ?? null,
+          completedAt: done ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(nexthubBulkTransfers.bulkTransferId, input.bulkTransferId))
+        .returning();
+      return row;
+    }),
+
+  /** listBulkTransfers — paginated bulk-transfer list */
+  listBulkTransfers: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
+      state: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const whereClause = input.state ? eq(nexthubBulkTransfers.state, input.state) : undefined;
+      const [rows, countResult] = await Promise.all([
+        db.select().from(nexthubBulkTransfers)
+          .where(whereClause)
+          .orderBy(desc(nexthubBulkTransfers.createdAt))
+          .limit(input.limit)
+          .offset(input.offset),
+        db.select({ count: sql<number>`count(*)::int` }).from(nexthubBulkTransfers).where(whereClause),
+      ]);
+      return { bulkTransfers: rows, total: countResult[0]?.count ?? 0 };
+    }),
+
+  // ─── Hub FX Rates (nexthub_fx_rates) ───────────────────────────────────────
+  // The hub's own FX oracle quotes used for cross-currency settlement.
+  // nexthub_fx_rates previously had NO writer.
+
+  /** publishFxRate — register a new rate quote for a currency pair */
+  publishFxRate: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      sourceCurrency: z.string().length(3),
+      targetCurrency: z.string().length(3),
+      rate: z.string().regex(/^\d+(\.\d+)?$/, "rate must be a positive decimal string"),
+      provider: z.string().max(64).default("nexthub-fx"),
+      validFrom: z.string().datetime(),
+      validTo: z.string().datetime(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const validFrom = new Date(input.validFrom);
+      const validTo = new Date(input.validTo);
+      if (validTo.getTime() <= validFrom.getTime()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "validTo must be after validFrom" });
+      }
+      const [row] = await db.insert(nexthubFxRates).values({
+        sourceCurrency: input.sourceCurrency.toUpperCase(),
+        targetCurrency: input.targetCurrency.toUpperCase(),
+        rate: input.rate,
+        provider: input.provider,
+        validFrom,
+        validTo,
+      }).returning();
+      return row;
+    }),
+
+  /** getFxRate — latest currently-valid rate for a pair (404 when none) */
+  getFxRate: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      sourceCurrency: z.string().length(3),
+      targetCurrency: z.string().length(3),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const now = new Date();
+      const [row] = await db.select().from(nexthubFxRates)
+        .where(and(
+          eq(nexthubFxRates.sourceCurrency, input.sourceCurrency.toUpperCase()),
+          eq(nexthubFxRates.targetCurrency, input.targetCurrency.toUpperCase()),
+          lte(nexthubFxRates.validFrom, now),
+          gte(nexthubFxRates.validTo, now),
+        ))
+        .orderBy(desc(nexthubFxRates.validFrom))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "No valid FX rate for this pair" });
+      return row;
+    }),
+
+  // ─── Liquidity Windows (nexthub_liquidity_windows) ─────────────────────────
+  // Participant liquidity reservations backing settlement. The table
+  // previously had NO writer.
+
+  /** openLiquidityWindow — reserve participant liquidity until closesAt */
+  openLiquidityWindow: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      participantId: z.string().min(1),
+      currency: z.string().length(3).default("NGN"),
+      amountKobo: z.number().int().positive(),
+      closesAt: z.string().datetime(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const closesAt = new Date(input.closesAt);
+      if (closesAt.getTime() <= Date.now()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "closesAt must be in the future" });
+      }
+      const [row] = await db.insert(nexthubLiquidityWindows).values({
+        participantId: input.participantId,
+        currency: input.currency.toUpperCase(),
+        amount: input.amountKobo,
+        closesAt,
+        status: "OPEN",
+      }).returning();
+      return row;
+    }),
+
+  /** closeLiquidityWindow — terminal transition OPEN → CLOSED */
+  closeLiquidityWindow: pbacProcedure("trigger_settlement")
+    .input(z.object({ windowId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.update(nexthubLiquidityWindows)
+        .set({ status: "CLOSED" })
+        .where(and(
+          eq(nexthubLiquidityWindows.windowId, input.windowId),
+          eq(nexthubLiquidityWindows.status, "OPEN"),
+        ))
+        .returning();
+      if (!row) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Liquidity window not found or not OPEN" });
+      }
+      return row;
+    }),
+
+  /** listLiquidityWindows — current liquidity windows, optionally by participant */
+  listLiquidityWindows: pbacProcedure("trigger_settlement")
+    .input(z.object({
+      participantId: z.string().optional(),
+      status: z.enum(["OPEN", "CLOSED", "ALL"]).default("ALL"),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const conditions = [];
+      if (input.participantId) conditions.push(eq(nexthubLiquidityWindows.participantId, input.participantId));
+      if (input.status !== "ALL") conditions.push(eq(nexthubLiquidityWindows.status, input.status));
+      return db.select().from(nexthubLiquidityWindows)
+        .where(conditions.length ? and(...conditions as [any, ...any[]]) : undefined)
+        .orderBy(desc(nexthubLiquidityWindows.openedAt));
     }),
 });

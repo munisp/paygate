@@ -796,6 +796,42 @@ export const insuranceRouter = router({
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return row;
   }),
+  // Policy purchase/enrollment — the ONLY writer for consumer_insurance_policies.
+  // Claims (fileClaim below) reference policies, so purchase must persist first.
+  createPolicy: protectedProcedure.input(z.object({
+    productId: z.string().min(1),
+    productName: z.string().min(1).max(255),
+    provider: z.string().min(1).max(255),
+    customerId: z.string().optional(),
+    premiumKobo: z.number().int().positive(),
+    coverageKobo: z.number().int().positive(),
+    endDate: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = (await getDb())!;
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    // merchantId resolved from the session — never trust client input.
+    const merchantId = await resolveMerchantId(ctx.user.openId);
+    const endDate = input.endDate ? new Date(input.endDate) : null;
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid endDate" });
+    }
+    const [row] = await db.insert(consumerInsurancePolicies).values({
+      merchantId,
+      customerId: input.customerId ?? null,
+      productId: input.productId,
+      productName: input.productName,
+      provider: input.provider,
+      premiumKobo: input.premiumKobo,
+      coverageKobo: input.coverageKobo,
+      status: "active",
+      startDate: new Date(),
+      endDate,
+      metadata: input.metadata ?? null,
+      createdAt: new Date(),
+    } as any).returning();
+    return row;
+  }) as any,
   listClaims: protectedProcedure.input(paginationInput.extend({ policyId: z.string().optional() })).query(async ({ input, ctx }) => {
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -1007,6 +1043,57 @@ export const wealthRouter = router({
 });
 
 // ─── EMI contracts ─────────────────────────────────────────────────────────────
+/** Add months with day clamping (Jan 31 + 1mo → Feb 28/29, not Mar 3). */
+function addMonthsClamped(base: Date, months: number): Date {
+  const d = new Date(base.getTime());
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d;
+}
+
+export interface EmiScheduleRow {
+  installmentNo: number;
+  dueDate: Date;
+  amountKobo: number;
+}
+
+/**
+ * Build the full amortized installment schedule for an EMI contract.
+ * Equal monthly installments (standard flat EMI amortization — principal and
+ * interest are split evenly per the emi_contracts schema, which stores only
+ * total/monthly amounts). The final installment absorbs rounding so the
+ * schedule sums EXACTLY to totalAmountKobo (and to the principal when the
+ * interest rate is zero and the principal divides evenly).
+ */
+export function buildEmiSchedule(opts: {
+  principalKobo: number;
+  tenorMonths: number;
+  interestRateBps: number;
+  firstDueDate: Date;
+}): { emiKobo: number; totalAmountKobo: number; rows: EmiScheduleRow[] } {
+  const { principalKobo, tenorMonths, interestRateBps, firstDueDate } = opts;
+  const monthlyRate = interestRateBps / 10000;
+  const emiKobo = monthlyRate > 0
+    ? Math.ceil(principalKobo * monthlyRate * Math.pow(1 + monthlyRate, tenorMonths) / (Math.pow(1 + monthlyRate, tenorMonths) - 1))
+    : Math.ceil(principalKobo / tenorMonths);
+  const totalAmountKobo = emiKobo * tenorMonths;
+  const rows: EmiScheduleRow[] = [];
+  let allocated = 0;
+  for (let i = 1; i <= tenorMonths; i++) {
+    const amountKobo = i === tenorMonths ? totalAmountKobo - allocated : emiKobo;
+    allocated += amountKobo;
+    rows.push({
+      installmentNo: i,
+      dueDate: addMonthsClamped(firstDueDate, i - 1),
+      amountKobo,
+    });
+  }
+  return { emiKobo, totalAmountKobo, rows };
+}
+
 export const emiRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ input, ctx }) => {
     const db = (await getDb())!;
@@ -1046,27 +1133,48 @@ export const emiRouter = router({
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     // merchantId resolved from the session — never trust client input.
     const merchantId = await resolveMerchantId(ctx.user.openId);
-    const monthlyRate = input.interestRateBps / 10000;
-    const emi = monthlyRate > 0
-      ? Math.ceil(input.principalKobo * monthlyRate * Math.pow(1 + monthlyRate, input.tenorMonths) / (Math.pow(1 + monthlyRate, input.tenorMonths) - 1))
-      : Math.ceil(input.principalKobo / input.tenorMonths);
-    // Columns match drizzle emi_contracts (tenure, total_amount_kobo,
-    // monthly_installment_kobo are NOT NULL).
-    const [row] = await db.insert(emiContracts).values({
-      merchantId,
-      customerId: input.customerId ?? null,
-      orderId: input.orderId,
-      planId: input.planId ?? `emi-${input.tenorMonths}m-${input.interestRateBps}bps`,
-      tenure: input.tenorMonths,
+    const firstDueDate = new Date(input.firstDueDate);
+    if (Number.isNaN(firstDueDate.getTime())) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid firstDueDate" });
+    }
+    const { emiKobo, totalAmountKobo, rows: schedule } = buildEmiSchedule({
       principalKobo: input.principalKobo,
-      interestRate: (input.interestRateBps / 100).toString(),
-      totalAmountKobo: emi * input.tenorMonths,
-      monthlyInstallmentKobo: emi,
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as any).returning();
-    return row;
+      tenorMonths: input.tenorMonths,
+      interestRateBps: input.interestRateBps,
+      firstDueDate,
+    });
+    // Contract + full installment schedule persist in ONE transaction — a
+    // contract without its emi_installments rows can never exist (previously
+    // the schedule was never written, leaving listInstallments permanently
+    // empty for every contract).
+    return db.transaction(async (tx) => {
+      // Columns match drizzle emi_contracts (tenure, total_amount_kobo,
+      // monthly_installment_kobo are NOT NULL).
+      const [row] = await tx.insert(emiContracts).values({
+        merchantId,
+        customerId: input.customerId ?? null,
+        orderId: input.orderId,
+        planId: input.planId ?? `emi-${input.tenorMonths}m-${input.interestRateBps}bps`,
+        tenure: input.tenorMonths,
+        principalKobo: input.principalKobo,
+        interestRate: (input.interestRateBps / 100).toString(),
+        totalAmountKobo,
+        monthlyInstallmentKobo: emiKobo,
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any).returning();
+      await tx.insert(emiInstallments).values(schedule.map((s) => ({
+        emiContractId: row.id,
+        installmentNo: s.installmentNo,
+        dueDate: s.dueDate,
+        amountKobo: s.amountKobo,
+        paidAmountKobo: 0,
+        status: "pending",
+        createdAt: new Date(),
+      })) as any);
+      return row;
+    });
   }) as any,
 });
 

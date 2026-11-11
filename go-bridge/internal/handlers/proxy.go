@@ -40,6 +40,16 @@ func ProxyToService(envKey, fallbackURL, pathSuffix string) http.HandlerFunc {
 			}
 		}
 
+		// Service-to-service auth: every PayGate microservice (rust-services/*,
+		// python-services/*) fails closed unless the caller presents
+		// X-Internal-Key matching the upstream's INTERNAL_API_KEY. The inbound
+		// X-Internal-Key is the *bridge* credential (BRIDGE_INTERNAL_KEY) and
+		// must never be forwarded, so it is deliberately not in the copy list
+		// above; the bridge injects the upstream credential here instead.
+		if key := os.Getenv("INTERNAL_API_KEY"); key != "" {
+			req.Header.Set("X-Internal-Key", key)
+		}
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			slog.Error("[proxy] upstream error", "err", err, "target", targetURL)

@@ -345,6 +345,72 @@ func HandleSettlementConfirmed(ctx context.Context, key string, value []byte) er
 	return nil
 }
 
+// ─── Regulatory/compliance persistence consumer (wave-7, C9) ─────────────────
+
+// RegulatoryTopics are compliance/audit topics produced by the merchant
+// portal (psp-production.ts) and cbn_str.go that previously had NO consumer —
+// events were published into the void. Every one of them is persisted to the
+// regulatory_events table (drizzle/0114_regulatory_events.sql).
+var RegulatoryTopics = []string{
+	"str.filed",
+	"str.submitted",
+	"velocity_limit.updated",
+	"chargeback.submitted_to_scheme",
+	"regulatory.generate_form_a",
+	"regulatory.generate_form_b",
+	"regulatory.generate_form_c",
+}
+
+// criticalTopics must never have their offsets committed unless the handler
+// succeeded (at-least-once persistence). On handler error the consume claim
+// returns the error WITHOUT MarkMessage so the session ends and the message
+// is redelivered after rejoin.
+var criticalTopics = func() map[string]bool {
+	m := make(map[string]bool, len(RegulatoryTopics))
+	for _, t := range RegulatoryTopics {
+		m[t] = true
+	}
+	return m
+}()
+
+// HandleRegulatoryEvent persists a compliance/audit event to the durable
+// regulatory_events table. Returns an error when the insert fails so the
+// offset is NOT committed (at-least-once). Malformed (non-JSON) payloads are
+// wrapped so a poison pill cannot block the partition forever.
+func HandleRegulatoryEvent(ctx context.Context, key string, value []byte, topic string) error {
+	db := getKafkaDB()
+	if db == nil {
+		return fmt.Errorf("kafka: regulatory event on %q NOT persisted — DATABASE_URL unset", topic)
+	}
+	// Ensure the payload column always receives valid JSONB.
+	payload := value
+	var probe any
+	if err := json.Unmarshal(value, &probe); err != nil {
+		wrapped, werr := json.Marshal(map[string]string{"raw": string(value)})
+		if werr != nil {
+			return fmt.Errorf("kafka: wrap malformed regulatory payload on %q: %w", topic, werr)
+		}
+		payload = wrapped
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO regulatory_events (topic, payload, received_at) VALUES ($1, $2::jsonb, NOW())`,
+		topic, string(payload),
+	); err != nil {
+		slog.Error("[kafka-consumer] regulatory event insert FAILED — offset NOT committed (will redeliver)",
+			"topic", topic, "key", key, "err", err)
+		return fmt.Errorf("kafka: persist regulatory event on %q: %w", topic, err)
+	}
+	slog.Info("[kafka-consumer] regulatory event persisted", "topic", topic, "key", key)
+	return nil
+}
+
+// makeRegulatoryHandler binds a topic to the persistence handler.
+func makeRegulatoryHandler(topic string) MessageHandler {
+	return func(ctx context.Context, key string, value []byte) error {
+		return HandleRegulatoryEvent(ctx, key, value, topic)
+	}
+}
+
 // ─── Default consumer factory ─────────────────────────────────────────────────
 
 // NewDefaultConsumer creates a consumer with all built-in handlers registered.
@@ -354,6 +420,10 @@ func NewDefaultConsumer() *Consumer {
 	c.RegisterHandler("paygate.mojaloop.callback", HandleMojalooopCallback)
 	c.RegisterHandler("paygate.fraud.alert", HandleFraudAlert)
 	c.RegisterHandler("paygate.settlement.confirmed", HandleSettlementConfirmed)
+	// wave-7 (C9): persist produced-but-never-consumed compliance topics.
+	for _, t := range RegulatoryTopics {
+		c.RegisterHandler(t, makeRegulatoryHandler(t))
+	}
 	return c
 }
 
@@ -397,7 +467,13 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 					"offset", msg.Offset,
 					"error", err,
 				)
-				// Mark anyway to avoid infinite retry on poison pills
+				if criticalTopics[msg.Topic] {
+					// At-least-once: do NOT mark the offset — end the claim so
+					// the message is redelivered after the group rejoins.
+					return fmt.Errorf("kafka-consumer: critical handler failed on %s offset %d: %w", msg.Topic, msg.Offset, err)
+				}
+				// Non-critical topics: mark anyway to avoid infinite retry on
+				// poison pills.
 			}
 			session.MarkMessage(msg, "")
 

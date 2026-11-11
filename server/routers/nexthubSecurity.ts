@@ -7,9 +7,10 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { nexthubSecurityEvents as securityEvents, amlRules, nexthubDfsps } from "../../drizzle/schema";
+import { nexthubSecurityEvents as securityEvents, amlRules, nexthubDfsps, nexthubPispConsents } from "../../drizzle/schema";
 import { eq, desc, sql, and, lt, count, gte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import crypto from "crypto";
 
 export const nexthubSecurityRouter = router({
 
@@ -273,5 +274,139 @@ export const nexthubSecurityRouter = router({
         amlAlertsToday: sql<number>`count(*)::int`,
       }).from(amlRules);
       return { ...stats, amlAlertsToday: amlStats?.amlAlertsToday ?? 0 };
+    }),
+
+  // ─── PISP Consents (Mojaloop PISP consent lifecycle) ────────────────────────
+  // nexthub_pisp_consents previously had NO writer — consents were never
+  // persisted, so the PISP flow could not survive a restart or be audited.
+  // Lifecycle: REQUESTED → AUTHORIZED → (REVOKED terminal).
+
+  /** requestPispConsent — persist a newly requested PISP consent */
+  requestPispConsent: protectedProcedure
+    .input(z.object({
+      consentRequestId: z.string().max(64).optional(),
+      consumerId: z.string().max(64).default(""),
+      pispId: z.string().min(1).max(64),
+      dfspId: z.string().min(1).max(64),
+      scopes: z.array(z.string().max(128)).min(1),
+      authChannels: z.array(z.string().max(32)).default(["OTP"]),
+      expiresAt: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const consentId = crypto.randomUUID();
+      const [row] = await db.insert(nexthubPispConsents).values({
+        consentId,
+        consentRequestId: input.consentRequestId ?? null,
+        consumerId: input.consumerId,
+        pispId: input.pispId,
+        dfspId: input.dfspId,
+        state: "REQUESTED",
+        scopes: JSON.stringify(input.scopes),
+        authChannels: JSON.stringify(input.authChannels),
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      }).returning();
+      return row;
+    }),
+
+  /** authorizePispConsent — consumer authenticated; move REQUESTED → AUTHORIZED */
+  authorizePispConsent: protectedProcedure
+    .input(z.object({
+      consentId: z.string().min(1).max(64),
+      credential: z.string().max(4096).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [updated] = await db.update(nexthubPispConsents)
+        .set({
+          state: "AUTHORIZED",
+          credential: input.credential ?? null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(nexthubPispConsents.consentId, input.consentId),
+          eq(nexthubPispConsents.state, "REQUESTED"),
+        ))
+        .returning();
+      if (!updated) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Consent not found or not in REQUESTED state",
+        });
+      }
+      return updated;
+    }),
+
+  /** revokePispConsent — terminal revocation of an authorized consent */
+  revokePispConsent: protectedProcedure
+    .input(z.object({
+      consentId: z.string().min(1).max(64),
+      reason: z.string().max(128).default("consumer_revoked"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [updated] = await db.update(nexthubPispConsents)
+        .set({
+          state: "REVOKED",
+          revokedAt: new Date(),
+          revokeReason: input.reason,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(nexthubPispConsents.consentId, input.consentId),
+          eq(nexthubPispConsents.state, "AUTHORIZED"),
+        ))
+        .returning();
+      if (!updated) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Consent not found or not in AUTHORIZED state",
+        });
+      }
+      return updated;
+    }),
+
+  /** getPispConsent — fetch one consent by its external consentId */
+  getPispConsent: protectedProcedure
+    .input(z.object({ consentId: z.string().min(1).max(64) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.select().from(nexthubPispConsents)
+        .where(eq(nexthubPispConsents.consentId, input.consentId))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Consent not found" });
+      return row;
+    }),
+
+  /** listPispConsents — paginated consent list with optional state filter */
+  listPispConsents: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
+      state: z.enum(["REQUESTED", "AUTHORIZED", "REVOKED", "ALL"]).default("ALL"),
+      pispId: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const conditions = [];
+      if (input.state !== "ALL") conditions.push(eq(nexthubPispConsents.state, input.state));
+      if (input.pispId) conditions.push(eq(nexthubPispConsents.pispId, input.pispId));
+      const whereClause = conditions.length > 0 ? and(...conditions as [any, ...any[]]) : undefined;
+      const [rows, countResult] = await Promise.all([
+        db.select().from(nexthubPispConsents)
+          .where(whereClause)
+          .orderBy(desc(nexthubPispConsents.createdAt))
+          .limit(input.limit)
+          .offset(input.offset),
+        db.select({ count: sql<number>`count(*)::int` })
+          .from(nexthubPispConsents)
+          .where(whereClause),
+      ]);
+      return { consents: rows, total: countResult[0]?.count ?? 0 };
     }),
 });

@@ -37,6 +37,7 @@ const (
 	TopicTransactionFailed    = "paygate.transaction.failed"
 	TopicPayoutInitiated      = "paygate.payout.initiated"
 	TopicSettlementTriggered  = "paygate.settlement.triggered"
+	TopicSettlementConfirmed  = "paygate.settlement.confirmed"
 	TopicFraudAlert           = "paygate.fraud.alert"
 	TopicAuditEvents          = "paygate.audit.events"
 	TopicNIBSSConfirmation    = "paygate.nibss.confirmation"
@@ -254,6 +255,26 @@ func (p *Producer) PublishPayout(ctx context.Context, evt PayoutEvent) error {
 // PublishSettlement publishes a settlement triggered event.
 func (p *Producer) PublishSettlement(ctx context.Context, evt SettlementEvent) error {
 	return p.Publish(ctx, TopicSettlementTriggered, evt.MerchantID, evt)
+}
+
+// SettlementConfirmedEvent is published to paygate.settlement.confirmed when
+// a settlement confirmation is processed by the bridge settlement flow.
+type SettlementConfirmedEvent struct {
+	EventID      string    `json:"event_id"`
+	SettlementID string    `json:"settlement_id"`
+	BatchRef     string    `json:"batch_ref,omitempty"`
+	MerchantID   string    `json:"merchant_id,omitempty"`
+	Status       string    `json:"status"`
+	ConfirmedAt  time.Time `json:"confirmed_at"`
+}
+
+// PublishSettlementConfirmed publishes a settlement confirmed event.
+func (p *Producer) PublishSettlementConfirmed(ctx context.Context, evt SettlementConfirmedEvent) error {
+	key := evt.MerchantID
+	if key == "" {
+		key = evt.SettlementID
+	}
+	return p.Publish(ctx, TopicSettlementConfirmed, key, evt)
 }
 
 // PublishFraudAlert publishes a fraud alert event.

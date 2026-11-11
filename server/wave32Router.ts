@@ -704,8 +704,50 @@ const ssoConfigsRouter = router({
         .where(eq(tenantSsoConfigs.tenantId, input.tenantId));
       if (!config) throw new TRPCError({ code: "NOT_FOUND", message: "SSO config not found" });
       if (!config.isEnabled) throw new TRPCError({ code: "BAD_REQUEST", message: "SSO is not enabled" });
-      // Simulate a connectivity test
-      return { success: true, message: "SSO configuration is valid", protocol: config.protocol };
+      // REAL connectivity test — no simulated success:
+      //  - OIDC/OAuth2: fetch the discovery document and require a JSON body
+      //    with an `issuer` field.
+      //  - SAML: probe the SSO URL; any HTTP response (< 500) proves reachability.
+      // If neither endpoint is configured there is nothing real to test —
+      // fail honestly instead of pretending the config is valid.
+      if ((config.protocol === "oidc" || config.protocol === "oauth2") && config.discoveryUrl) {
+        try {
+          const res = await fetch(config.discoveryUrl, { signal: AbortSignal.timeout(5000) });
+          if (!res.ok) {
+            return { success: false, message: `Discovery endpoint returned HTTP ${res.status}`, protocol: config.protocol };
+          }
+          const doc = await res.json() as { issuer?: string };
+          if (!doc?.issuer) {
+            return { success: false, message: "Discovery document is missing the `issuer` field — not a valid OIDC provider", protocol: config.protocol };
+          }
+          return { success: true, message: `OIDC discovery OK (issuer: ${doc.issuer})`, protocol: config.protocol, issuer: doc.issuer };
+        } catch (err) {
+          return {
+            success: false,
+            message: `Discovery endpoint unreachable: ${err instanceof Error ? err.message : String(err)}`,
+            protocol: config.protocol,
+          };
+        }
+      }
+      if (config.ssoUrl) {
+        try {
+          const res = await fetch(config.ssoUrl, { method: "GET", signal: AbortSignal.timeout(5000), redirect: "manual" });
+          if (res.status >= 500) {
+            return { success: false, message: `SSO endpoint returned HTTP ${res.status}`, protocol: config.protocol };
+          }
+          return { success: true, message: `SSO endpoint reachable (HTTP ${res.status})`, protocol: config.protocol };
+        } catch (err) {
+          return {
+            success: false,
+            message: `SSO endpoint unreachable: ${err instanceof Error ? err.message : String(err)}`,
+            protocol: config.protocol,
+          };
+        }
+      }
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "SSO config has no discoveryUrl or ssoUrl to test — configure an endpoint first.",
+      });
     }),
 });
 

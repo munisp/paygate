@@ -11,6 +11,15 @@
 import { getDb } from "./db";
 import { notifyOwner } from "./_core/notification";
 import { isSuppressedWorkerError } from './workerErrorFilter';
+import { logger } from "./logger";
+import { recordPersistFailure } from "./metrics";
+
+/** Surface a swallowed durable-write failure: structured log + Prometheus metric. */
+function reportPersistFailure(table: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  logger.error(`[webhookFailureAlerts] ${table} persist FAILED — durable record lost: ${msg}`);
+  recordPersistFailure("webhookFailureAlerts", table);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +69,7 @@ function persistAck(alertId: string): void {
       INSERT INTO webhook_alert_acks (delivery_id) VALUES (${alertId})
       ON CONFLICT (delivery_id) DO NOTHING
     `);
-  })().catch((e) => console.error("[webhookFailureAlerts] webhook_alert_acks persist failed (non-fatal):", e instanceof Error ? e.message : String(e)));
+  })().catch((e) => reportPersistFailure("webhook_alert_acks", e));
 }
 
 /** Hydrate acknowledgedIds from Postgres. Fire-and-forget; never throws. */
@@ -73,7 +82,7 @@ async function hydrateAcknowledgedIds(): Promise<void> {
     const rows: any[] = res?.rows ?? res ?? [];
     for (const r of rows) acknowledgedIds.add(String(r.delivery_id));
   } catch (e) {
-    console.error("[webhookFailureAlerts] ack hydration failed (non-fatal):", e instanceof Error ? e.message : String(e));
+    logger.error("[webhookFailureAlerts] ack hydration failed (non-fatal):", e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -93,7 +102,7 @@ async function fetchAcknowledgedIds(): Promise<Set<string>> {
       return new Set(rows.map((r) => String(r.delivery_id)));
     }
   } catch (e) {
-    console.error("[webhookFailureAlerts] ack read failed — using in-memory Set:", e instanceof Error ? e.message : String(e));
+    logger.error("[webhookFailureAlerts] ack read failed — using in-memory Set:", e instanceof Error ? e.message : String(e));
   }
   return acknowledgedIds;
 }
@@ -252,7 +261,7 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
             acknowledged: acked.has(a.id),
           } as any);
         }
-      })().catch((e) => console.error("[webhookFailureAlerts] webhook_failure_alerts persist failed (non-fatal):", e instanceof Error ? e.message : String(e)));
+      })().catch((e) => reportPersistFailure("webhook_failure_alerts", e));
       // Notify owner if there are critical failures
       const critical = alerts.filter((a) => a.severity === "critical" && !a.id.startsWith("dlq:"));
       if (critical.length > 0) {

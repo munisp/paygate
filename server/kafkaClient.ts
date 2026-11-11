@@ -34,6 +34,7 @@ export interface KafkaConsumerConfig {
 // ─── Topic constants ──────────────────────────────────────────────────────────
 export const KAFKA_TOPICS = {
   TRANSACTIONS: "paygate.transactions",
+  PAYMENTS: "paygate.payments",
   PAYOUTS: "paygate.payouts",
   FRAUD: "paygate.fraud",
   KYC: "paygate.kyc",
@@ -230,7 +231,35 @@ export async function publishTransactionEvent(payload: {
   status: string;
   metadata?: Record<string, unknown>;
 }) {
-  return publishEvent(KAFKA_TOPICS.TRANSACTIONS, payload, payload.transactionId);
+  // Downstream consumers (aml-monitor, reconciliation-engine) key off
+  // `event_type` (e.g. "transaction.completed"); keep `type` for existing
+  // consumers and always emit the dotted event_type alongside it.
+  const eventType =
+    payload.status === "completed" ? "transaction.completed"
+    : payload.status === "failed" ? "transaction.failed"
+    : `transaction.${payload.type}`;
+  return publishEvent(KAFKA_TOPICS.TRANSACTIONS, { ...payload, event_type: eventType }, payload.transactionId);
+}
+
+/**
+ * Publish a payment success/failure event (consumed by aml-monitor on
+ * paygate.payments; it acts on event_type "payment.completed").
+ */
+export async function publishPaymentEvent(payload: {
+  status: "completed" | "failed";
+  paymentId: string;
+  merchantId: string;
+  amount: number;
+  currency?: string;
+  reference?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const eventType = payload.status === "completed" ? "payment.completed" : "payment.failed";
+  return publishEvent(
+    KAFKA_TOPICS.PAYMENTS,
+    { ...payload, event_type: eventType, occurred_at: new Date().toISOString() },
+    payload.merchantId
+  );
 }
 
 /**

@@ -350,8 +350,19 @@ const domainSslRouter = router({
         // DNS lookup failed or record not found
         verified = false;
       }
-      // No domain_verified / ssl_status columns exist to update — the outcome
-      // is reported to the caller only.
+      // No domain_verified / ssl_status columns exist on tenants — persist the
+      // verification OUTCOME as an audit_logs record so the result is durable
+      // (previously it was returned to the caller and then lost).
+      await execRaw(db, `
+        INSERT INTO audit_logs (id, user_id, action, resource, resource_id, metadata, created_at)
+        VALUES ($1, $2, 'domain_verification_result', 'tenant_domain', $3, $4, NOW())
+      `, [crypto.randomUUID(), String(ctx.user.id), input.tenantId,
+          JSON.stringify({
+            domain: custom_domain,
+            verified,
+            sslStatus: verified ? "provisioning" : "pending_verification",
+            verifiedAt: new Date().toISOString(),
+          })]);
       return { verified, domain: custom_domain, sslStatus: verified ? "provisioning" : "pending_verification" };
     }),
 

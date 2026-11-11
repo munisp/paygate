@@ -90,6 +90,18 @@ services:
       GNN_FRAUD_URL: http://gnn-fraud:8141
       PUSH_SERVICE_URL: http://push-service:8096
       USSD_GATEWAY_URL: http://ussd-gateway:8095
+      # ─── Wave-7 newly wired services (see .work/wave6/services.json) ──────
+      # carbon-oracle: direct URL for any app-side caller; the go-bridge also
+      # proxies it at /v1/carbon/* (CARBON_ORACLE_URL on go-bridge below).
+      CARBON_ORACLE_URL: http://carbon-oracle:8000
+      # deepface-sidecar: server/deepfaceSidecar.ts calls it directly
+      # (DEEPFACE_SIDECAR_URL); the go-bridge proxy is /v1/deepface/*.
+      DEEPFACE_SIDECAR_URL: http://deepface-sidecar:8000
+      # crypto-guard / liveness-signal-processor / fatf-sanctions-sync are
+      # reached from the app THROUGH the go-bridge (MIDDLEWARE_BRIDGE_URL)
+      # at /v1/crypto-guard/*, /v1/liveness/*, /v1/sanctions/* — no direct
+      # app-side URL needed. merchant-ussd-fallback calls back into the app
+      # portal; its MERCHANT_PORTAL_URL is set on that service below.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-PayGate Merchant Portal}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?must be set - no default Stripe secret allowed in production}
@@ -1030,6 +1042,143 @@ services:
     ports:
       - "${WEALTH_MANAGEMENT_PORT:-8138}:8000"
 
+  # ─── Rust: Crypto Guard (wave-7) ──────────────────────────────────
+  # HMAC verification, nonce generation, replay protection. Proxied by the
+  # go-bridge at /v1/crypto-guard/* (CRYPTO_GUARD_URL). Requires X-Internal-Key
+  # (INTERNAL_API_KEY) on every non-health route; Redis backs the replay
+  # nonce store (fail-closed without it).
+  crypto-guard:
+    build:
+      context: ./rust-services/crypto-guard
+      dockerfile: Dockerfile
+    container_name: paygate_crypto_guard
+    restart: unless-stopped
+    ports:
+      - "${CRYPTO_GUARD_PORT:-8140}:8091"
+    environment:
+      CRYPTO_GUARD_PORT: "8091"
+      ENV: production
+      RUST_LOG: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [paygate]
+
+  # ─── Rust: Insider Threat Engine (wave-7) ─────────────────────────
+  # Behavioural scoring (/score) + durable per-actor EMA baselines
+  # (/baseline/update, Postgres write-through). Proxied at /v1/insider-threat/*
+  # (INSIDER_THREAT_URL); also called directly by go-bridge internal/insider
+  # (INSIDER_THREAT_ENGINE_URL).
+  insider-threat-engine:
+    build:
+      context: ./rust-services/insider-threat-engine
+      dockerfile: Dockerfile
+    container_name: paygate_insider_threat_engine
+    restart: unless-stopped
+    ports:
+      - "${INSIDER_THREAT_PORT:-8141}:8300"
+    environment:
+      INSIDER_THREAT_ENGINE_PORT: "8300"
+      ENV: production
+      RUST_LOG: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      DATABASE_URL: ${DATABASE_URL:?must be set - no default database URL allowed in production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+
+  # ─── Rust: Liveness Signal Processor (wave-7) ─────────────────────
+  # Anti-spoof signal analysis (/analyse, /analyse/batch, /calibrate).
+  # Proxied at /v1/liveness/{analyse,analyse/batch,calibrate} (LIVENESS_URL).
+  # The server KYC flow (server/routers/kyc.ts) uses it as the fallback /
+  # second-opinion path when the Python liveness gateway is unavailable.
+  liveness-signal-processor:
+    build:
+      context: ./rust-services/liveness-signal-processor
+      dockerfile: Dockerfile
+    container_name: paygate_liveness_signal_processor
+    restart: unless-stopped
+    ports:
+      - "${LIVENESS_SIGNAL_PORT:-8142}:8090"
+    environment:
+      PORT: "8090"
+      ENV: production
+      RUST_LOG: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      NODE_CALLBACK_URL: http://app:3000/api/internal/liveness/result
+    networks: [paygate]
+
+  # ─── Python: DeepFace Sidecar (wave-7) ────────────────────────────
+  # Face verify/liveness/search for KYC. Called directly by the app
+  # (DEEPFACE_SIDECAR_URL, server/deepfaceSidecar.ts) and proxied by the
+  # go-bridge at /v1/deepface/* (DEEPFACE_URL).
+  deepface-sidecar:
+    <<: *python-defaults
+    build:
+      context: ./python-services/deepface-sidecar
+      dockerfile: Dockerfile
+    container_name: paygate_deepface_sidecar
+    ports:
+      - "${DEEPFACE_PORT:-8143}:8000"
+
+  # ─── Python: FATF Sanctions Sync (wave-7) ─────────────────────────
+  # Syncs FATF/UN/OFAC lists into Postgres + Redis; serves /lookup/name and
+  # /lookup/jurisdiction. Proxied at /v1/sanctions/* (FATF_SYNC_URL); the app
+  # screens KYC approvals through the bridge (server/adminRouter.ts).
+  fatf-sanctions-sync:
+    <<: *python-defaults
+    build:
+      context: ./python-services/fatf-sanctions-sync
+      dockerfile: Dockerfile
+    container_name: paygate_fatf_sanctions_sync
+    ports:
+      - "${FATF_SYNC_PORT:-8144}:8000"
+    environment:
+      PORT: "8000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      DATABASE_URL: ${DATABASE_URL:?must be set - no default database URL allowed in production}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Python: Merchant USSD Fallback (wave-7) ──────────────────────
+  # USSD/SMS merchant operations when the web portal is unreachable.
+  # Proxied at /v1/ussd-fallback/* (USSD_FALLBACK_URL). Calls back into the
+  # app portal (MERCHANT_PORTAL_URL) and the go-bridge (BRIDGE_URL) for
+  # balance / payout operations.
+  merchant-ussd-fallback:
+    <<: *python-defaults
+    build:
+      context: ./python-services/merchant-ussd-fallback
+      dockerfile: Dockerfile
+    container_name: paygate_merchant_ussd_fallback
+    ports:
+      - "${USSD_FALLBACK_PORT:-8145}:8000"
+    environment:
+      PORT: "8000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
+      REDIS_URL: redis://redis:6379
+      MERCHANT_PORTAL_URL: http://app:3000
+      BRIDGE_URL: http://go-bridge:8080
+      BRIDGE_INTERNAL_KEY: ${BRIDGE_INTERNAL_KEY:?must be set - no default bridge key allowed in production}
+      AT_USERNAME: ${AT_USERNAME:-}
+      AT_API_KEY: ${AT_API_KEY:-}
+      TERMII_API_KEY: ${TERMII_API_KEY:?must be set - no default Termii key allowed in production}
+      TERMII_SENDER_ID: ${TERMII_SENDER_ID:-PayGate}
+    depends_on:
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+
   # ─── Go Bridge ────────────────────────────────────────────────────
   go-bridge:
     build:
@@ -1049,6 +1198,19 @@ services:
       TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:?must be set - address of the TigerBeetle ledger cluster}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       FRAUD_SCORING_URL: http://fraud-scoring:8083
+      # ─── Wave-7 newly proxied services (route table: go-bridge/cmd/bridge/main.go)
+      # Rust services listen on their native container ports (not the 8000 anchor).
+      CRYPTO_GUARD_URL: http://crypto-guard:8091
+      INSIDER_THREAT_URL: http://insider-threat-engine:8300
+      # INSIDER_THREAT_ENGINE_URL is read by internal/insider (GetRiskScore /
+      # UpdateBaseline direct caller); INSIDER_THREAT_URL feeds the proxy routes.
+      INSIDER_THREAT_ENGINE_URL: http://insider-threat-engine:8300
+      LIVENESS_URL: http://liveness-signal-processor:8090
+      # Python services listen on container port 8000 (x-python-defaults).
+      CARBON_ORACLE_URL: http://carbon-oracle:8000
+      DEEPFACE_URL: http://deepface-sidecar:8000
+      FATF_SYNC_URL: http://fatf-sanctions-sync:8000
+      USSD_FALLBACK_URL: http://merchant-ussd-fallback:8000
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
@@ -1460,8 +1622,18 @@ services:
       start_period: 15s
 
   # ─── OpenAppSec WAF sidecar (A3-Gap-3) ──────────────────────────────────────
-  # Consumes blocked-IP events from Kafka, tracks them in Redis, and syncs
-  # per-IP block routes into the APISIX Admin API.
+  # Intended sidecar pattern (see infra/apisix/config.yaml header):
+  #   Internet → open-appsec agent (ML WAF, waf-policy.yaml) → APISIX → services
+  # This container is the WAF *control plane*, not an inline data-plane hop:
+  #   - consumes blocked-IP events from Kafka (topic: paygate.waf.events),
+  #   - tracks them in Redis,
+  #   - syncs per-IP block routes into the APISIX Admin API (APISIX_ADMIN_URL,
+  #     etcd-backed so dynamic route writes are accepted),
+  #   - exposes a management API (/v1/waf/*) that operators reach ONLY via the
+  #     APISIX route `openappsec-waf-mgmt` (/api/v1/waf/* → openappsec-waf:8130,
+  #     see infra/apisix/routes.yaml).
+  # By design there is NO inbound caller from app/go-bridge: it is wired to
+  # apisix + kafka + redis only. Do not add app/bridge env URLs for it.
   openappsec-waf:
     <<: *python-defaults
     build:

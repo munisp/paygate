@@ -14,6 +14,7 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { KAFKA_TOPICS, publishEvent, publishTransactionEvent } from "./kafkaClient";
 import {
   users, merchants, tenants, transactions, customers, payouts, apiKeys,
   webhooks, webhookDeliveries, disputes, virtualCards, paymentLinks,
@@ -248,6 +249,20 @@ export async function updateMerchant(id: string, data: Record<string, any>) {
 export async function createTransaction(data: Record<string, any>) {
   const database = requireDbSync();
   const rows = await database.insert(transactions).values(data as any).returning();
+  const tx = rows[0] as any;
+  // wave-7 (B3): emit the paygate.transactions lifecycle event at the real
+  // event source. publishEvent never throws for non-regulatory topics — it
+  // logs loudly and returns false when the bus is unavailable.
+  if (tx) {
+    await publishTransactionEvent({
+      type: "created",
+      transactionId: String(tx.id),
+      merchantId: String(tx.merchantId ?? ""),
+      amount: Number(tx.amount ?? 0),
+      currency: String(tx.currency ?? ""),
+      status: String(tx.status ?? "pending"),
+    });
+  }
   return rows[0];
 }
 
@@ -264,6 +279,19 @@ export async function updateTransaction(id: string, data: Record<string, any>) {
     .set({ ...data, updatedAt: new Date() } as any)
     .where(eq(transactions.id, id))
     .returning();
+  const tx = rows[0] as any;
+  // wave-7 (B3): emit paygate.transactions on transaction status change.
+  if (tx && data.status !== undefined) {
+    const status = String(data.status);
+    await publishTransactionEvent({
+      type: status === "failed" ? "failed" : "updated",
+      transactionId: String(tx.id),
+      merchantId: String(tx.merchantId ?? ""),
+      amount: Number(tx.amount ?? 0),
+      currency: String(tx.currency ?? ""),
+      status,
+    });
+  }
   return rows[0];
 }
 
@@ -1358,6 +1386,21 @@ export async function updateSettlement(id: string, data: Record<string, any>) {
     .set({ ...data, updatedAt: new Date() } as any)
     .where(eq(settlements.id, id))
     .returning();
+  const st = rows[0] as any;
+  // wave-7 (B5): emit paygate.settlements on settlement completion —
+  // reconciliation-engine triggers auto-reconciliation off
+  // event_type "settlement.batch.completed".
+  if (st && data.status === "completed") {
+    await publishEvent(KAFKA_TOPICS.SETTLEMENTS, {
+      event_type: "settlement.batch.completed",
+      settlement_id: String(st.id),
+      merchant_id: String(st.merchantId ?? ""),
+      reference: String(st.reference ?? ""),
+      amount: Number(st.amount ?? 0),
+      currency: String(st.currency ?? ""),
+      settled_at: new Date().toISOString(),
+    }, String(st.merchantId ?? st.id));
+  }
   return rows[0];
 }
 

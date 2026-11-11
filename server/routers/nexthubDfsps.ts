@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { nexthubDfsps, dfspFeeTiers } from "../../drizzle/schema";
+import { nexthubDfsps, dfspFeeTiers, nexthubOracles } from "../../drizzle/schema";
 import { eq, desc, sql, and, ilike } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
@@ -206,5 +206,77 @@ export const nexthubDfspsRouter = router({
         .limit(1);
       if (!dfsp) return null;
       return { ...dfsp, name: dfsp.dfspName };
+    }),
+
+  // ─── Oracle Registry (Mojaloop ALS oracles — nexthub_oracles) ──────────────
+  // Party-lookup oracle providers per (partyIdType, currency). The table
+  // previously had NO writer — no oracle could ever be registered.
+
+  /** registerOracle — add a party-lookup oracle provider */
+  registerOracle: protectedProcedure
+    .input(z.object({
+      oracleId: z.string().min(1).max(64),
+      name: z.string().min(1).max(128),
+      partyIdType: z.enum(["MSISDN", "EMAIL", "PERSONAL_ID", "BUSINESS", "DEVICE", "ACCOUNT_ID", "IBAN", "ALIAS"]),
+      currency: z.string().length(3).optional(),
+      endpoint: z.string().url().max(512),
+      isDefault: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.insert(nexthubOracles).values({
+        oracleId: input.oracleId,
+        name: input.name,
+        partyIdType: input.partyIdType,
+        currency: input.currency?.toUpperCase() ?? null,
+        endpoint: input.endpoint,
+        isDefault: input.isDefault ? 1 : 0,
+        isActive: 1,
+        healthStatus: "UNKNOWN",
+      }).returning();
+      return row;
+    }),
+
+  /** updateOracleHealth — persist the result of an oracle health probe */
+  updateOracleHealth: protectedProcedure
+    .input(z.object({
+      oracleId: z.string().min(1).max(64),
+      healthStatus: z.enum(["HEALTHY", "UNHEALTHY", "UNKNOWN"]),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.update(nexthubOracles)
+        .set({
+          healthStatus: input.healthStatus,
+          lastHealthCheck: new Date(),
+          ...(input.isActive !== undefined ? { isActive: input.isActive ? 1 : 0 } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(nexthubOracles.oracleId, input.oracleId))
+        .returning();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Oracle not found" });
+      return row;
+    }),
+
+  /** listOracles — resolve oracle providers, optionally by partyIdType/currency */
+  listOracles: protectedProcedure
+    .input(z.object({
+      partyIdType: z.string().optional(),
+      currency: z.string().length(3).optional(),
+      activeOnly: z.boolean().default(true),
+    }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const conditions = [];
+      if (input?.partyIdType) conditions.push(eq(nexthubOracles.partyIdType, input.partyIdType));
+      if (input?.currency) conditions.push(eq(nexthubOracles.currency, input.currency.toUpperCase()));
+      if (input?.activeOnly !== false) conditions.push(eq(nexthubOracles.isActive, 1));
+      return db.select().from(nexthubOracles)
+        .where(conditions.length ? and(...conditions as [any, ...any[]]) : undefined)
+        .orderBy(desc(nexthubOracles.isDefault), desc(nexthubOracles.createdAt));
     }),
 });

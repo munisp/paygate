@@ -253,6 +253,48 @@ const kycReviewRouter = router({
         .from(kycSubmissions)
         .where(eq(kycSubmissions.id, input.submissionId as any))
         .limit(1);
+      // Wave-7: FATF/UN/OFAC sanctions screening on approval. The business
+      // name is looked up via the fatf-sanctions-sync service (through the
+      // go-bridge /v1/sanctions/lookup/name proxy). A definitive list hit
+      // blocks approval (fail-closed); when the screening service is
+      // unreachable the review proceeds and the gap is logged (fail-open is
+      // documented — the pre-existing flow had no screening at all).
+      if (input.decision === "approved" && existing?.merchantId) {
+        const { merchants } = await import("../drizzle/schema");
+        const [merchant] = await db.select({ businessName: merchants.businessName, country: merchants.country })
+          .from(merchants)
+          .where(eq(merchants.id, existing.merchantId as any))
+          .limit(1);
+        if (merchant?.country) {
+          const { lookupSanctionsJurisdiction } = await import("./fatfSanctionsClient");
+          const jurisdiction = await lookupSanctionsJurisdiction(merchant.country);
+          if (jurisdiction?.matched && jurisdiction.risk_level === "black_list") {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `FATF high-risk jurisdiction (${jurisdiction.country_code}: ${jurisdiction.reason ?? "call for action"}) — approval blocked; escalate to compliance.`,
+            });
+          }
+        }
+        if (merchant?.businessName) {
+          const { lookupSanctionsName } = await import("./fatfSanctionsClient");
+          const screening = await lookupSanctionsName(merchant.businessName);
+          if (screening === null) {
+            const { logger } = await import("./logger");
+            logger.warn(
+              `[admin.reviewSubmission] sanctions screening unavailable — proceeding without FATF/OFAC name check for merchant=${existing.merchantId}`,
+            );
+          } else if (screening.matched) {
+            const { logger } = await import("./logger");
+            logger.warn(
+              `[admin.reviewSubmission] sanctions hit for merchant=${existing.merchantId} name=${screening.name} risk=${screening.risk_level} source=${screening.source}`,
+            );
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `Sanctions screening match (${screening.source ?? "sanctions list"}, risk: ${screening.risk_level ?? "unknown"}) — approval blocked; reject or escalate to compliance.`,
+            });
+          }
+        }
+      }
       await db.update(kycSubmissions)
         .set({
           status: input.decision as any,

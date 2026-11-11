@@ -49,6 +49,8 @@ vi.mock("./db", () => {
   // S15b: withIdempotency (now required on escrowV2.createContract) claims
   // keys via INSERT ... ON CONFLICT DO NOTHING RETURNING — mock support.
   db.onConflictDoNothing = vi.fn().mockReturnValue(db);
+  // updateMenuFlow upserts via INSERT ... ON CONFLICT (merchant_id) DO UPDATE.
+  db.onConflictDoUpdate = vi.fn().mockReturnValue(db);
   db.returning = vi.fn().mockResolvedValue([MOCK_RECORD]);
   db.update = vi.fn().mockReturnValue(db);
   db.set = vi.fn().mockReturnValue(db);

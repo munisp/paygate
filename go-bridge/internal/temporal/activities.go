@@ -287,6 +287,33 @@ func (a *ActivitySet) UpdateSettlementStatus(ctx context.Context, settlementID, 
 		ResourceID: settlementID,
 		OccurredAt: time.Now().UTC(),
 	})
+	// wave-7 (B8): settlement confirmation is processed HERE (the bridge
+	// settlement flow) — emit paygate.settlement.confirmed so the consumer
+	// (HandleSettlementConfirmed) and other subscribers observe it.
+	switch status {
+	case "confirmed", "completed", "settled":
+		if err := producer.PublishSettlementConfirmed(ctx, kafka.SettlementConfirmedEvent{
+			EventID:      fmt.Sprintf("settlement-confirmed-%s-%s", settlementID, status),
+			SettlementID: settlementID,
+			Status:       status,
+			ConfirmedAt:  time.Now().UTC(),
+		}); err != nil {
+			slog.Error("[activity] UpdateSettlementStatus: paygate.settlement.confirmed publish FAILED",
+				"settlement_id", settlementID, "status", status, "err", err)
+		}
+	}
+	// wave-7 (B5): paygate.settlements completion event — reconciliation-engine
+	// triggers auto-reconciliation off event_type "settlement.batch.completed".
+	if status == "completed" || status == "settled" {
+		if err := producer.Publish(ctx, "paygate.settlements", settlementID, map[string]any{
+			"event_type":    "settlement.batch.completed",
+			"settlement_id": settlementID,
+			"settled_at":    time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			slog.Error("[activity] UpdateSettlementStatus: paygate.settlements publish FAILED",
+				"settlement_id", settlementID, "status", status, "err", err)
+		}
+	}
 	return nil
 }
 

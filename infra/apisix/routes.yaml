@@ -1066,16 +1066,20 @@ routes:
         prefer_name: true
 
 # ─── OpenAppSec WAF Manager (Python) ──────────────────────────────────────────
+  # Management API for the WAF control-plane sidecar (see the
+  # docker-compose.production.yml openappsec-waf comment for the intended
+  # sidecar pattern). The service listens on PORT 8130 and serves /v1/waf/*,
+  # so the rewrite maps /api/v1/waf/<x> → /v1/waf/<x>.
   - id: openappsec-waf-mgmt
     uri: /api/v1/waf/*
     name: openappsec-waf-mgmt
     upstream:
       type: roundrobin
       nodes:
-        openappsec-waf:8500: 1
+        openappsec-waf:8130: 1
     plugins:
       proxy-rewrite:
-        regex_uri: ["^/api/v1/waf/(.*)", "/$1"]
+        regex_uri: ["^/api/v1/waf/(.*)", "/v1/waf/$1"]
       jwt-auth: {}
       limit-req:
         rate: 30

@@ -49,6 +49,7 @@ let trpcCallDuration: any;
 let activeConnections: any;
 let dbQueryDuration: any;
 let cacheHitCounter: any;
+let persistFailureCounter: any;
 
 function initCustomMetrics() {
   if (!promClient) return;
@@ -95,6 +96,13 @@ function initCustomMetrics() {
     name: "paygate_cache_operations_total",
     help: "Cache hit/miss counter",
     labelNames: ["namespace", "result"],
+    registers: [registry],
+  });
+
+  persistFailureCounter = new promClient.Counter({
+    name: "paygate_persist_failures_total",
+    help: "Durable-store write failures that were swallowed by a caller (fire-and-forget persists)",
+    labelNames: ["component", "table"],
     registers: [registry],
   });
 }
@@ -148,6 +156,11 @@ export function recordDbQuery(operation: string, table: string, durationMs: numb
 /** Record a cache hit or miss. */
 export function recordCacheOp(namespace: string, result: "hit" | "miss") {
   cacheHitCounter?.inc({ namespace, result });
+}
+
+/** Record a swallowed durable-store write failure (fire-and-forget persist paths). */
+export function recordPersistFailure(component: string, table: string) {
+  persistFailureCounter?.inc({ component, table });
 }
 
 /** Increment active connection count. */

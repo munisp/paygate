@@ -1,23 +1,13 @@
-# PayGate — Wave 6: End-to-End Feature↔Service↔Data Map + Data-Loss Verification + Visualization
+# PayGate — Wave 7: Close All Gap-Register Items
 
-## Goal
-1. Verify every frontend surface (web PWA, Flutter, RN) maps to a backend service/router.
-2. Verify every backend service maps to database tables (CRUD) and its middleware components (Kafka, Redis, Temporal, Keycloak, Permify, Mojaloop, OpenSearch, TigerBeetle, Dapr, Fluvio, APISIX, OpenAppSec, Sedona/GeoLibre, lakehouse).
-3. Verify no data loss: every mutation persists; every table has a writer; every event has a consumer.
-4. Deliver a VISUAL interactive map of features → services → middleware → tables (browser deliverable) + written gap report.
+Source: .work/wave6/gaps.json (92 findings) + wave-6 map residuals.
 
-## Stage 1 — Mapping extraction (3 parallel agents, read-only)
-- X1: server tRPC → build JSON: for each of ~256 router namespaces: file, procedure count, DB tables read/written (from drizzle imports/SQL), middleware/integration clients used (redis/kafka/temporal/etc. by import), frontend consumers (grep web client + flutter + RN for `trpc.<ns>`).
-- X2: services layer → go-bridge packages, 13 rust-services, python-services: each service's routes, tables read/written, middleware deps (env vars/clients), who calls it (TS server or bridge proxy), event topics produced/consumed.
-- X3: data-loss sweep → mutations without persistence, tables with no writer (refresh wave-4 list post-waves 4/5), Kafka/Fluvio topics without consumers, webhook/event flows without durable storage. Output gaps JSON.
+## Stage 1 — Fixers (parallel, disjoint ownership)
+- G1 (server TS): writer-less tables → real write paths (consumer_insurance_policies, emi_installments, face_embeddings, regulator_magic_tokens, keycloak_role_sync_logs, loyalty_promotion_log, middleware_health_logs, fx_live_rates, 5 nexthub tables); fake-success mutations (wave80.updateMenuFlow, wave27.verifyDomain, wave30.updateRate, wave32 SSO test) → real persistence or fail-loud; 2 console-only alert persists → DB.
+- G2 (go-bridge): tier1to5Router 43 dead proxy routes → implement the bridge routes (or map to existing) so mutations persist; verify against tier1to5Router.ts expectations.
+- G3 (topics): 26 topic wiring fixes — add producers for consumed-only topics, consumers for produced-only regulatory topics (or document retirement), fix 2 naming mismatches (audit.events, fraud.alert).
+- G4 (services wiring): 9 unreachable services → wire callers (bridge proxy routes / temporal / compose) or mark retired with honest removal; 32 orphan namespaces → triage: wire cheap wins to existing admin pages; document retirement list.
+- G5 (mojaloop/tigerbeetle weaknesses): go-services gateway note, recon streaming doc, compile-verify attempt for baseline-broken crates if network allows.
 
-Output format (all three): JSON files under /mnt/agents/output/paygate/.work/wave6/ — features.json, services.json, gaps.json with fields: name, type, consumers[], tablesRead[], tablesWrite[], middleware[], status(ok/orphan/no-writer/no-consumer/blocked).
-
-## Stage 2 — Consolidation (lead)
-Merge into one map.json; cross-validate counts vs wave-4/5 audit results (44% orphan proc baseline, 30 read-only tables → 10 fixed, etc.). Adversarial spot-check 10 random entries against source.
-
-## Stage 3 — Visualization (1 agent)
-Interactive single-page HTML app (self-contained, vis-network or cytoscape via vendored JS or hand-rolled canvas; no external CDN dependency risk — inline data): layered graph UI [Frontend surfaces] → [tRPC namespaces / services] → [middleware] → [DB tables], with filters (orphans, no-writer tables, missing middleware), search, and gap highlighting. Also a data-flow diagram page (mermaid-style or SVG) for the main money paths. Deliver via website_version_manager (type html).
-
-## Stage 4 — Report
-.md + .docx gap & data-flow report with REF tags.
+## Stage 2 — Gates + commit + push + report
+server tsc, vitest, go build/vet, cargo check, py_compile; migrations 0112+ if new tables; apply+verify; push (MCP; routers.ts still needs PAT); report .md/.docx.

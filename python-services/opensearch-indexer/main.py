@@ -1,7 +1,7 @@
 """
 PayGate OpenSearch Indexer Service (Wave 133)
 ─────────────────────────────────────────────
-Consumes Kafka topics (transactions, audit_events, fraud_alerts, kyc_events)
+Consumes Kafka topics (transactions, audit.events, fraud.alert, kyc_events)
 and indexes documents into OpenSearch for full-text search and analytics.
 
 Environment variables:
@@ -69,8 +69,8 @@ INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 TOPICS = {
     "paygate.transactions": "pg_transactions",
-    "paygate.audit_events": "pg_audit_events",
-    "paygate.fraud_alerts": "pg_fraud_alerts",
+    "paygate.audit.events": "pg_audit_events",
+    "paygate.fraud.alert": "pg_fraud_alerts",
     "paygate.kyc_events": "pg_kyc_events",
 }
 

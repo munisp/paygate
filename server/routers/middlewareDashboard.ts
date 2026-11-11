@@ -243,6 +243,28 @@ export const middlewareDashboardRouter = router({
   health: adminProcedure.query(async () => {
     const live = await getAllMiddlewareHealth();
     const allOk = Object.values(live).every(s => s.status === "ok" || s.status === "unknown");
+    // Persist probe results to middleware_health_logs so the dashboard has a
+    // real health history (previously the table had no writer and history was
+    // unavailable). Persist failure must NOT fail the health probe itself,
+    // but is logged loudly.
+    try {
+      const db = await getDb();
+      if (db) {
+        const { middlewareHealthLogs } = await import("../../drizzle/schema");
+        const checkedAt = new Date();
+        await db.insert(middlewareHealthLogs).values(
+          Object.entries(live).map(([service, s]) => ({
+            service,
+            status: s.status === "ok" ? "up" : s.status === "degraded" ? "degraded" : "down",
+            latencyMs: typeof s.latency_ms === "number" ? Math.round(s.latency_ms) : 0,
+            checkedAt,
+            createdAt: checkedAt,
+          })) as any
+        );
+      }
+    } catch (persistErr) {
+      logger.error("[middlewareDashboard.health] middleware_health_logs persist failed:", persistErr);
+    }
     return {
       overall: allOk ? "healthy" : "degraded",
       services: live,

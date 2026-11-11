@@ -105,7 +105,26 @@ export const kycRouter = router({
         image: input.imageBase64,
         mode: input.mode,
       });
-      return result ?? { score: 0, passed: false, error: 'Liveness service unavailable' };
+      if (result) return result;
+      // Fallback path (wave-7): the gateway is unavailable — ask the Rust
+      // liveness-signal-processor via the go-bridge for an anti-spoof signal
+      // analysis of the same frame. Its decision is heuristic and flagged
+      // decision_requires_corroboration by the service itself, so we surface
+      // it as an advisory result (source tagged) rather than silently
+      // treating it as the gateway verdict.
+      const { analyseLivenessSignal } = await import('../livenessSignalClient');
+      const signal = await analyseLivenessSignal(input.imageBase64, input.submissionId);
+      if (signal) {
+        return {
+          score: signal.confidence,
+          passed: signal.decision === 'real',
+          decision: signal.decision,
+          spoofType: signal.spoof_type ?? null,
+          requiresCorroboration: true,
+          source: 'liveness-signal-processor',
+        };
+      }
+      return { score: 0, passed: false, error: 'Liveness service unavailable' };
     }),
 
   /** Face detection — returns bounding boxes */

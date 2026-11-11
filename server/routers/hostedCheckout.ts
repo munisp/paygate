@@ -13,6 +13,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db, getUserByOpenId, getMerchantByOwnerId } from "../db";
 import { hostedPaymentSessions, checkoutThemes, paymentLinks, merchantSolanaWallets, fxRates, invoices, invoicePayments } from "../../drizzle/schema";
 import { logger } from "../logger";
+import { publishPaymentEvent } from "../kafkaClient";
 import { dispatchWebhookEvent } from "../webhookEvents";
 import { __partialInternals } from "./arPartialPayments";
 import { __feeChoiceInternals } from "./arFeeChoice";
@@ -229,6 +230,16 @@ async function publishPaymentCompleted(
   payload: Record<string, unknown>,
 ): Promise<void> {
   const topic = `${tenantId}.payment.completed`;
+  // wave-7 (B4): also emit the canonical paygate.payments event at the real
+  // source — aml-monitor consumes payment.completed from that topic.
+  await publishPaymentEvent({
+    status: "completed",
+    paymentId: String(payload.sessionId ?? payload.reference ?? ""),
+    merchantId,
+    amount: Number(payload.amountKobo ?? 0),
+    reference: payload.reference != null ? String(payload.reference) : undefined,
+    metadata: { tenantId, paymentMethod: payload.paymentMethod, source: payload.source },
+  });
   const ok = await publishKafka(topic, payload);
   if (ok) return;
   logger.error("[hostedCheckout] Kafka payment.completed publish failed — persisting to ledger_outbox", {
@@ -1341,7 +1352,7 @@ export const hostedCheckoutRouter = router({
         }
       } else {
         // A replayed failure/expiry must never downgrade a completed session.
-        await db.update(hostedPaymentSessions).set({
+        const [failedFlip] = await db.update(hostedPaymentSessions).set({
           status: input.status === "expired" ? "expired" : "failed",
           failedAt: new Date(),
           failureReason: `NIP ${input.status}`,
@@ -1349,7 +1360,21 @@ export const hostedCheckoutRouter = router({
         }).where(and(
           eq(hostedPaymentSessions.id, session.id),
           ne(hostedPaymentSessions.status, "completed"),
-        ));
+          ne(hostedPaymentSessions.status, "failed"),
+        )).returning();
+        // wave-7 (B4): emit paygate.payments payment.failed only on the real
+        // transition to failed (expiry is not a payment failure).
+        if (failedFlip && input.status === "failed") {
+          await publishPaymentEvent({
+            status: "failed",
+            paymentId: session.id,
+            merchantId: session.merchantId,
+            amount: Number(session.amountKobo),
+            currency: session.currency,
+            reference: session.reference,
+            metadata: { tenantId: session.tenantId, failureReason: `NIP ${input.status}`, source: "nip_webhook" },
+          });
+        }
       }
 
       return { received: true, matched: true };

@@ -32,6 +32,19 @@ data:
   OPENSEARCH_URL: "http://opensearch-service:9200"
   TIGERBEETLE_ADDRESS: "tigerbeetle-service:3000"
   LAKEHOUSE_URL: "http://lakehouse-service:8125"
+  # ─── Wave-7 proxied services (consumed by go-bridge via envFrom) ─────────
+  # Route table: go-bridge/cmd/bridge/main.go (/v1/crypto-guard/*,
+  # /v1/insider-threat/*, /v1/liveness/*, /v1/carbon/*, /v1/deepface/*,
+  # /v1/sanctions/*, /v1/ussd-fallback/*). Deployments/Services below.
+  CRYPTO_GUARD_URL: "http://crypto-guard-service:8091"
+  INSIDER_THREAT_URL: "http://insider-threat-engine-service:8300"
+  # Read by go-bridge internal/insider (direct scoring/baseline caller).
+  INSIDER_THREAT_ENGINE_URL: "http://insider-threat-engine-service:8300"
+  LIVENESS_URL: "http://liveness-signal-processor-service:8090"
+  CARBON_ORACLE_URL: "http://carbon-oracle-service:9011"
+  DEEPFACE_URL: "http://deepface-sidecar-service:8001"
+  FATF_SYNC_URL: "http://fatf-sanctions-sync-service:8600"
+  USSD_FALLBACK_URL: "http://merchant-ussd-fallback-service:8099"
   LOG_LEVEL: "info"
 ---
 # ─── Secret — credentials ─────────────────────────────────────────────────────
@@ -57,6 +70,10 @@ stringData:
   MIDDLEWARE_INTERNAL_KEY: "<CHANGE_ME: shared portal↔bridge HMAC key — generate with: openssl rand -hex 32>"
   BRIDGE_INTERNAL_KEY: "<CHANGE_ME: portal→bridge bearer token — generate with: openssl rand -hex 32>"
   JWT_SECRET: "<CHANGE_ME: JWT signing secret, min 32 chars — generate with: openssl rand -base64 48>"
+  # Referenced by the apisix Deployment (envsubst into apisix-config) and by
+  # the openappsec-waf Deployment (APISIX_API_KEY).
+  APISIX_ADMIN_KEY: "<CHANGE_ME: APISIX Admin API key — generate with: openssl rand -hex 32>"
+  OPENAPPSEC_API_KEY: "<CHANGE_ME: open-appsec agent API key — generate with: openssl rand -hex 32>"
 ---
 # ─── 1. Kafka ─────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
@@ -956,3 +973,413 @@ spec:
   ports:
     - port: 8130
       targetPort: 8130
+---
+# ─── Wave-7: Crypto Guard (Rust) ─────────────────────────────────────────────
+# HMAC verify, nonce generation, replay protection. Proxied by go-bridge at
+# /v1/crypto-guard/* (CRYPTO_GUARD_URL). Requires X-Internal-Key on all
+# non-health routes; Redis backs the replay nonce store (fail-closed).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crypto-guard
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-guard
+  template:
+    metadata:
+      labels:
+        app: crypto-guard
+    spec:
+      containers:
+        - name: crypto-guard
+          # Built from rust-services/crypto-guard/Dockerfile — publish to the
+          # registry used by the rest of this stack before applying.
+          image: paygate/crypto-guard:latest
+          ports:
+            - containerPort: 8091
+          env:
+            - name: CRYPTO_GUARD_PORT
+              value: "8091"
+            - name: ENV
+              value: production
+            - name: RUST_LOG
+              value: info
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crypto-guard-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: crypto-guard
+  ports:
+    - port: 8091
+      targetPort: 8091
+---
+# ─── Wave-7: Insider Threat Engine (Rust) ────────────────────────────────────
+# Behavioural /score + durable per-actor EMA /baseline/update (Postgres
+# write-through). Proxied at /v1/insider-threat/* and called directly by
+# go-bridge internal/insider (INSIDER_THREAT_ENGINE_URL).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insider-threat-engine
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insider-threat-engine
+  template:
+    metadata:
+      labels:
+        app: insider-threat-engine
+    spec:
+      containers:
+        - name: insider-threat-engine
+          # Built from rust-services/insider-threat-engine/Dockerfile.
+          image: paygate/insider-threat-engine:latest
+          ports:
+            - containerPort: 8300
+          env:
+            - name: INSIDER_THREAT_ENGINE_PORT
+              value: "8300"
+            - name: ENV
+              value: production
+            - name: RUST_LOG
+              value: info
+            - name: DATABASE_URL
+              value: "postgresql://paygate:$(POSTGRES_PASSWORD)@postgres-service:5432/paygate"
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: insider-threat-engine-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: insider-threat-engine
+  ports:
+    - port: 8300
+      targetPort: 8300
+---
+# ─── Wave-7: Liveness Signal Processor (Rust) ────────────────────────────────
+# Anti-spoof signal analysis (/analyse, /analyse/batch, /calibrate). Proxied
+# at /v1/liveness/{analyse,analyse/batch,calibrate} (LIVENESS_URL). Second-
+# opinion/fallback path for the KYC liveness flow (server/routers/kyc.ts).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-signal-processor
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: liveness-signal-processor
+  template:
+    metadata:
+      labels:
+        app: liveness-signal-processor
+    spec:
+      containers:
+        - name: liveness-signal-processor
+          # Built from rust-services/liveness-signal-processor/Dockerfile.
+          image: paygate/liveness-signal-processor:latest
+          ports:
+            - containerPort: 8090
+          env:
+            - name: PORT
+              value: "8090"
+            - name: ENV
+              value: production
+            - name: RUST_LOG
+              value: info
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: liveness-signal-processor-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: liveness-signal-processor
+  ports:
+    - port: 8090
+      targetPort: 8090
+---
+# ─── Wave-7: Carbon Oracle (Python) ──────────────────────────────────────────
+# Carbon footprint / offset pricing. Proxied at /v1/carbon/*
+# (CARBON_ORACLE_URL).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbon-oracle
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbon-oracle
+  template:
+    metadata:
+      labels:
+        app: carbon-oracle
+    spec:
+      containers:
+        - name: carbon-oracle
+          # Built from python-services/carbon-oracle/Dockerfile.
+          image: paygate/carbon-oracle:latest
+          ports:
+            - containerPort: 9011
+          env:
+            - name: PORT
+              value: "9011"
+            - name: LOG_LEVEL
+              value: info
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbon-oracle-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: carbon-oracle
+  ports:
+    - port: 9011
+      targetPort: 9011
+---
+# ─── Wave-7: DeepFace Sidecar (Python) ───────────────────────────────────────
+# Face verify/liveness/search for KYC. Proxied at /v1/deepface/*
+# (DEEPFACE_URL); the app also calls it directly (DEEPFACE_SIDECAR_URL).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepface-sidecar
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deepface-sidecar
+  template:
+    metadata:
+      labels:
+        app: deepface-sidecar
+    spec:
+      containers:
+        - name: deepface-sidecar
+          # Built from python-services/deepface-sidecar/Dockerfile.
+          image: paygate/deepface-sidecar:latest
+          ports:
+            - containerPort: 8001
+          env:
+            - name: PORT
+              value: "8001"
+            - name: LOG_LEVEL
+              value: info
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepface-sidecar-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: deepface-sidecar
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+# ─── Wave-7: FATF Sanctions Sync (Python) ────────────────────────────────────
+# Syncs FATF/UN/OFAC lists into Postgres + Redis; /lookup/name and
+# /lookup/jurisdiction. Proxied at /v1/sanctions/* (FATF_SYNC_URL); the app
+# screens KYC approvals through the bridge (server/adminRouter.ts).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fatf-sanctions-sync
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fatf-sanctions-sync
+  template:
+    metadata:
+      labels:
+        app: fatf-sanctions-sync
+    spec:
+      containers:
+        - name: fatf-sanctions-sync
+          # Built from python-services/fatf-sanctions-sync/Dockerfile.
+          image: paygate/fatf-sanctions-sync:latest
+          ports:
+            - containerPort: 8600
+          env:
+            - name: PORT
+              value: "8600"
+            - name: LOG_LEVEL
+              value: info
+            - name: DATABASE_URL
+              value: "postgresql://paygate:$(POSTGRES_PASSWORD)@postgres-service:5432/paygate"
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fatf-sanctions-sync-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: fatf-sanctions-sync
+  ports:
+    - port: 8600
+      targetPort: 8600
+---
+# ─── Wave-7: Merchant USSD Fallback (Python) ─────────────────────────────────
+# USSD/SMS merchant operations when the web portal is unreachable. Proxied at
+# /v1/ussd-fallback/* (USSD_FALLBACK_URL); calls back into the app portal
+# (MERCHANT_PORTAL_URL) and go-bridge (BRIDGE_URL).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merchant-ussd-fallback
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: merchant-ussd-fallback
+  template:
+    metadata:
+      labels:
+        app: merchant-ussd-fallback
+    spec:
+      containers:
+        - name: merchant-ussd-fallback
+          # Built from python-services/merchant-ussd-fallback/Dockerfile.
+          image: paygate/merchant-ussd-fallback:latest
+          ports:
+            - containerPort: 8099
+          env:
+            - name: PORT
+              value: "8099"
+            - name: LOG_LEVEL
+              value: info
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            # App portal lives in the paygate-app namespace in k8s.
+            - name: MERCHANT_PORTAL_URL
+              value: "http://app-service.paygate-app:3000"
+            - name: BRIDGE_URL
+              value: "http://go-bridge-service:8080"
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+            - name: BRIDGE_INTERNAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: BRIDGE_INTERNAL_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: merchant-ussd-fallback-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: merchant-ussd-fallback
+  ports:
+    - port: 8099
+      targetPort: 8099

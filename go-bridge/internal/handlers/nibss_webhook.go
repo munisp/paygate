@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/paygate/go-bridge/internal/httpclient"
+	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/pgdb"
 )
 
@@ -137,6 +138,22 @@ pgdb.MarkWebhookReceiptForwarded(r.Context(), receiptID)
 slog.Info("[NIBSS Webhook] Confirmation forwarded successfully",
 "batch_id", payload.BatchID,
 "portal_status", resp.StatusCode)
+
+// wave-7 (B6): publish paygate.nibss.confirmation AFTER the durable receipt
+// exists and the portal confirmBatch call succeeded, so downstream consumers
+// (go-bridge kafka consumer → transactions status update) see only confirmed
+// batches. Fail loud on publish error; the durable receipt row allows replay.
+producer := kafka.GetProducer()
+if err := producer.Publish(r.Context(), kafka.TopicNIBSSConfirmation, payload.BatchID, map[string]any{
+"batch_id":     payload.BatchID,
+"reference":    payload.Reference,
+"status":       payload.Status,
+"confirmed_at": payload.ConfirmedAt,
+"receipt_id":   receiptID,
+}); err != nil {
+slog.Error("[NIBSS Webhook] kafka publish paygate.nibss.confirmation FAILED — event persisted in webhook_receipts for replay",
+"batch_id", payload.BatchID, "receipt_id", receiptID, "err", err)
+}
 
 w.Header().Set("Content-Type", "application/json")
 w.WriteHeader(http.StatusOK)

@@ -25,6 +25,8 @@ import {
   realtimeNotificationPreferences, realtimeNotificationHistory,
   qrPayments,
   merchants, wallets, walletTransactions, merchantSolanaWallets,
+  ussdMenuFlows,
+  loyaltyPromotionLog,
 } from "../drizzle/schema";
 import { eq, desc, and, gte, sql, inArray } from "drizzle-orm";
 import { debitWalletViaMiddleware, creditWalletViaMiddleware, getCryptoRampQuoteViaMiddleware } from "./middlewareBridge";
@@ -458,10 +460,28 @@ const loyaltyV3Router = router({
         .set({ pointsBalance: sql`${loyaltyV3Members.pointsBalance} + ${input.points}`, lifetimePoints: sql`${loyaltyV3Members.lifetimePoints} + ${input.points}` })
         .where(and(eq(loyaltyV3Members.merchantId, merchantId), eq(loyaltyV3Members.customerId, input.customerId)))
         .returning();
-      if (!updated) {
-        await tx.insert(loyaltyV3Members).values({ programId: program.id, merchantId, customerId: input.customerId, customerEmail: input.customerEmail, pointsBalance: input.points, lifetimePoints: input.points, tier: "bronze" });
+      const member = updated
+        ?? (await tx.insert(loyaltyV3Members).values({ programId: program.id, merchantId, customerId: input.customerId, customerEmail: input.customerEmail, pointsBalance: input.points, lifetimePoints: input.points, tier: "bronze" }).returning())[0];
+      // Tier promotion: recompute the member's tier from the program's tier
+      // ladder and, on a change, persist it AND write loyalty_promotion_log
+      // (previously the promotion log had no writer anywhere).
+      let tiers: Array<{ name?: string; minPoints?: number }> = [];
+      try { tiers = JSON.parse(program.tiers ?? "[]"); } catch { tiers = []; }
+      const earnedTier = tiers
+        .filter((t) => typeof t.minPoints === "number" && member.lifetimePoints >= t.minPoints)
+        .sort((a, b) => (b.minPoints ?? 0) - (a.minPoints ?? 0))[0]?.name?.toLowerCase();
+      if (earnedTier && earnedTier !== member.tier) {
+        await tx.update(loyaltyV3Members).set({ tier: earnedTier }).where(eq(loyaltyV3Members.id, member.id));
+        const customerIdNum = Number(input.customerId);
+        await tx.insert(loyaltyPromotionLog).values({
+          userId: Number.isInteger(customerIdNum) ? customerIdNum : null,
+          oldTier: member.tier,
+          newTier: earnedTier,
+          pointsAtPromotion: String(member.lifetimePoints),
+          promotedAt: new Date(),
+        } as any);
       }
-      return { success: true };
+      return { success: true, tier: earnedTier ?? member.tier };
     });
   }),
   redeemPoints: protectedProcedure.input(z.object({ memberId: z.string(), points: z.number().min(1), idempotencyKey: z.string().min(8) })).mutation(async ({ input, ctx }) => {
@@ -1266,14 +1286,33 @@ const ussdSessionV2Router = router({
       ],
     };
   }),
-  getMenuFlow: protectedProcedure.query(async () => {
+  getMenuFlow: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    const merchantId = ctx.user.id.toString();
+    const [row] = await db.select().from(ussdMenuFlows).where(eq(ussdMenuFlows.merchantId, merchantId));
+    if (row) return { menus: row.menus as Array<{ id: string; title: string; options: string[] }>, persisted: true };
+    // No persisted config yet — serve the platform default flow. This default
+    // is only a bootstrap; any updateMenuFlow call persists a real row.
     return { menus: [
       { id: 'main', title: 'Main Menu', options: ['1. Balance', '2. Transfer', '3. Bills', '4. Airtime', '0. Exit'] },
       { id: 'transfer', title: 'Transfer', options: ['1. To Bank', '2. To Wallet', '0. Back'] },
       { id: 'bills', title: 'Bill Payment', options: ['1. Electricity', '2. Water', '3. Cable TV', '0. Back'] },
-    ] };
+    ], persisted: false };
   }),
-  updateMenuFlow: protectedProcedure.input(z.object({ menus: z.array(z.object({ id: z.string(), title: z.string().min(1).max(500), options: z.array(z.string()) })) })).mutation(async ({ input }) => {
+  updateMenuFlow: protectedProcedure.input(z.object({ menus: z.array(z.object({ id: z.string().min(1).max(64), title: z.string().min(1).max(500), options: z.array(z.string().max(500)).max(20) })).min(1).max(50) })).mutation(async ({ input, ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    const merchantId = ctx.user.id.toString();
+    // Real persistence: upsert the merchant's USSD menu flow config
+    // (ussd_menu_flows, migration 0112). Previously returned fake success.
+    await db.insert(ussdMenuFlows).values({
+      merchantId,
+      menus: input.menus,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any).onConflictDoUpdate({
+      target: ussdMenuFlows.merchantId,
+      set: { menus: input.menus, updatedAt: new Date() } as any,
+    });
     return { success: true, updatedMenus: input.menus.length };
   }),
   getDropOffAnalysis: protectedProcedure.input(z.object({ period: z.string().default('30d') })).query(async ({ ctx }) => {

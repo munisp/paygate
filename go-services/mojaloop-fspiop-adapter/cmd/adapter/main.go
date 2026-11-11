@@ -572,6 +572,7 @@ type Server struct {
 	cfg    Config
 	router *RailRouter
 	mux    *http.ServeMux
+	kafka  *kafkaProducer
 }
 
 func NewServer(cfg Config) *Server {
@@ -579,6 +580,7 @@ func NewServer(cfg Config) *Server {
 		cfg:    cfg,
 		router: NewRailRouter(cfg),
 		mux:    http.NewServeMux(),
+		kafka:  newKafkaProducer(cfg.KafkaBrokers),
 	}
 	s.registerRoutes()
 	return s
@@ -784,18 +786,65 @@ func verifyCallbackHMAC(w http.ResponseWriter, r *http.Request, secret, label st
 	return true
 }
 
+// publishMojaloopCallback publishes the transfer-state event to
+// paygate.mojaloop.callback. On failure the callback is answered 503 so the
+// Mojaloop hub RETRIES the callback — events are never silently dropped.
+func (s *Server) publishMojaloopCallback(w http.ResponseWriter, evt mojaloopCallbackEvent) bool {
+	if err := s.kafka.publish(TopicMojaloopCallback, evt.TransferID, evt); err != nil {
+		slog.Error("FSPIOP callback NOT published to Kafka — returning 503 so the hub retries",
+			"transfer_id", evt.TransferID, "state", evt.TransferState, "err", err)
+		http.Error(w, `{"error":"callback_event_publish_failed"}`, http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleFSPIOPCallback(w http.ResponseWriter, r *http.Request) {
 	if !verifyCallbackHMAC(w, r, os.Getenv("MOJALOOP_CALLBACK_SECRET"), "FSPIOP") {
 		return
 	}
 	id := r.PathValue("id")
-	slog.Info("FSPIOP transfer callback accepted (signature verified)", "transfer_id", id)
+	// Mojaloop PUT /transfers/{id} fulfil body: {transferState, fulfilment,
+	// completedTimestamp, extensionList}. Decode leniently — the transfer id
+	// in the path is authoritative.
+	var body struct {
+		TransferState string `json:"transferState"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, `{"error":"body_read_failed"}`, http.StatusBadRequest)
+		return
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &body); err != nil {
+			slog.Warn("FSPIOP callback body not parseable — publishing with unknown state",
+				"transfer_id", id, "err", err)
+		}
+	}
+	slog.Info("FSPIOP transfer callback accepted (signature verified)",
+		"transfer_id", id, "transfer_state", body.TransferState)
+	if !s.publishMojaloopCallback(w, mojaloopCallbackEvent{
+		TransferID:    id,
+		TransferState: body.TransferState,
+		OccurredAt:    time.Now().UTC(),
+	}) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleFSPIOPError(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	slog.Error("FSPIOP transfer error callback", "transfer_id", id)
+	// wave-7 (B7): error callbacks are transfer-state callbacks too — publish
+	// ABORTED so the go-bridge consumer marks the cross-border transfer failed.
+	if !s.publishMojaloopCallback(w, mojaloopCallbackEvent{
+		TransferID:    id,
+		TransferState: "ABORTED",
+		OccurredAt:    time.Now().UTC(),
+	}) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -963,5 +1012,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	httpServer.Shutdown(ctx)
+	srv.kafka.close()
 	slog.Info("Mojaloop FSPIOP Adapter stopped")
 }

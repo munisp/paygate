@@ -12,7 +12,7 @@ Endpoints:
 Environment variables:
   PORT              — HTTP port (default: 8098)
   KAFKA_BROKERS     — Kafka broker addresses
-  KAFKA_TOPIC       — Kafka topic to consume (default: paygate-audit-events)
+  KAFKA_TOPIC       — Kafka topic to consume (default: paygate.audit.events)
   KAFKA_GROUP_ID    — Consumer group ID
   S3_BUCKET         — S3 bucket for lakehouse storage (required for Delta writes)
   S3_PREFIX         — S3 key prefix (default: lakehouse/audit)
@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "paygate-audit-events")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "paygate.audit.events")
 KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "paygate-lakehouse-sink")
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 S3_PREFIX = os.getenv("S3_PREFIX", "lakehouse/audit")

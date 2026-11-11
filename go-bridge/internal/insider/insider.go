@@ -44,6 +44,12 @@ type Config struct {
 func DefaultConfig() Config {
 	scoringURL := os.Getenv("INSIDER_THREAT_ENGINE_URL")
 	if scoringURL == "" {
+		// Wave-7 alias: the bridge route table uses INSIDER_THREAT_URL for the
+		// /v1/insider-threat/* proxy routes — accept it here too so a single
+		// env var wires both the direct caller and the proxy.
+		scoringURL = os.Getenv("INSIDER_THREAT_URL")
+	}
+	if scoringURL == "" {
 		scoringURL = "http://localhost:8300"
 	}
 	return Config{
@@ -390,6 +396,51 @@ func (s *Service) GetRiskScore(ctx context.Context, req ScoreRequest) ScoreRespo
 	return result
 }
 
+// BaselineUpdateRequest mirrors the Rust engine's BaselineUpdateRequest
+// (rust-services/insider-threat-engine/src/lib.rs).
+type BaselineUpdateRequest struct {
+	ActorID       string  `json:"actor_id"`
+	Action        string  `json:"action"`
+	ObservedValue float64 `json:"observed_value"`
+	DeviceHash    string  `json:"device_hash,omitempty"`
+	GeoCountry    string  `json:"geo_country,omitempty"`
+	HourOfDay     *int    `json:"hour_of_day,omitempty"`
+}
+
+// UpdateBaseline feeds an observed risk signal back into the Rust engine's
+// per-actor EMA baseline store (POST /baseline/update). Fail-open: the engine
+// may be down without blocking the gate decision — the bridge's own Redis
+// velocity counters (CheckVelocity) remain the authoritative fast path. This
+// is the documented coexistence: internal/insider owns per-minute velocity;
+// the engine owns durable per-actor behavioural baselines.
+func (s *Service) UpdateBaseline(ctx context.Context, req BaselineUpdateRequest) {
+	if s.cfg.RustScoringURL == "" {
+		return
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.cfg.RustScoringURL+"/baseline/update", strings.NewReader(string(body)))
+	if err != nil {
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Internal-Key", os.Getenv("INTERNAL_API_KEY"))
+
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		slog.Warn("[insider] baseline update unavailable", "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		slog.Warn("[insider] baseline update rejected", "status", resp.StatusCode)
+	}
+}
+
 // ─── Dual-control (four-eyes) approval ───────────────────────────────────────
 
 const dualControlPrefix = "insider:dualcontrol:"
@@ -680,6 +731,19 @@ func (s *Service) CheckPrivilegedAction(ctx context.Context, ac ActionContext) G
 		GeoCountry: ac.GeoCountry,
 		HourOfDay:  now.Hour(),
 		DayOfWeek:  int(now.Weekday()),
+	})
+
+	// Feed the observed risk signal back into the Rust engine's per-actor EMA
+	// baseline so future scores are calibrated against this actor's history.
+	// Fire-and-forget (detached context, fail-open) — never blocks the gate.
+	hour := now.Hour()
+	go s.UpdateBaseline(context.Background(), BaselineUpdateRequest{
+		ActorID:       ac.ActorID,
+		Action:        string(ac.Action),
+		ObservedValue: score.RiskScore,
+		DeviceHash:    ac.DeviceHash,
+		GeoCountry:    ac.GeoCountry,
+		HourOfDay:     &hour,
 	})
 
 	// Block critical-risk actions immediately
