@@ -23,9 +23,9 @@ type (
 	// Exposed as: [go.temporal.io/sdk/workflow.SessionInfo]
 	SessionInfo struct {
 		// SessionID is the unique identifier for the session.
-		SessionID         string
+		SessionID string
 		// HostName is the host executing the session.
-		HostName          string
+		HostName string
 		// SessionState is the current state of the session.
 		SessionState      SessionState
 		resourceID        string     // hide from user for now
@@ -48,7 +48,7 @@ type (
 		// ExecutionTimeout specifies the maximum amount of time the session can run.
 		ExecutionTimeout time.Duration
 		// CreationTimeout specifies how long session creation can take before returning an error.
-		CreationTimeout  time.Duration
+		CreationTimeout time.Duration
 		// HeartbeatTimeout specifies the heartbeat timeout. If heartbeat is not received by server within the timeout, the session will be declared as failed.
 		HeartbeatTimeout time.Duration
 	}
@@ -64,6 +64,7 @@ type (
 	sessionTokenBucket struct {
 		*sync.Cond
 		availableToken int
+		closed         bool
 	}
 
 	sessionEnvironment interface {
@@ -243,7 +244,7 @@ func CompleteSession(ctx Context) {
 	}
 
 	sessionInfo.SessionState = SessionStateClosed
-	getWorkflowEnvironment(ctx).RemoveSession(sessionInfo.SessionID)
+	GetWorkflowEnvironment(ctx).RemoveSession(sessionInfo.SessionID)
 	GetLogger(ctx).Debug("Completed session", "sessionID", sessionInfo.SessionID)
 }
 
@@ -366,7 +367,7 @@ func createSession(ctx Context, creationTaskqueue string, options *SessionOption
 		}
 		var canceledErr *CanceledError
 		if !errors.As(err, &canceledErr) {
-			getWorkflowEnvironment(creationCtx).RemoveSession(sessionID)
+			GetWorkflowEnvironment(creationCtx).RemoveSession(sessionID)
 			GetLogger(creationCtx).Debug("Session failed", "sessionID", sessionID, tagError, err)
 			sessionInfo.SessionState = SessionStateFailed
 			sessionCancelFunc()
@@ -374,13 +375,13 @@ func createSession(ctx Context, creationTaskqueue string, options *SessionOption
 	})
 
 	logger.Debug("Created session", "sessionID", sessionID)
-	getWorkflowEnvironment(ctx).AddSession(sessionInfo)
+	GetWorkflowEnvironment(ctx).AddSession(sessionInfo)
 	return sessionCtx, nil
 }
 
 func generateSessionID(ctx Context) (string, error) {
 	var sessionID string
-	err := SideEffect(ctx, func(ctx Context) interface{} {
+	err := SideEffect(ctx, func(ctx Context) any {
 		return uuid.NewString()
 	}).Get(&sessionID)
 	return sessionID, err
@@ -412,10 +413,7 @@ func sessionCreationActivity(ctx context.Context, sessionID string) error {
 	}
 
 	activityEnv := getActivityEnv(ctx)
-	heartbeatInterval := activityEnv.heartbeatTimeout / 3
-	if heartbeatInterval > maxSessionHeartbeatInterval {
-		heartbeatInterval = maxSessionHeartbeatInterval
-	}
+	heartbeatInterval := min(activityEnv.heartbeatTimeout/3, maxSessionHeartbeatInterval)
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
@@ -479,7 +477,7 @@ func sessionCompletionActivity(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func isSessionCreationActivity(activity interface{}) bool {
+func isSessionCreationActivity(activity any) bool {
 	activityName, ok := activity.(string)
 	return ok && activityName == sessionCreationActivityName
 }
@@ -505,12 +503,23 @@ func newSessionTokenBucket(concurrentSessionExecutionSize int) *sessionTokenBuck
 	}
 }
 
-func (t *sessionTokenBucket) waitForAvailableToken() {
+// waitForAvailableToken blocks until a session token is free, returning true, or the bucket is closed,
+// returning false so a stopping worker does not wait for a session to finish.
+func (t *sessionTokenBucket) waitForAvailableToken() bool {
 	t.L.Lock()
 	defer t.L.Unlock()
-	for t.availableToken == 0 {
+	for t.availableToken == 0 && !t.closed {
 		t.Wait()
 	}
+	return !t.closed
+}
+
+// close wakes every poller parked in waitForAvailableToken and makes it report closed.
+func (t *sessionTokenBucket) close() {
+	t.L.Lock()
+	t.closed = true
+	t.L.Unlock()
+	t.Broadcast()
 }
 
 func (t *sessionTokenBucket) addToken() {

@@ -1,11 +1,14 @@
 package converter
 
-// SerializationContext provides metadata about where serialization is occurring.
-// Implementations include [WorkflowSerializationContext] for workflow-level
-// payloads, and [ActivitySerializationContext] for activity-level payloads.
-type SerializationContext interface {
-	isSerializationContext()
-}
+import commonconverter "go.temporal.io/sdk/internal/common/converter"
+
+// SerializationContext provides metadata about where serialization is occurring,
+// with the concrete type depending on the context:
+//
+//   - [WorkflowSerializationContext] for workflow-level payloads.
+//   - [ActivitySerializationContext] for activity-level payloads.
+//   - [NexusSerializationContext] for Nexus-level payloads.
+type SerializationContext = commonconverter.SerializationContext
 
 // WorkflowSerializationContext is the serialization context for workflow-level payloads.
 // This includes: workflow input/result, child workflow input/result, signal input,
@@ -14,25 +17,29 @@ type SerializationContext interface {
 //
 // For child workflows, WorkflowID is the child's ID, not the parent's.
 // For external signals, WorkflowID is the target workflow's ID.
-type WorkflowSerializationContext struct {
-	Namespace  string
-	WorkflowID string
-}
-
-func (WorkflowSerializationContext) isSerializationContext() {}
+type WorkflowSerializationContext = commonconverter.WorkflowSerializationContext
 
 // ActivitySerializationContext is the serialization context for activity-level payloads.
 // This includes: activity input/result, heartbeat details, and activity failure details.
-type ActivitySerializationContext struct {
-	Namespace    string
-	WorkflowID   string
-	WorkflowType string
-	ActivityType string
-	TaskQueue    string
-	IsLocal      bool
-}
+type ActivitySerializationContext = commonconverter.ActivitySerializationContext
 
-func (ActivitySerializationContext) isSerializationContext() {}
+// NexusSerializationContext is used when serializing Nexus operation payloads.
+// Callers receive it when encoding inputs and decoding results or failures.
+// Handlers receive it when decoding inputs, encoding synchronous results, and
+// encoding failures produced while handling a Nexus task.
+//
+// Operation is the resolved operation name. Workflows, workflow updates, and standalone activities
+// started by a Nexus handler use this context for payloads returned to the caller: results,
+// failures, and, for standalone activities, heartbeat details. When completing or heartbeating such
+// an activity from a client, pass activity.Info.NexusSerializationContext in the options.
+//
+// For failures, callers receive this context in [FailureConverter.FailureToError],
+// while handlers receive it in [FailureConverter.ErrorToFailure]. Implementations
+// must not assume symmetric failure conversion. Context-dependent encodings should
+// be self-describing and support legacy payloads without context.
+//
+// NOTE: Experimental
+type NexusSerializationContext = commonconverter.NexusSerializationContext
 
 // DataConverterWithSerializationContext is an optional interface that [DataConverter]
 // implementations can implement to receive serialization context.
@@ -46,9 +53,7 @@ func (ActivitySerializationContext) isSerializationContext() {}
 //
 // This method should be cheap and fast. The SDK does not cache returned instances
 // and may call this method frequently. Avoid recreating expensive objects on every call.
-type DataConverterWithSerializationContext interface {
-	WithSerializationContext(SerializationContext) DataConverter
-}
+type DataConverterWithSerializationContext = commonconverter.DataConverterWithSerializationContext
 
 // PayloadCodecWithSerializationContext is an optional interface that [PayloadCodec]
 // implementations can implement to receive serialization context.
@@ -87,14 +92,7 @@ type FailureConverterWithSerializationContext interface {
 // [DataConverterWithSerializationContext], it delegates to that implementation;
 // otherwise it returns the original DataConverter unchanged.
 func WithDataConverterSerializationContext(dc DataConverter, ctx SerializationContext) DataConverter {
-	if sc, ok := dc.(DataConverterWithSerializationContext); ok {
-		result := sc.WithSerializationContext(ctx)
-		if result == nil {
-			panic("DataConverterWithSerializationContext.WithSerializationContext must not return nil")
-		}
-		return result
-	}
-	return dc
+	return commonconverter.WithDataConverterSerializationContext(dc, ctx)
 }
 
 // WithFailureConverterSerializationContext returns a FailureConverter that is aware of the given

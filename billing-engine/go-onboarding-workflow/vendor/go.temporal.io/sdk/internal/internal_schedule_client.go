@@ -73,12 +73,12 @@ func (w *workflowClientInterceptor) CreateSchedule(ctx context.Context, in *Sche
 		return nil, err
 	}
 
-	memo, err := getWorkflowMemo(in.Options.Memo, dataConverter, sdkFlagsAllowed[SDKFlagMemoUserDCEncode])
+	memo, err := GetWorkflowMemo(in.Options.Memo, dataConverter, sdkFlagsAllowed[SDKFlagMemoUserDCEncode])
 	if err != nil {
 		return nil, err
 	}
 
-	searchAttr, err := serializeSearchAttributes(in.Options.SearchAttributes, in.Options.TypedSearchAttributes)
+	searchAttr, err := SerializeSearchAttributes(in.Options.SearchAttributes, in.Options.TypedSearchAttributes)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +103,7 @@ func (w *workflowClientInterceptor) CreateSchedule(ctx context.Context, in *Sche
 
 	var catchupWindow *durationpb.Duration
 	if in.Options.CatchupWindow != 0 {
-		// Convert to nil so the server uses the default
-		// catchup window,otherwise it will use the minimum (10s).
+		// Leave zero unset so the server applies its default catchup window.
 		catchupWindow = durationpb.New(in.Options.CatchupWindow)
 	}
 
@@ -143,7 +142,7 @@ func (w *workflowClientInterceptor) CreateSchedule(ctx context.Context, in *Sche
 		return nil, err
 	}
 
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	_, err = w.client.workflowService.CreateSchedule(grpcCtx, startRequest)
@@ -185,7 +184,7 @@ func (sc *scheduleClient) GetHandle(ctx context.Context, scheduleID string) Sche
 
 func (sc *scheduleClient) List(ctx context.Context, options ScheduleListOptions) (ScheduleListIterator, error) {
 	paginate := func(nextToken []byte) (*workflowservice.ListSchedulesResponse, error) {
-		grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+		grpcCtx, cancel := newGRPCContext(ctx, sc.workflowClient.rpcTimeout, defaultGrpcRetryParameters(ctx))
 		defer cancel()
 		request := &workflowservice.ListSchedulesRequest{
 			Namespace:       sc.workflowClient.namespace,
@@ -234,7 +233,7 @@ func (scheduleHandle *scheduleHandleImpl) Delete(ctx context.Context) error {
 		ScheduleId: scheduleHandle.ID,
 		Identity:   scheduleHandle.client.identity,
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	_, err := scheduleHandle.client.workflowService.DeleteSchedule(grpcCtx, request)
 	return err
@@ -250,14 +249,14 @@ func (scheduleHandle *scheduleHandleImpl) Backfill(ctx context.Context, options 
 		Identity:  scheduleHandle.client.identity,
 		RequestId: uuid.NewString(),
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	_, err := scheduleHandle.client.workflowService.PatchSchedule(grpcCtx, request)
 	return err
 }
 
 func (scheduleHandle *scheduleHandleImpl) Update(ctx context.Context, options ScheduleUpdateOptions) error {
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	ctx = contextWithNewHeader(ctx)
 
@@ -326,7 +325,7 @@ func (scheduleHandle *scheduleHandleImpl) Describe(ctx context.Context) (*Schedu
 		Namespace:  scheduleHandle.client.namespace,
 		ScheduleId: scheduleHandle.ID,
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	describeResponse, err := scheduleHandle.client.workflowService.DescribeSchedule(grpcCtx, request)
 	if err != nil {
@@ -348,7 +347,7 @@ func (scheduleHandle *scheduleHandleImpl) Trigger(ctx context.Context, options S
 		Identity:  scheduleHandle.client.identity,
 		RequestId: uuid.NewString(),
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	_, err := scheduleHandle.client.workflowService.PatchSchedule(grpcCtx, request)
 	return err
@@ -368,7 +367,7 @@ func (scheduleHandle *scheduleHandleImpl) Pause(ctx context.Context, options Sch
 		Identity:  scheduleHandle.client.identity,
 		RequestId: uuid.NewString(),
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	_, err := scheduleHandle.client.workflowService.PatchSchedule(grpcCtx, request)
 	return err
@@ -388,7 +387,7 @@ func (scheduleHandle *scheduleHandleImpl) Unpause(ctx context.Context, options S
 		Identity:  scheduleHandle.client.identity,
 		RequestId: uuid.NewString(),
 	}
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, scheduleHandle.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 	_, err := scheduleHandle.client.workflowService.PatchSchedule(grpcCtx, request)
 	return err
@@ -605,6 +604,10 @@ func convertToPBScheduleAction(
 ) (*schedulepb.ScheduleAction, error) {
 	switch action := scheduleAction.(type) {
 	case *ScheduleWorkflowAction:
+		// Apply defaults to a copy so callers can reuse the action.
+		actionCopy := *action
+		action = &actionCopy
+
 		// Set header before interceptor run
 		dataConverter := WithContext(ctx, client.dataConverter)
 
@@ -622,7 +625,7 @@ func convertToPBScheduleAction(
 		if err := validateFunctionArgs(action.Workflow, action.Args, true); err != nil {
 			return nil, err
 		}
-		workflowType, err := getWorkflowFunctionName(client.registry, action.Workflow)
+		workflowType, err := GetWorkflowFunctionName(client.registry, action.Workflow)
 		if err != nil {
 			return nil, err
 		}
@@ -637,7 +640,7 @@ func convertToPBScheduleAction(
 			return nil, err
 		}
 
-		searchAttrs, err := serializeSearchAttributes(nil, action.TypedSearchAttributes)
+		searchAttrs, err := SerializeSearchAttributes(nil, action.TypedSearchAttributes)
 		if err != nil {
 			return nil, err
 		}
@@ -652,12 +655,12 @@ func convertToPBScheduleAction(
 		}
 
 		// get workflow headers from the context
-		header, err := headerPropagated(ctx, client.contextPropagators)
+		header, err := headerPropagated(ctx, client.contextPropagators, client.workflowHeaderCodec(action.ID))
 		if err != nil {
 			return nil, err
 		}
 
-		userMetadata, err := buildUserMetadata(action.StaticSummary, action.StaticDetails, dataConverter)
+		userMetadata, err := BuildUserMetadata(action.StaticSummary, action.StaticDetails, dataConverter)
 		if err != nil {
 			return nil, err
 		}
@@ -672,13 +675,13 @@ func convertToPBScheduleAction(
 					WorkflowExecutionTimeout: durationpb.New(action.WorkflowExecutionTimeout),
 					WorkflowRunTimeout:       durationpb.New(action.WorkflowRunTimeout),
 					WorkflowTaskTimeout:      durationpb.New(action.WorkflowTaskTimeout),
-					RetryPolicy:              convertToPBRetryPolicy(action.RetryPolicy),
+					RetryPolicy:              ConvertToPBRetryPolicy(action.RetryPolicy),
 					Memo:                     memo,
 					SearchAttributes:         searchAttrs,
 					Header:                   header,
 					UserMetadata:             userMetadata,
-					VersioningOverride:       versioningOverrideToProto(action.VersioningOverride),
-					Priority:                 convertToPBPriority(action.Priority),
+					VersioningOverride:       VersioningOverrideToProto(action.VersioningOverride),
+					Priority:                 ConvertToPBPriority(action.Priority),
 				},
 			},
 		}, nil
@@ -704,12 +707,12 @@ func convertFromPBScheduleAction(
 			})
 		}
 
-		args := make([]interface{}, len(workflow.GetInput().GetPayloads()))
+		args := make([]any, len(workflow.GetInput().GetPayloads()))
 		for i, p := range workflow.GetInput().GetPayloads() {
 			args[i] = p
 		}
 
-		memos := make(map[string]interface{})
+		memos := make(map[string]any)
 		for key, element := range workflow.GetMemo().GetFields() {
 			memos[key] = element
 		}
@@ -890,7 +893,7 @@ func convertFromPBScheduleActionResultList(aa []*schedulepb.ScheduleActionResult
 	return recentActions
 }
 
-func encodeScheduleWorklowArgs(dc converter.DataConverter, args []interface{}) (*commonpb.Payloads, error) {
+func encodeScheduleWorklowArgs(dc converter.DataConverter, args []any) (*commonpb.Payloads, error) {
 	payloads := make([]*commonpb.Payload, len(args))
 	for i, arg := range args {
 		// arg is already encoded
@@ -909,7 +912,7 @@ func encodeScheduleWorklowArgs(dc converter.DataConverter, args []interface{}) (
 	}, nil
 }
 
-func encodeScheduleWorkflowMemo(dc converter.DataConverter, input map[string]interface{}) (*commonpb.Memo, error) {
+func encodeScheduleWorkflowMemo(dc converter.DataConverter, input map[string]any) (*commonpb.Memo, error) {
 	if input == nil {
 		return nil, nil
 	}

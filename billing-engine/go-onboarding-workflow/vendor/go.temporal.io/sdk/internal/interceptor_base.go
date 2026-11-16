@@ -75,7 +75,7 @@ func (a *ActivityInboundInterceptorBase) Init(outbound ActivityOutboundIntercept
 func (a *ActivityInboundInterceptorBase) ExecuteActivity(
 	ctx context.Context,
 	in *ExecuteActivityInput,
-) (interface{}, error) {
+) (any, error) {
 	return a.Next.ExecuteActivity(ctx, in)
 }
 
@@ -110,7 +110,7 @@ func (a *ActivityOutboundInterceptorBase) GetMetricsHandler(ctx context.Context)
 }
 
 // RecordHeartbeat implements ActivityOutboundInterceptor.RecordHeartbeat.
-func (a *ActivityOutboundInterceptorBase) RecordHeartbeat(ctx context.Context, details ...interface{}) {
+func (a *ActivityOutboundInterceptorBase) RecordHeartbeat(ctx context.Context, details ...any) {
 	a.Next.RecordHeartbeat(ctx, details...)
 }
 
@@ -122,7 +122,7 @@ func (a *ActivityOutboundInterceptorBase) HasHeartbeatDetails(ctx context.Contex
 
 // GetHeartbeatDetails implements
 // ActivityOutboundInterceptor.GetHeartbeatDetails.
-func (a *ActivityOutboundInterceptorBase) GetHeartbeatDetails(ctx context.Context, d ...interface{}) error {
+func (a *ActivityOutboundInterceptorBase) GetHeartbeatDetails(ctx context.Context, d ...any) error {
 	return a.Next.GetHeartbeatDetails(ctx, d...)
 }
 
@@ -159,7 +159,7 @@ func (w *WorkflowInboundInterceptorBase) Init(outbound WorkflowOutboundIntercept
 }
 
 // ExecuteWorkflow implements WorkflowInboundInterceptor.ExecuteWorkflow.
-func (w *WorkflowInboundInterceptorBase) ExecuteWorkflow(ctx Context, in *ExecuteWorkflowInput) (interface{}, error) {
+func (w *WorkflowInboundInterceptorBase) ExecuteWorkflow(ctx Context, in *ExecuteWorkflowInput) (any, error) {
 	return w.Next.ExecuteWorkflow(ctx, in)
 }
 
@@ -169,7 +169,7 @@ func (w *WorkflowInboundInterceptorBase) HandleSignal(ctx Context, in *HandleSig
 }
 
 // ExecuteUpdate implements WorkflowInboundInterceptor.ExecuteUpdate.
-func (w *WorkflowInboundInterceptorBase) ExecuteUpdate(ctx Context, in *UpdateInput) (interface{}, error) {
+func (w *WorkflowInboundInterceptorBase) ExecuteUpdate(ctx Context, in *UpdateInput) (any, error) {
 	return w.Next.ExecuteUpdate(ctx, in)
 }
 
@@ -179,7 +179,7 @@ func (w *WorkflowInboundInterceptorBase) ValidateUpdate(ctx Context, in *UpdateI
 }
 
 // HandleQuery implements WorkflowInboundInterceptor.HandleQuery.
-func (w *WorkflowInboundInterceptorBase) HandleQuery(ctx Context, in *HandleQueryInput) (interface{}, error) {
+func (w *WorkflowInboundInterceptorBase) HandleQuery(ctx Context, in *HandleQueryInput) (any, error) {
 	return w.Next.HandleQuery(ctx, in)
 }
 
@@ -204,7 +204,7 @@ func (w *WorkflowOutboundInterceptorBase) Go(ctx Context, name string, f func(ct
 }
 
 // ExecuteActivity implements WorkflowOutboundInterceptor.ExecuteActivity.
-func (w *WorkflowOutboundInterceptorBase) ExecuteActivity(ctx Context, activityType string, args ...interface{}) Future {
+func (w *WorkflowOutboundInterceptorBase) ExecuteActivity(ctx Context, activityType string, args ...any) Future {
 	return w.Next.ExecuteActivity(ctx, activityType, args...)
 }
 
@@ -229,7 +229,7 @@ func (w *WorkflowOutboundInterceptorBase) AwaitWithOptions(ctx Context, options 
 func (w *WorkflowOutboundInterceptorBase) ExecuteLocalActivity(
 	ctx Context,
 	activityType string,
-	args ...interface{},
+	args ...any,
 ) Future {
 	return w.Next.ExecuteLocalActivity(ctx, activityType, args...)
 }
@@ -238,7 +238,7 @@ func (w *WorkflowOutboundInterceptorBase) ExecuteLocalActivity(
 func (w *WorkflowOutboundInterceptorBase) ExecuteChildWorkflow(
 	ctx Context,
 	childWorkflowType string,
-	args ...interface{},
+	args ...any,
 ) ChildWorkflowFuture {
 	return w.Next.ExecuteChildWorkflow(ctx, childWorkflowType, args...)
 }
@@ -304,6 +304,19 @@ func (w *WorkflowOutboundInterceptorBase) RequestCancelExternalWorkflow(
 	return w.Next.RequestCancelExternalWorkflow(ctx, workflowID, runID)
 }
 
+// RequestCancelExternalWorkflowWithOptions implements
+// WorkflowOutboundInterceptor.RequestCancelExternalWorkflowWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) RequestCancelExternalWorkflowWithOptions(
+	ctx Context,
+	workflowID string,
+	runID string,
+	options CancelExternalWorkflowOptions,
+) Future {
+	return w.Next.RequestCancelExternalWorkflowWithOptions(ctx, workflowID, runID, options)
+}
+
 // SignalExternalWorkflow implements
 // WorkflowOutboundInterceptor.SignalExternalWorkflow.
 func (w *WorkflowOutboundInterceptorBase) SignalExternalWorkflow(
@@ -311,9 +324,24 @@ func (w *WorkflowOutboundInterceptorBase) SignalExternalWorkflow(
 	workflowID string,
 	runID string,
 	signalName string,
-	arg interface{},
+	arg any,
 ) Future {
 	return w.Next.SignalExternalWorkflow(ctx, workflowID, runID, signalName, arg)
+}
+
+// SignalExternalWorkflowWithOptions implements
+// WorkflowOutboundInterceptor.SignalExternalWorkflowWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) SignalExternalWorkflowWithOptions(
+	ctx Context,
+	workflowID string,
+	runID string,
+	signalName string,
+	arg any,
+	options SignalExternalWorkflowOptions,
+) Future {
+	return w.Next.SignalExternalWorkflowWithOptions(ctx, workflowID, runID, signalName, arg, options)
 }
 
 // SignalChildWorkflow implements
@@ -322,14 +350,28 @@ func (w *WorkflowOutboundInterceptorBase) SignalChildWorkflow(
 	ctx Context,
 	workflowID string,
 	signalName string,
-	arg interface{},
+	arg any,
 ) Future {
 	return w.Next.SignalChildWorkflow(ctx, workflowID, signalName, arg)
 }
 
+// SignalChildWorkflowWithOptions implements
+// WorkflowOutboundInterceptor.SignalChildWorkflowWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) SignalChildWorkflowWithOptions(
+	ctx Context,
+	workflowID string,
+	signalName string,
+	arg any,
+	options SignalChildWorkflowOptions,
+) Future {
+	return w.Next.SignalChildWorkflowWithOptions(ctx, workflowID, signalName, arg, options)
+}
+
 // UpsertSearchAttributes implements
 // WorkflowOutboundInterceptor.UpsertSearchAttributes.
-func (w *WorkflowOutboundInterceptorBase) UpsertSearchAttributes(ctx Context, attributes map[string]interface{}) error {
+func (w *WorkflowOutboundInterceptorBase) UpsertSearchAttributes(ctx Context, attributes map[string]any) error {
 	return w.Next.UpsertSearchAttributes(ctx, attributes)
 }
 
@@ -339,10 +381,34 @@ func (w *WorkflowOutboundInterceptorBase) UpsertTypedSearchAttributes(ctx Contex
 	return w.Next.UpsertTypedSearchAttributes(ctx, attributes...)
 }
 
+// UpsertTypedSearchAttributesWithOptions implements
+// WorkflowOutboundInterceptor.UpsertTypedSearchAttributesWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) UpsertTypedSearchAttributesWithOptions(
+	ctx Context,
+	attributes []SearchAttributeUpdate,
+	options UpsertSearchAttributesOptions,
+) error {
+	return w.Next.UpsertTypedSearchAttributesWithOptions(ctx, attributes, options)
+}
+
 // UpsertMemo implements
 // WorkflowOutboundInterceptor.UpsertMemo.
-func (w *WorkflowOutboundInterceptorBase) UpsertMemo(ctx Context, memo map[string]interface{}) error {
+func (w *WorkflowOutboundInterceptorBase) UpsertMemo(ctx Context, memo map[string]any) error {
 	return w.Next.UpsertMemo(ctx, memo)
+}
+
+// UpsertMemoWithOptions implements
+// WorkflowOutboundInterceptor.UpsertMemoWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) UpsertMemoWithOptions(
+	ctx Context,
+	memo map[string]any,
+	options UpsertMemoOptions,
+) error {
+	return w.Next.UpsertMemoWithOptions(ctx, memo, options)
 }
 
 // GetSignalChannel implements WorkflowOutboundInterceptor.GetSignalChannel.
@@ -364,7 +430,7 @@ func (w *WorkflowOutboundInterceptorBase) GetSignalChannelWithOptions(
 // SideEffect implements WorkflowOutboundInterceptor.SideEffect.
 func (w *WorkflowOutboundInterceptorBase) SideEffect(
 	ctx Context,
-	f func(ctx Context) interface{},
+	f func(ctx Context) any,
 ) converter.EncodedValue {
 	return w.Next.SideEffect(ctx, f)
 }
@@ -373,7 +439,7 @@ func (w *WorkflowOutboundInterceptorBase) SideEffect(
 func (w *WorkflowOutboundInterceptorBase) SideEffectWithOptions(
 	ctx Context,
 	options SideEffectOptions,
-	f func(ctx Context) interface{},
+	f func(ctx Context) any,
 ) converter.EncodedValue {
 	return w.Next.SideEffectWithOptions(ctx, options, f)
 }
@@ -382,8 +448,8 @@ func (w *WorkflowOutboundInterceptorBase) SideEffectWithOptions(
 func (w *WorkflowOutboundInterceptorBase) MutableSideEffect(
 	ctx Context,
 	id string,
-	f func(ctx Context) interface{},
-	equals func(a, b interface{}) bool,
+	f func(ctx Context) any,
+	equals func(a, b any) bool,
 ) converter.EncodedValue {
 	return w.Next.MutableSideEffect(ctx, id, f, equals)
 }
@@ -393,8 +459,8 @@ func (w *WorkflowOutboundInterceptorBase) MutableSideEffectWithOptions(
 	ctx Context,
 	id string,
 	options MutableSideEffectOptions,
-	f func(ctx Context) interface{},
-	equals func(a, b interface{}) bool,
+	f func(ctx Context) any,
+	equals func(a, b any) bool,
 ) converter.EncodedValue {
 	return w.Next.MutableSideEffectWithOptions(ctx, id, options, f, equals)
 }
@@ -409,8 +475,21 @@ func (w *WorkflowOutboundInterceptorBase) GetVersion(
 	return w.Next.GetVersion(ctx, changeID, minSupported, maxSupported)
 }
 
+// GetVersionWithOptions implements WorkflowOutboundInterceptor.GetVersionWithOptions.
+//
+// NOTE: Experimental
+func (w *WorkflowOutboundInterceptorBase) GetVersionWithOptions(
+	ctx Context,
+	changeID string,
+	minSupported Version,
+	maxSupported Version,
+	options GetVersionOptions,
+) Version {
+	return w.Next.GetVersionWithOptions(ctx, changeID, minSupported, maxSupported, options)
+}
+
 // SetQueryHandler implements WorkflowOutboundInterceptor.SetQueryHandler.
-func (w *WorkflowOutboundInterceptorBase) SetQueryHandler(ctx Context, queryType string, handler interface{}) error {
+func (w *WorkflowOutboundInterceptorBase) SetQueryHandler(ctx Context, queryType string, handler any) error {
 	return w.Next.SetQueryHandler(ctx, queryType, handler)
 }
 
@@ -420,14 +499,14 @@ func (w *WorkflowOutboundInterceptorBase) SetQueryHandler(ctx Context, queryType
 func (w *WorkflowOutboundInterceptorBase) SetQueryHandlerWithOptions(
 	ctx Context,
 	queryType string,
-	handler interface{},
+	handler any,
 	options QueryHandlerOptions,
 ) error {
 	return w.Next.SetQueryHandlerWithOptions(ctx, queryType, handler, options)
 }
 
 // SetUpdateHandler implements WorkflowOutboundInterceptor.SetUpdateHandler.
-func (w *WorkflowOutboundInterceptorBase) SetUpdateHandler(ctx Context, updateName string, handler interface{}, opts UpdateHandlerOptions) error {
+func (w *WorkflowOutboundInterceptorBase) SetUpdateHandler(ctx Context, updateName string, handler any, opts UpdateHandlerOptions) error {
 	return w.Next.SetUpdateHandler(ctx, updateName, handler, opts)
 }
 
@@ -444,7 +523,7 @@ func (w *WorkflowOutboundInterceptorBase) HasLastCompletionResult(ctx Context) b
 
 // GetLastCompletionResult implements
 // WorkflowOutboundInterceptor.GetLastCompletionResult.
-func (w *WorkflowOutboundInterceptorBase) GetLastCompletionResult(ctx Context, d ...interface{}) error {
+func (w *WorkflowOutboundInterceptorBase) GetLastCompletionResult(ctx Context, d ...any) error {
 	return w.Next.GetLastCompletionResult(ctx, d...)
 }
 
@@ -457,10 +536,21 @@ func (w *WorkflowOutboundInterceptorBase) GetLastError(ctx Context) error {
 // WorkflowOutboundInterceptor.NewContinueAsNewError.
 func (w *WorkflowOutboundInterceptorBase) NewContinueAsNewError(
 	ctx Context,
-	wfn interface{},
-	args ...interface{},
+	wfn any,
+	args ...any,
 ) error {
 	return w.Next.NewContinueAsNewError(ctx, wfn, args...)
+}
+
+// NewContinueAsNewErrorWithOptions implements
+// WorkflowOutboundInterceptor.NewContinueAsNewErrorWithOptions.
+func (w *WorkflowOutboundInterceptorBase) NewContinueAsNewErrorWithOptions(
+	ctx Context,
+	options ContinueAsNewErrorOptions,
+	wfn any,
+	args ...any,
+) error {
+	return w.Next.NewContinueAsNewErrorWithOptions(ctx, options, wfn, args...)
 }
 
 // ExecuteNexusOperation implements
@@ -538,6 +628,30 @@ func (c *ClientOutboundInterceptorBase) ExecuteWorkflow(
 	in *ClientExecuteWorkflowInput,
 ) (WorkflowRun, error) {
 	return c.Next.ExecuteWorkflow(ctx, in)
+}
+
+// GetWorkflowRun implements ClientOutboundInterceptor.GetWorkflowRun.
+func (c *ClientOutboundInterceptorBase) GetWorkflowRun(
+	ctx context.Context,
+	in *ClientGetWorkflowRunInput,
+) WorkflowRun {
+	return c.Next.GetWorkflowRun(ctx, in)
+}
+
+// GetWorkflowResult implements ClientOutboundInterceptor.GetWorkflowResult.
+func (c *ClientOutboundInterceptorBase) GetWorkflowResult(
+	ctx context.Context,
+	in *ClientGetWorkflowResultInput,
+) (*ClientGetWorkflowResultOutput, error) {
+	return c.Next.GetWorkflowResult(ctx, in)
+}
+
+// GetWorkflowHistory implements ClientOutboundInterceptor.GetWorkflowHistory.
+func (c *ClientOutboundInterceptorBase) GetWorkflowHistory(
+	ctx context.Context,
+	in *ClientGetWorkflowHistoryInput,
+) *ClientGetWorkflowHistoryOutput {
+	return c.Next.GetWorkflowHistory(ctx, in)
 }
 
 // SignalWorkflow implements ClientOutboundInterceptor.SignalWorkflow.
@@ -620,6 +734,36 @@ func (c *ClientOutboundInterceptorBase) TerminateActivity(
 	in *ClientTerminateActivityInput,
 ) error {
 	return c.Next.TerminateActivity(ctx, in)
+}
+
+// PauseActivity implements ClientOutboundInterceptor.PauseActivity.
+//
+// NOTE: Experimental
+func (c *ClientOutboundInterceptorBase) PauseActivity(
+	ctx context.Context,
+	in *ClientPauseActivityInput,
+) error {
+	return c.Next.PauseActivity(ctx, in)
+}
+
+// UnpauseActivity implements ClientOutboundInterceptor.UnpauseActivity.
+//
+// NOTE: Experimental
+func (c *ClientOutboundInterceptorBase) UnpauseActivity(
+	ctx context.Context,
+	in *ClientUnpauseActivityInput,
+) error {
+	return c.Next.UnpauseActivity(ctx, in)
+}
+
+// UpdateActivityOptions implements ClientOutboundInterceptor.UpdateActivityOptions.
+//
+// NOTE: Experimental
+func (c *ClientOutboundInterceptorBase) UpdateActivityOptions(
+	ctx context.Context,
+	in *ClientUpdateActivityOptionsInput,
+) (*ClientUpdateActivityOptionsOutput, error) {
+	return c.Next.UpdateActivityOptions(ctx, in)
 }
 
 // DescribeActivity implements ClientOutboundInterceptor.DescribeActivity.

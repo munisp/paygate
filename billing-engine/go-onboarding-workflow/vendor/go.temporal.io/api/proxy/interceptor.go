@@ -21,6 +21,8 @@ import (
 	"go.temporal.io/api/failure/v1"
 	"go.temporal.io/api/history/v1"
 	"go.temporal.io/api/nexus/v1"
+	"go.temporal.io/api/nexusoperation/v1"
+	"go.temporal.io/api/notificationservice/v1"
 	"go.temporal.io/api/operatorservice/v1"
 	"go.temporal.io/api/protocol/v1"
 	"go.temporal.io/api/query/v1"
@@ -103,19 +105,12 @@ func VisitPayloads(ctx context.Context, msg proto.Message, options VisitPayloads
 		return fmt.Errorf("ConcurrencyLimit must be 0 or greater, got %d", options.ConcurrencyLimit)
 	}
 	visitCtx := VisitPayloadsContext{Context: ctx, Parent: msg}
-	if options.ConcurrencyLimit <= 1 {
-		return visitPayloads(&visitCtx, &options, nil, nil, msg)
+
+	var c *payloadConcurrencyState
+	if options.ConcurrencyLimit > 1 {
+		c = &payloadConcurrencyState{sem: make(chan struct{}, options.ConcurrencyLimit)}
 	}
-	c := &payloadConcurrencyState{sem: make(chan struct{}, options.ConcurrencyLimit)}
-	err := visitPayloads(&visitCtx, &options, nil, c, msg)
-	c.wg.Wait()
-	if err != nil {
-		return err
-	}
-	if errPtr := c.firstErr.Load(); errPtr != nil {
-		return *errPtr
-	}
-	return nil
+	return visitPayloadsAndWait(&visitCtx, &options, nil, c, msg)
 }
 
 // PayloadVisitorInterceptorOptions configures outbound/inbound interception of Payloads within msgs.
@@ -271,30 +266,18 @@ func (o *VisitFailuresOptions) defaultWellKnownAnyVisitor(ctx *VisitFailuresCont
 }
 
 func (o *VisitPayloadsOptions) defaultWellKnownAnyVisitor(ctx *VisitPayloadsContext, concState *payloadConcurrencyState, p *anypb.Any) error {
+	// We choose to visit and re-marshal instead of cloning, visiting,
+	// and checking if anything changed before re-marshaling. It is assumed the
+	// clone + equality check is not much cheaper than re-marshal.
 	child, err := p.UnmarshalNew()
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal any: %w", err)
 	}
 
-	// Sub-state shares the semaphore but has its own WaitGroup so we can wait
-	// for goroutines writing into child's fields before re-marshaling.
-	var anyConcState *payloadConcurrencyState
-	if concState != nil {
-		anyConcState = &payloadConcurrencyState{sem: concState.sem}
-	}
-
-	// We choose to visit and re-marshal always instead of cloning, visiting,
-	// and checking if anything changed before re-marshaling. It is assumed the
-	// clone + equality check is not much cheaper than re-marshal.
-	if err := visitPayloads(ctx, o, p, anyConcState, child); err != nil {
+	// Visit payloads and wait for goroutines to finish writing child fields
+	// before re-marshaling.
+	if err := visitPayloadsAndWait(ctx, o, p, concState, child); err != nil {
 		return err
-	}
-
-	if anyConcState != nil {
-		anyConcState.wg.Wait()
-		if errPtr := anyConcState.firstErr.Load(); errPtr != nil {
-			return *errPtr
-		}
 	}
 
 	// Confirmed this replaces both Any fields on non-error, there is nothing
@@ -312,6 +295,9 @@ func visitPayload(
 	concState *payloadConcurrencyState,
 	fieldPtr **common.Payload,
 ) error {
+	if handled, err := visitSystemPayload(ctx, options, concState, *fieldPtr); handled {
+		return err
+	}
 	if concState != nil {
 		if errPtr := concState.firstErr.Load(); errPtr != nil {
 			return *errPtr
@@ -360,6 +346,34 @@ func visitPayload(
 		return fmt.Errorf("visitor func must return 1 payload when SinglePayloadRequired = true")
 	}
 	*fieldPtr = newPayloads[0]
+	return nil
+}
+
+// visitPayloadsAndWait invokes visitPayloads and waits for its child
+// goroutines to finish before returning.
+func visitPayloadsAndWait(
+	ctx *VisitPayloadsContext,
+	options *VisitPayloadsOptions,
+	parent proto.Message,
+	concState *payloadConcurrencyState,
+	objs ...interface{},
+) error {
+	if concState == nil {
+		return visitPayloads(ctx, options, parent, concState, objs...)
+	}
+
+	// Create a new concurrency state with the same semaphore for concurrency
+	// control, but a new WaitGroup so we can wait for just the child goroutines.
+	miniConcState := &payloadConcurrencyState{sem: concState.sem}
+	err := visitPayloads(ctx, options, parent, miniConcState, objs...)
+	miniConcState.wg.Wait()
+
+	if err != nil {
+		return err
+	}
+	if errPtr := miniConcState.firstErr.Load(); errPtr != nil {
+		return *errPtr
+	}
 	return nil
 }
 
@@ -732,6 +746,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCallback(),
 				o.GetLastAttemptFailure(),
 			); err != nil {
 				return err
@@ -1074,6 +1089,61 @@ func visitPayloads(
 				o.GetSearchAttributes(),
 			); err != nil {
 				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case []*common.Callback:
+			for _, x := range o {
+				if err := visitPayloads(ctx, options, parent, concState, x); err != nil {
+					return err
+				}
+			}
+
+		case *common.Callback:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetNexusHandler(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case *common.Callback_NexusHandler:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if o.SourceContext != nil {
+				if err := visitPayload(ctx, options, o, concState, &o.SourceContext); err != nil {
+					return err
+				}
 			}
 
 			ctx.Context = prevCtx
@@ -1481,6 +1551,66 @@ func visitPayloads(
 				o,
 				concState,
 				o.GetFailure(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case []*export.ActivityExecution:
+			for _, x := range o {
+				if err := visitPayloads(ctx, options, parent, concState, x); err != nil {
+					return err
+				}
+			}
+
+		case *export.ActivityExecution:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetActivity(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case *export.ExportedExecutions:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetActivities(),
+				o.GetWorkflows(),
 			); err != nil {
 				return err
 			}
@@ -2032,6 +2162,7 @@ func visitPayloads(
 				o.GetWorkflowExecutionCompletedEventAttributes(),
 				o.GetWorkflowExecutionContinuedAsNewEventAttributes(),
 				o.GetWorkflowExecutionFailedEventAttributes(),
+				o.GetWorkflowExecutionOptionsUpdatedEventAttributes(),
 				o.GetWorkflowExecutionSignaledEventAttributes(),
 				o.GetWorkflowExecutionStartedEventAttributes(),
 				o.GetWorkflowExecutionTerminatedEventAttributes(),
@@ -2415,6 +2546,66 @@ func visitPayloads(
 
 			ctx.Context = prevCtx
 
+		case *history.WorkflowExecutionOptionsUpdatedEventAttributes:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetAttachedCompletionCallbacks(),
+				o.GetWorkflowUpdateOptions(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case []*history.WorkflowExecutionOptionsUpdatedEventAttributes_WorkflowUpdateOptionsUpdate:
+			for _, x := range o {
+				if err := visitPayloads(ctx, options, parent, concState, x); err != nil {
+					return err
+				}
+			}
+
+		case *history.WorkflowExecutionOptionsUpdatedEventAttributes_WorkflowUpdateOptionsUpdate:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetAttachedCompletionCallbacks(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
 		case *history.WorkflowExecutionSignaledEventAttributes:
 
 			if o == nil {
@@ -2461,6 +2652,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetContinuedFailure(),
 				o.GetHeader(),
 				o.GetInput(),
@@ -2944,6 +3136,77 @@ func visitPayloads(
 				if err := visitPayload(ctx, options, o, concState, &o.Payload); err != nil {
 					return err
 				}
+			}
+
+			ctx.Context = prevCtx
+
+		case []*nexusoperation.CallbackInfo:
+			for _, x := range o {
+				if err := visitPayloads(ctx, options, parent, concState, x); err != nil {
+					return err
+				}
+			}
+
+		case *nexusoperation.CallbackInfo:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetInfo(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case *notificationservice.OnCompleteRequest:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if o.SourceContext != nil {
+				if err := visitPayload(ctx, options, o, concState, &o.SourceContext); err != nil {
+					return err
+				}
+			}
+
+			if w, ok := o.Result.(*notificationservice.OnCompleteRequest_Success); ok && w.Success != nil {
+				if err := visitPayload(ctx, options, o, concState, &w.Success); err != nil {
+					return err
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetFailure(),
+			); err != nil {
+				return err
 			}
 
 			ctx.Context = prevCtx
@@ -3500,6 +3763,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetInput(),
 			); err != nil {
 				return err
@@ -3559,6 +3823,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCallback(),
 				o.GetLastAttemptFailure(),
 			); err != nil {
 				return err
@@ -4175,12 +4440,10 @@ func visitPayloads(
 				}
 			}
 
-			if o.GetResult() != nil {
-				result := o.GetResult()
-				if err := visitPayload(ctx, options, o, concState, &result); err != nil {
+			if w, ok := o.Outcome.(*workflowservice.DescribeNexusOperationExecutionResponse_Result); ok && w.Result != nil {
+				if err := visitPayload(ctx, options, o, concState, &w.Result); err != nil {
 					return err
 				}
-				o.Outcome = &workflowservice.DescribeNexusOperationExecutionResponse_Result{Result: result}
 			}
 
 			if err := visitPayloads(
@@ -4188,6 +4451,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetFailure(),
 				o.GetInfo(),
 			); err != nil {
@@ -4761,12 +5025,10 @@ func visitPayloads(
 				}
 			}
 
-			if o.GetResult() != nil {
-				result := o.GetResult()
-				if err := visitPayload(ctx, options, o, concState, &result); err != nil {
+			if w, ok := o.Outcome.(*workflowservice.PollNexusOperationExecutionResponse_Result); ok && w.Result != nil {
+				if err := visitPayload(ctx, options, o, concState, &w.Result); err != nil {
 					return err
 				}
-				o.Outcome = &workflowservice.PollNexusOperationExecutionResponse_Result{Result: result}
 			}
 
 			if err := visitPayloads(
@@ -5519,10 +5781,37 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetHeader(),
 				o.GetInput(),
 				o.GetSearchAttributes(),
 				o.GetUserMetadata(),
+			); err != nil {
+				return err
+			}
+
+			ctx.Context = prevCtx
+
+		case *workflowservice.StartActivityExecutionResponse:
+
+			if o == nil {
+				continue
+			}
+
+			prevCtx := ctx.Context
+			if options.ContextHook != nil {
+				var hookErr error
+				if ctx.Context, hookErr = options.ContextHook(prevCtx, o); hookErr != nil {
+					return hookErr
+				}
+			}
+
+			if err := visitPayloads(
+				ctx,
+				options,
+				o,
+				concState,
+				o.GetEagerActivityTask(),
 			); err != nil {
 				return err
 			}
@@ -5582,6 +5871,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetSearchAttributes(),
 				o.GetUserMetadata(),
 			); err != nil {
@@ -5609,6 +5899,7 @@ func visitPayloads(
 				options,
 				o,
 				concState,
+				o.GetCompletionCallbacks(),
 				o.GetContinuedFailure(),
 				o.GetHeader(),
 				o.GetInput(),
@@ -6064,6 +6355,40 @@ func visitFailures(ctx *VisitFailuresContext, options *VisitFailuresOptions, obj
 				return err
 			}
 
+		case []*export.ActivityExecution:
+			for _, x := range o {
+				if err := visitFailures(ctx, options, x); err != nil {
+					return err
+				}
+			}
+
+		case *export.ActivityExecution:
+			if o == nil {
+				continue
+			}
+			ctx.Parent = o
+			if err := visitFailures(
+				ctx,
+				options,
+				o.GetActivity(),
+			); err != nil {
+				return err
+			}
+
+		case *export.ExportedExecutions:
+			if o == nil {
+				continue
+			}
+			ctx.Parent = o
+			if err := visitFailures(
+				ctx,
+				options,
+				o.GetActivities(),
+				o.GetWorkflows(),
+			); err != nil {
+				return err
+			}
+
 		case []*export.WorkflowExecution:
 			for _, x := range o {
 				if err := visitFailures(ctx, options, x); err != nil {
@@ -6392,6 +6717,39 @@ func visitFailures(ctx *VisitFailuresContext, options *VisitFailuresOptions, obj
 				return err
 			}
 
+		case []*nexusoperation.CallbackInfo:
+			for _, x := range o {
+				if err := visitFailures(ctx, options, x); err != nil {
+					return err
+				}
+			}
+
+		case *nexusoperation.CallbackInfo:
+			if o == nil {
+				continue
+			}
+			ctx.Parent = o
+			if err := visitFailures(
+				ctx,
+				options,
+				o.GetInfo(),
+			); err != nil {
+				return err
+			}
+
+		case *notificationservice.OnCompleteRequest:
+			if o == nil {
+				continue
+			}
+			ctx.Parent = o
+			if err := visitFailures(
+				ctx,
+				options,
+				o.GetFailure(),
+			); err != nil {
+				return err
+			}
+
 		case []*protocol.Message:
 			for _, x := range o {
 				if err := visitFailures(ctx, options, x); err != nil {
@@ -6568,6 +6926,7 @@ func visitFailures(ctx *VisitFailuresContext, options *VisitFailuresOptions, obj
 			if err := visitFailures(
 				ctx,
 				options,
+				o.GetCompletionCallbacks(),
 				o.GetFailure(),
 				o.GetInfo(),
 			); err != nil {

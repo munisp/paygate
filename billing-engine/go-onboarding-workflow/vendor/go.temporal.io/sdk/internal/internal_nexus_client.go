@@ -350,10 +350,11 @@ type (
 
 	// clientNexusOperationHandleImpl is the default implementation of ClientNexusOperationHandle.
 	clientNexusOperationHandleImpl struct {
-		client *WorkflowClient
-		id     string
-		runID  string
-		result *ClientPollNexusOperationResultOutput
+		client                    *WorkflowClient
+		id                        string
+		runID                     string
+		nexusSerializationContext converter.SerializationContext
+		result                    *ClientPollNexusOperationResultOutput
 	}
 )
 
@@ -488,8 +489,9 @@ func (h *clientNexusOperationHandleImpl) Get(ctx context.Context, valuePtr any) 
 	// repeatedly poll, the loop repeats until there's an outcome
 	for {
 		resp, err := h.client.interceptor.PollNexusOperationResult(ctx, &ClientPollNexusOperationResultInput{
-			OperationID: h.id,
-			RunID:       h.runID,
+			OperationID:               h.id,
+			RunID:                     h.runID,
+			nexusSerializationContext: h.nexusSerializationContext,
 		})
 		if err != nil {
 			return err
@@ -614,7 +616,7 @@ func (wc *WorkflowClient) ListNexusOperations(ctx context.Context, options Clien
 }
 
 func (wc *WorkflowClient) getListNexusOperationsPage(ctx context.Context, request *workflowservice.ListNexusOperationExecutionsRequest) (*workflowservice.ListNexusOperationExecutionsResponse, error) {
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, wc.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	return wc.WorkflowService().ListNexusOperationExecutions(grpcCtx, request)
@@ -626,7 +628,7 @@ func (wc *WorkflowClient) CountNexusOperations(ctx context.Context, options Clie
 		return nil, err
 	}
 
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, wc.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	request := &workflowservice.CountNexusOperationExecutionsRequest{
@@ -667,6 +669,12 @@ func (w *workflowClientInterceptor) ExecuteNexusOperation(
 	if dataConverter == nil {
 		dataConverter = converter.GetDefaultDataConverter()
 	}
+	nexusContext := converter.NexusSerializationContext{
+		Endpoint:  in.Endpoint,
+		Service:   in.Service,
+		Operation: in.OperationType,
+	}
+	inputDataConverter := converter.WithDataConverterSerializationContext(dataConverter, nexusContext)
 
 	if in.Options.ID == "" {
 		return nil, errors.New("operation ID is required")
@@ -676,7 +684,7 @@ func (w *workflowClientInterceptor) ExecuteNexusOperation(
 	}
 
 	// Encode input as a single Payload (not Payloads)
-	inputPayload, err := dataConverter.ToPayload(in.Input)
+	inputPayload, err := inputDataConverter.ToPayload(in.Input)
 	if err != nil {
 		return nil, err
 	}
@@ -686,7 +694,7 @@ func (w *workflowClientInterceptor) ExecuteNexusOperation(
 		return nil, err
 	}
 
-	userMetadata, err := buildUserMetadata(in.Options.Summary, "", dataConverter)
+	userMetadata, err := BuildUserMetadata(in.Options.Summary, "", dataConverter)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +727,7 @@ func (w *workflowClientInterceptor) ExecuteNexusOperation(
 		return nil, err
 	}
 
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	resp, err := w.client.WorkflowService().StartNexusOperationExecution(grpcCtx, request)
@@ -728,9 +736,10 @@ func (w *workflowClientInterceptor) ExecuteNexusOperation(
 	}
 
 	return &clientNexusOperationHandleImpl{
-		client: w.client,
-		id:     in.Options.ID,
-		runID:  resp.RunId,
+		client:                    w.client,
+		id:                        in.Options.ID,
+		runID:                     resp.RunId,
+		nexusSerializationContext: nexusContext,
 	}, nil
 }
 
@@ -748,6 +757,12 @@ func (w *workflowClientInterceptor) PollNexusOperationResult(
 	ctx context.Context,
 	in *ClientPollNexusOperationResultInput,
 ) (*ClientPollNexusOperationResultOutput, error) {
+	dataConverter := WithContext(ctx, w.client.dataConverter)
+	if dataConverter == nil {
+		dataConverter = converter.GetDefaultDataConverter()
+	}
+	failureConverter := w.client.failureConverter
+
 	request := &workflowservice.PollNexusOperationExecutionRequest{
 		Namespace:   w.client.namespace,
 		OperationId: in.OperationID,
@@ -757,13 +772,20 @@ func (w *workflowClientInterceptor) PollNexusOperationResult(
 
 	var resp *workflowservice.PollNexusOperationExecutionResponse
 	for resp.GetOutcome() == nil {
-		grpcCtx, cancel := newGRPCContext(ctx, grpcLongPoll(true), grpcTimeout(pollNexusOperationTimeout), defaultGrpcRetryParameters(ctx))
+		grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, grpcLongPoll(true), grpcTimeout(pollNexusOperationTimeout), defaultGrpcRetryParameters(ctx))
 		var err error
 		resp, err = w.client.WorkflowService().PollNexusOperationExecution(grpcCtx, request)
 		cancel()
 		if err != nil {
 			return nil, err
 		}
+	}
+	// Servers without propagation support do not return the context, so fall back to the start
+	// request's context, which detached handles do not have.
+	serializationContext := serializationContextFor(in.nexusSerializationContext, resp.GetPropagatedNexusSerializationContext())
+	if serializationContext != nil {
+		dataConverter = converter.WithDataConverterSerializationContext(dataConverter, serializationContext)
+		failureConverter = converter.WithFailureConverterSerializationContext(failureConverter, serializationContext)
 	}
 
 	if err := visitProtoPayloads(ctx, w.inboundPayloadVisitor, resp, 0); err != nil {
@@ -774,9 +796,9 @@ func (w *workflowClientInterceptor) PollNexusOperationResult(
 	case *workflowservice.PollNexusOperationExecutionResponse_Result:
 		// Wrap single Payload in Payloads for EncodedValue compatibility
 		payloads := &commonpb.Payloads{Payloads: []*commonpb.Payload{v.Result}}
-		return &ClientPollNexusOperationResultOutput{Result: newEncodedValue(payloads, w.client.dataConverter)}, nil
+		return &ClientPollNexusOperationResultOutput{Result: newEncodedValue(payloads, dataConverter)}, nil
 	case *workflowservice.PollNexusOperationExecutionResponse_Failure:
-		return &ClientPollNexusOperationResultOutput{Error: w.client.failureConverter.FailureToError(v.Failure)}, nil
+		return &ClientPollNexusOperationResultOutput{Error: failureConverter.FailureToError(v.Failure)}, nil
 	default:
 		return nil, fmt.Errorf("unexpected nexus operation outcome type: %T", v)
 	}
@@ -786,7 +808,7 @@ func (w *workflowClientInterceptor) DescribeNexusOperation(
 	ctx context.Context,
 	in *ClientDescribeNexusOperationInput,
 ) (*ClientDescribeNexusOperationOutput, error) {
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	request := &workflowservice.DescribeNexusOperationExecutionRequest{
@@ -802,6 +824,12 @@ func (w *workflowClientInterceptor) DescribeNexusOperation(
 	if info == nil {
 		return nil, errors.New("DescribeNexusOperationExecution response doesn't contain info")
 	}
+	nexusContext := converter.NexusSerializationContext{
+		Endpoint:  info.Endpoint,
+		Service:   info.Service,
+		Operation: info.Operation,
+	}
+	failureConverter := converter.WithFailureConverterSerializationContext(w.client.failureConverter, nexusContext)
 
 	var cancellationInfo *ClientNexusOperationCancellationInfo
 	if info.CancellationInfo != nil {
@@ -815,7 +843,7 @@ func (w *workflowClientInterceptor) DescribeNexusOperation(
 			BlockedReason:           info.CancellationInfo.BlockedReason,
 			Reason:                  info.CancellationInfo.Reason,
 			lastAttemptFailure:      info.CancellationInfo.LastAttemptFailure,
-			failureConverter:        w.client.failureConverter,
+			failureConverter:        failureConverter,
 			inboundPayloadVisitor:   w.inboundPayloadVisitor,
 		}
 	}
@@ -851,7 +879,7 @@ func (w *workflowClientInterceptor) DescribeNexusOperation(
 			Identity:                info.Identity,
 			CancellationInfo:        cancellationInfo,
 			dc:                      WithContext(ctx, w.client.dataConverter),
-			failureConverter:        w.client.failureConverter,
+			failureConverter:        failureConverter,
 			inboundPayloadVisitor:   w.inboundPayloadVisitor,
 		},
 	}, nil
@@ -861,7 +889,7 @@ func (w *workflowClientInterceptor) CancelNexusOperation(
 	ctx context.Context,
 	in *ClientCancelNexusOperationInput,
 ) error {
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	request := &workflowservice.RequestCancelNexusOperationExecutionRequest{
@@ -880,7 +908,7 @@ func (w *workflowClientInterceptor) TerminateNexusOperation(
 	ctx context.Context,
 	in *ClientTerminateNexusOperationInput,
 ) error {
-	grpcCtx, cancel := newGRPCContext(ctx, defaultGrpcRetryParameters(ctx))
+	grpcCtx, cancel := newGRPCContext(ctx, w.client.rpcTimeout, defaultGrpcRetryParameters(ctx))
 	defer cancel()
 
 	request := &workflowservice.TerminateNexusOperationExecutionRequest{

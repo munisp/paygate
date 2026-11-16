@@ -27,7 +27,7 @@ type (
 	// Exposed as: [go.temporal.io/sdk/activity.Info]
 	ActivityInfo struct {
 		// TaskToken is the token that identifies the activity task.
-		TaskToken    []byte
+		TaskToken []byte
 		// WorkflowType is the type of the workflow that started this activity.
 		WorkflowType *WorkflowType
 		// Namespace of the workflow that started this activity. Empty if this activity was not started by a workflow.
@@ -38,42 +38,47 @@ type (
 		WorkflowNamespace string
 		// Execution details of the workflow that started this activity. All fields are empty if this activity was not
 		// started by a workflow.
-		WorkflowExecution      WorkflowExecution
+		WorkflowExecution WorkflowExecution
 		// ActivityID is the ID of the activity.
-		ActivityID             string
+		ActivityID string
 		// ActivityRunID is the run ID of the activity. Empty if the activity was started by a workflow.
-		ActivityRunID          string
+		ActivityRunID string
 		// ActivityType is the type of the activity.
-		ActivityType           ActivityType
+		ActivityType ActivityType
 		// TaskQueue is the name of the task queue that the activity needs to be scheduled on.
-		TaskQueue              string
+		TaskQueue string
 		// Namespace is the namespace of this activity.
-		Namespace              string
+		Namespace string
 		// HeartbeatTimeout is the maximum time between heartbeats. 0 means no heartbeat needed.
-		HeartbeatTimeout       time.Duration
+		HeartbeatTimeout time.Duration
 		// ScheduleToCloseTimeout is the schedule to close timeout set by the activity options.
 		ScheduleToCloseTimeout time.Duration
 		// StartToCloseTimeout is the start to close timeout set by the activity options.
-		StartToCloseTimeout    time.Duration
+		StartToCloseTimeout time.Duration
 		// ScheduledTime is the time when the activity was scheduled by a workflow.
-		ScheduledTime          time.Time
+		ScheduledTime time.Time
 		// StartedTime is the time when the activity started.
-		StartedTime            time.Time
+		StartedTime time.Time
 		// Deadline is the time of activity timeout.
-		Deadline               time.Time
+		Deadline time.Time
 		// Attempt starts from 1, and increased by 1 for every retry if retry policy is specified.
-		Attempt                int32
+		Attempt int32
 		// IsLocalActivity is true if it is a local activity.
-		IsLocalActivity        bool
+		IsLocalActivity bool
 		// Priority settings that control relative ordering of task processing when activity tasks are backed up in a queue.
 		// If no priority is set, the default value is the zero value.
-		//
-		// WARNING: Task queue priority is currently experimental.
 		Priority Priority
 		// Retry policy for the activity. Note that the server may have set a different policy than the one provided
 		// when scheduling the activity. If the value is nil, it means the server didn't send information about
 		// retry policy (e.g. due to old server version), but it may still be defined server-side.
 		RetryPolicy *RetryPolicy
+		// NexusSerializationContext is the context of the Nexus operation handler that started this standalone
+		// activity, or nil if it wasn't started by one. The activity's result, failure, and heartbeat details are encoded
+		// with it. Pass it to CompleteActivityOptions, CompleteActivityByActivityIDOptions, or
+		// RecordActivityHeartbeatOptions when completing or heartbeating this activity outside the worker.
+		//
+		// NOTE: Experimental
+		NexusSerializationContext *converter.NexusSerializationContext
 	}
 
 	// RegisterActivityOptions consists of options for registering an activity.
@@ -88,7 +93,7 @@ type (
 		// worker.Options.DisableRegistrationAliasing at the worker level to prevent
 		// ambiguity between string names and function references. Also users should
 		// always use this string name when executing this activity.
-		Name                          string
+		Name string
 		// DisableAlreadyRegisteredCheck disables the check for already registered activities.
 		DisableAlreadyRegisteredCheck bool
 
@@ -179,14 +184,16 @@ type (
 		// in single-line Temporal Markdown format.
 		//
 		// Optional: defaults to none/empty.
-		//
-		// NOTE: Experimental
 		Summary string
+
+		// EventGroups are explicit Event Groups attached to commands scheduled with
+		// these options. They are combined with any groups on the context.
+		//
+		// NOTE: Experimental (Event Groups)
+		EventGroups []EventGroup
 
 		// Priority - Optional priority settings that control relative ordering of
 		// task processing when tasks are backed up in a queue.
-		//
-		// WARNING: Task queue priority is currently experimental.
 		Priority Priority
 	}
 
@@ -214,9 +221,13 @@ type (
 		// in single-line Temporal Markdown format.
 		//
 		// Optional: defaults to none/empty.
-		//
-		// NOTE: Experimental
 		Summary string
+
+		// EventGroups are explicit Event Groups attached to local activity commands
+		// scheduled with these options. They are combined with any groups on the context.
+		//
+		// NOTE: Experimental (Event Groups)
+		EventGroups []EventGroup
 	}
 )
 
@@ -257,7 +268,7 @@ func IsActivity(ctx context.Context) bool {
 // of existing values may result in unexpected behavior similar to json.Unmarshal.
 //
 // Exposed as: [go.temporal.io/sdk/activity.GetHeartbeatDetails]
-func GetHeartbeatDetails(ctx context.Context, d ...interface{}) error {
+func GetHeartbeatDetails(ctx context.Context, d ...any) error {
 	return getActivityOutboundInterceptor(ctx).GetHeartbeatDetails(ctx, d...)
 }
 
@@ -294,7 +305,7 @@ func GetWorkerStopChannel(ctx context.Context) <-chan struct{} {
 // cancellation, pause, and reset to the activity context.
 //
 // Exposed as: [go.temporal.io/sdk/activity.RecordHeartbeat]
-func RecordActivityHeartbeat(ctx context.Context, details ...interface{}) {
+func RecordActivityHeartbeat(ctx context.Context, details ...any) {
 	getActivityOutboundInterceptor(ctx).RecordHeartbeat(ctx, details...)
 }
 
@@ -337,7 +348,10 @@ func WithActivityTask(
 	heartbeatTimeout := task.GetHeartbeatTimeout().AsDuration()
 	deadline := calculateActivityDeadline(scheduled, scheduleToCloseTimeout, startToCloseTimeout)
 
-	actCtx := converter.ActivitySerializationContext{
+	// The result and heartbeat details go back to a Nexus caller (the server includes the last heartbeat
+	// details in timeout failures), so they use the propagated Nexus context. Input stays within the
+	// activity and uses the activity context.
+	activityContext := converter.ActivitySerializationContext{
 		Namespace:    task.WorkflowNamespace,
 		WorkflowID:   task.WorkflowExecution.GetWorkflowId(),
 		WorkflowType: task.WorkflowType.GetName(),
@@ -345,30 +359,37 @@ func WithActivityTask(
 		TaskQueue:    taskQueue,
 		IsLocal:      false,
 	}
-	dataConverter = converter.WithDataConverterSerializationContext(dataConverter, actCtx)
+	callerFacingDataConverter := converter.WithDataConverterSerializationContext(dataConverter,
+		serializationContextFor(activityContext, task.GetPropagatedNexusSerializationContext()))
+	dataConverter = converter.WithDataConverterSerializationContext(dataConverter, activityContext)
 
 	env := &activityEnvironment{
-		taskToken:              task.TaskToken,
-		serviceInvoker:         invoker,
-		activityType:           ActivityType{Name: task.ActivityType.GetName()},
-		activityID:             task.ActivityId,
-		metricsHandler:         metricsHandler,
-		deadline:               deadline,
-		heartbeatTimeout:       heartbeatTimeout,
-		scheduleToCloseTimeout: scheduleToCloseTimeout,
-		startToCloseTimeout:    startToCloseTimeout,
-		scheduledTime:          scheduled,
-		startedTime:            started,
-		taskQueue:              taskQueue,
-		dataConverter:          dataConverter,
-		attempt:                task.GetAttempt(),
-		priority:               task.GetPriority(),
-		heartbeatDetails:       task.HeartbeatDetails,
-		namespace:              task.WorkflowNamespace,
-		retryPolicy:            convertFromPBRetryPolicy(task.RetryPolicy),
-		workerStopChannel:      workerStopChannel,
-		contextPropagators:     contextPropagators,
-		client:                 client,
+		taskToken:                 task.TaskToken,
+		serviceInvoker:            invoker,
+		activityType:              ActivityType{Name: task.ActivityType.GetName()},
+		activityID:                task.ActivityId,
+		metricsHandler:            metricsHandler,
+		deadline:                  deadline,
+		heartbeatTimeout:          heartbeatTimeout,
+		scheduleToCloseTimeout:    scheduleToCloseTimeout,
+		startToCloseTimeout:       startToCloseTimeout,
+		scheduledTime:             scheduled,
+		startedTime:               started,
+		taskQueue:                 taskQueue,
+		dataConverter:             dataConverter,
+		callerFacingDataConverter: callerFacingDataConverter,
+		attempt:                   task.GetAttempt(),
+		priority:                  task.GetPriority(),
+		heartbeatDetails:          task.HeartbeatDetails,
+		namespace:                 task.WorkflowNamespace,
+		retryPolicy:               convertFromPBRetryPolicy(task.RetryPolicy),
+		workerStopChannel:         workerStopChannel,
+		contextPropagators:        contextPropagators,
+		client:                    client,
+	}
+	if propagated := task.GetPropagatedNexusSerializationContext(); propagated != nil {
+		nexusContext := nexusSerializationContextFromProto(propagated)
+		env.nexusSerializationContext = &nexusContext
 	}
 
 	if task.WorkflowExecution.GetWorkflowId() == "" {

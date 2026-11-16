@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry"
+	"go.temporal.io/api/proxy"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/internal/common/metrics"
 	"go.temporal.io/sdk/internal/common/retry"
@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type (
@@ -148,8 +149,7 @@ func requiredInterceptors(
 		errorInterceptor,
 		// Report aggregated metrics for the call, this is done outside of the retry loop.
 		metrics.NewGRPCInterceptor(clientOptions.MetricsHandler, "", clientOptions.DisableErrorCodeMetricTags),
-		// By default the grpc retry interceptor *is disabled*, preventing accidental use of retries.
-		// We add call options for retry configuration based on the values present in the context.
+		// Retry calls when retry configuration is present in the context.
 		retry.NewRetryOptionsInterceptor(excludeInternalFromRetry),
 	}
 	switch clientOptions.ConnectionOptions.GrpcCompression.(type) {
@@ -158,8 +158,6 @@ func requiredInterceptors(
 	}
 	interceptors = append(
 		interceptors,
-		// Performs retries *IF* retry options are set for the call.
-		grpc_retry.UnaryClientInterceptor(),
 		// Prevents retrying grpc message too large errors, while allowing retries of other resource exhausted errors.
 		retry.GrpcMessageTooLargeErrorInterceptor,
 		// Report metrics for every call made to the server.
@@ -178,14 +176,14 @@ func requiredInterceptors(
 			interceptors = append(interceptors, interceptor)
 		}
 	}
-	// Add namespace provider interceptor
-	interceptors = append(interceptors, namespaceProviderInterceptor())
+	// Add temporal header interceptor (namespace + resource ID)
+	interceptors = append(interceptors, temporalHeaderInterceptor())
 	return interceptors
 }
 
 func newGzipDowngradeInterceptor() grpc.UnaryClientInterceptor {
 	var gzipUnsupportedMethods sync.Map
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if _, ok := gzipUnsupportedMethods.Load(method); ok {
 			return invoker(ctx, method, req, reply, cc, appendIdentityCompressor(opts)...)
 		}
@@ -213,12 +211,16 @@ func appendIdentityCompressor(opts []grpc.CallOption) []grpc.CallOption {
 	return append(identityOpts, grpc.UseCompressor(encoding.Identity))
 }
 
-func namespaceProviderInterceptor() grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		if nsReq, ok := req.(interface{ GetNamespace() string }); ok {
-			// Only add namespace if it doesn't already exist
-			if md, _ := metadata.FromOutgoingContext(ctx); len(md.Get(temporalNamespaceHeaderKey)) == 0 {
-				ctx = metadata.AppendToOutgoingContext(ctx, temporalNamespaceHeaderKey, nsReq.GetNamespace())
+func temporalHeaderInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		var extractOpts proxy.ExtractHeadersOptions
+		extractOpts.Request, _ = req.(proto.Message)
+		extractOpts.ExistingMetadata, _ = metadata.FromOutgoingContext(ctx)
+		if extractOpts.Request != nil {
+			if headers, err := proxy.ExtractTemporalRequestHeaders(ctx, extractOpts); err != nil {
+				return err
+			} else if len(headers) > 0 {
+				ctx = metadata.AppendToOutgoingContext(ctx, headers...)
 			}
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
@@ -226,7 +228,7 @@ func namespaceProviderInterceptor() grpc.UnaryClientInterceptor {
 }
 
 func trafficControllerInterceptor(controller TrafficController) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		err := controller.CheckCallAllowed(ctx, method, req, reply)
 		// Break execution chain and return an error without sending actual request to the server.
 		if err != nil {
@@ -237,7 +239,7 @@ func trafficControllerInterceptor(controller TrafficController) grpc.UnaryClient
 }
 
 func headersProviderInterceptor(headersProvider HeadersProvider) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		headers, err := headersProvider.GetHeaders(ctx)
 		if err != nil {
 			return err
@@ -249,7 +251,7 @@ func headersProviderInterceptor(headersProvider HeadersProvider) grpc.UnaryClien
 	}
 }
 
-func errorInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+func errorInterceptor(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 	err := invoker(ctx, method, req, reply, cc, opts...)
 	var grpcMessageTooLargeErr *retry.GrpcMessageTooLargeError
 	if !errors.As(err, &grpcMessageTooLargeErr) {
